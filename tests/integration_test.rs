@@ -792,6 +792,125 @@ fn compile_rate_limited_json() {
     assert_eq!(json["rules_count"], 4);
 }
 
+// ── PCAP Analyze Integration Tests ─────────────────────────
+
+/// Helper: create a PCAP file with IPv4 TCP packets for analysis tests
+fn make_analysis_pcap(num_frames: usize) -> Vec<u8> {
+    let mut pcap_data: Vec<u8> = Vec::new();
+    // Global header
+    pcap_data.extend_from_slice(&0xa1b2c3d4u32.to_le_bytes());
+    pcap_data.extend_from_slice(&2u16.to_le_bytes());
+    pcap_data.extend_from_slice(&4u16.to_le_bytes());
+    pcap_data.extend_from_slice(&0i32.to_le_bytes());
+    pcap_data.extend_from_slice(&0u32.to_le_bytes());
+    pcap_data.extend_from_slice(&65535u32.to_le_bytes());
+    pcap_data.extend_from_slice(&1u32.to_le_bytes());
+
+    for i in 0..num_frames {
+        let mut frame = Vec::new();
+        // Ethernet header
+        frame.extend_from_slice(&[0xde, 0xad, 0xbe, 0xef, 0x00, 0x01]);
+        frame.extend_from_slice(&[0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
+        frame.extend_from_slice(&[0x08, 0x00]); // IPv4
+        // IPv4 header (20 bytes)
+        frame.push(0x45); frame.push(0x00);
+        frame.extend_from_slice(&60u16.to_be_bytes());
+        frame.extend_from_slice(&[0, 0, 0, 0]);
+        frame.push(64); frame.push(6); // TCP
+        frame.extend_from_slice(&[0, 0]);
+        frame.extend_from_slice(&[10, 0, 0, 1]); // src IP
+        frame.extend_from_slice(&[10, 0, 0, 2]); // dst IP
+        // TCP ports
+        frame.extend_from_slice(&12345u16.to_be_bytes());
+        frame.extend_from_slice(&80u16.to_be_bytes());
+        while frame.len() < 60 { frame.push(0); }
+
+        pcap_data.extend_from_slice(&(i as u32).to_le_bytes());
+        pcap_data.extend_from_slice(&0u32.to_le_bytes());
+        pcap_data.extend_from_slice(&(frame.len() as u32).to_le_bytes());
+        pcap_data.extend_from_slice(&(frame.len() as u32).to_le_bytes());
+        pcap_data.extend_from_slice(&frame);
+    }
+    pcap_data
+}
+
+#[test]
+fn pcap_analyze_basic() {
+    let tmp = tempfile::tempdir().unwrap();
+    let pcap_path = tmp.path().join("test.pcap");
+    std::fs::write(&pcap_path, make_analysis_pcap(10)).unwrap();
+
+    let output = pacgate_bin()
+        .args(["pcap-analyze", pcap_path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "pcap-analyze failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Traffic Analysis"), "should contain analysis header");
+}
+
+#[test]
+fn pcap_analyze_json() {
+    let tmp = tempfile::tempdir().unwrap();
+    let pcap_path = tmp.path().join("test.pcap");
+    std::fs::write(&pcap_path, make_analysis_pcap(5)).unwrap();
+
+    let output = pacgate_bin()
+        .args(["pcap-analyze", pcap_path.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "pcap-analyze --json failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    assert_eq!(json["status"], "ok");
+    assert_eq!(json["total_packets"], 5);
+    assert!(json["suggested_rules"].is_array());
+}
+
+#[test]
+fn pcap_analyze_yaml_output() {
+    let tmp = tempfile::tempdir().unwrap();
+    let pcap_path = tmp.path().join("test.pcap");
+    std::fs::write(&pcap_path, make_analysis_pcap(5)).unwrap();
+    let yaml_path = tmp.path().join("suggested.yaml");
+
+    let output = pacgate_bin()
+        .args(["pcap-analyze", pcap_path.to_str().unwrap(),
+               "-o", yaml_path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "pcap-analyze -o failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(yaml_path.exists(), "YAML output file should exist");
+
+    let yaml_content = std::fs::read_to_string(&yaml_path).unwrap();
+    assert!(yaml_content.contains("pacgate:"), "should be valid PacGate YAML");
+    assert!(yaml_content.contains("rules:"), "should contain rules section");
+}
+
+#[test]
+fn pcap_analyze_empty_error() {
+    let tmp = tempfile::tempdir().unwrap();
+    // Create PCAP with no frames
+    let mut pcap_data: Vec<u8> = Vec::new();
+    pcap_data.extend_from_slice(&0xa1b2c3d4u32.to_le_bytes());
+    pcap_data.extend_from_slice(&2u16.to_le_bytes());
+    pcap_data.extend_from_slice(&4u16.to_le_bytes());
+    pcap_data.extend_from_slice(&0i32.to_le_bytes());
+    pcap_data.extend_from_slice(&0u32.to_le_bytes());
+    pcap_data.extend_from_slice(&65535u32.to_le_bytes());
+    pcap_data.extend_from_slice(&1u32.to_le_bytes());
+
+    let pcap_path = tmp.path().join("empty.pcap");
+    std::fs::write(&pcap_path, &pcap_data).unwrap();
+
+    let output = pacgate_bin()
+        .args(["pcap-analyze", pcap_path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "should fail on empty PCAP");
+}
+
 // ── Simulator IPv6 Integration Tests ───────────────────────
 
 #[test]

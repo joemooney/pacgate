@@ -6,6 +6,7 @@ mod formal_gen;
 mod pcap;
 mod mermaid;
 mod simulator;
+mod pcap_analyze;
 
 use std::path::{Path, PathBuf};
 use clap::{CommandFactory, Parser, Subcommand};
@@ -195,6 +196,27 @@ enum Commands {
         /// e.g. "ethertype=0x0800,src_ip=10.0.0.1,dst_port=80"
         #[arg(short, long)]
         packet: String,
+
+        /// Output JSON instead of human-readable text
+        #[arg(long)]
+        json: bool,
+    },
+    /// Analyze PCAP traffic and suggest PacGate rules
+    PcapAnalyze {
+        /// Path to the PCAP capture file
+        pcap_file: PathBuf,
+
+        /// Suggestion mode: whitelist, blacklist, or auto
+        #[arg(short, long, default_value = "auto")]
+        mode: String,
+
+        /// Write suggested rules to YAML file
+        #[arg(short, long)]
+        output_yaml: Option<PathBuf>,
+
+        /// Maximum number of suggested rules
+        #[arg(long, default_value = "20")]
+        max_rules: usize,
 
         /// Output JSON instead of human-readable text
         #[arg(long)]
@@ -526,6 +548,41 @@ fn main() -> Result<()> {
                     }
                 }
                 println!();
+            }
+        }
+        Commands::PcapAnalyze { pcap_file, mode, output_yaml, max_rules, json } => {
+            let packets = pcap::read_pcap(&pcap_file)?;
+            if packets.is_empty() {
+                anyhow::bail!("PCAP file contains no Ethernet frames");
+            }
+
+            let suggest_mode = pcap_analyze::SuggestMode::from_str(&mode)?;
+            let parsed: Vec<pcap_analyze::ParsedPacket> = packets.iter().map(|p| pcap_analyze::parse_packet(p)).collect();
+            let analysis = pcap_analyze::analyze_traffic(&parsed);
+            let suggestions = pcap_analyze::suggest_rules(&analysis, suggest_mode, max_rules);
+
+            // Write YAML if requested
+            if let Some(ref yaml_path) = output_yaml {
+                let default_action = if suggest_mode == pcap_analyze::SuggestMode::Blacklist { "pass" } else { "drop" };
+                let yaml = pcap_analyze::suggestions_to_yaml(&suggestions, default_action);
+                std::fs::write(yaml_path, &yaml)?;
+                if !json {
+                    println!("  Wrote suggested rules to {}", yaml_path.display());
+                }
+            }
+
+            if json {
+                let json_val = pcap_analyze::analysis_to_json(&analysis, &suggestions);
+                println!("{}", serde_json::to_string_pretty(&json_val)?);
+            } else {
+                pcap_analyze::print_analysis(&analysis);
+                if !suggestions.is_empty() {
+                    println!("  Suggested Rules ({}):", suggestions.len());
+                    for (i, s) in suggestions.iter().enumerate() {
+                        println!("    {}. {} [{}] pri={} — {}", i + 1, s.name, s.action, s.priority, s.rationale);
+                    }
+                    println!();
+                }
             }
         }
     }
