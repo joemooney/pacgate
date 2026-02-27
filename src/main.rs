@@ -93,6 +93,15 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Lint rules for best practices, security issues, and optimization hints
+    Lint {
+        /// Path to the YAML rules file
+        rules: PathBuf,
+
+        /// Output JSON instead of human-readable text
+        #[arg(long)]
+        json: bool,
+    },
     /// Generate SVA assertions and SymbiYosys formal verification files
     Formal {
         /// Path to the YAML rules file
@@ -249,6 +258,15 @@ fn main() -> Result<()> {
             let old_config = loader::load_rules_with_warnings(&old)?.0;
             let new_config = loader::load_rules_with_warnings(&new)?.0;
             diff_rules(&old_config, &new_config, json)?;
+        }
+        Commands::Lint { rules, json } => {
+            let (config, warnings) = loader::load_rules_with_warnings(&rules)?;
+            let findings = lint_rules(&config, &warnings);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&findings)?);
+            } else {
+                print_lint_results(&findings);
+            }
         }
         Commands::Formal { rules, output, templates, json } => {
             log::info!("Generating formal verification files from {}", rules.display());
@@ -825,8 +843,188 @@ fn print_resource_estimate(config: &model::FilterConfig) {
     println!();
 }
 
+fn lint_rules(config: &model::FilterConfig, warnings: &[String]) -> serde_json::Value {
+    let rules = &config.pacgate.rules;
+    let mut findings: Vec<serde_json::Value> = Vec::new();
+
+    // Check 1: No ARP rule in whitelist mode
+    let is_whitelist = matches!(config.pacgate.defaults.action, model::Action::Drop);
+    if is_whitelist {
+        let has_arp = rules.iter().any(|r| {
+            !r.is_stateful() && r.match_criteria.ethertype.as_deref() == Some("0x0806")
+                && matches!(r.action(), model::Action::Pass)
+        });
+        if !has_arp {
+            findings.push(serde_json::json!({
+                "level": "warning",
+                "code": "LINT001",
+                "message": "Whitelist mode with no ARP allow rule — hosts won't be able to resolve MAC addresses",
+                "suggestion": "Add a rule with ethertype: \"0x0806\" and action: pass"
+            }));
+        }
+    }
+
+    // Check 2: Broadcast block should be highest priority
+    let broadcast_rules: Vec<_> = rules.iter().filter(|r| {
+        !r.is_stateful() && r.match_criteria.dst_mac.as_deref() == Some("ff:ff:ff:ff:ff:ff")
+    }).collect();
+    for br in &broadcast_rules {
+        let higher = rules.iter().any(|r| r.priority > br.priority && r.name != br.name);
+        if higher && matches!(br.action(), model::Action::Drop) {
+            findings.push(serde_json::json!({
+                "level": "info",
+                "code": "LINT002",
+                "message": format!("Broadcast drop rule '{}' (priority {}) is not the highest priority — higher rules may pass broadcast frames", br.name, br.priority),
+                "suggestion": "Consider making broadcast block the highest priority rule"
+            }));
+        }
+    }
+
+    // Check 3: Priority gaps too tight
+    let mut priorities: Vec<(u32, &str)> = rules.iter().map(|r| (r.priority, r.name.as_str())).collect();
+    priorities.sort();
+    for w in priorities.windows(2) {
+        let gap = w[1].0 - w[0].0;
+        if gap < 5 {
+            findings.push(serde_json::json!({
+                "level": "info",
+                "code": "LINT003",
+                "message": format!("Tight priority gap ({}) between '{}' (pri {}) and '{}' (pri {}) — leaves no room for future rules", gap, w[0].1, w[0].0, w[1].1, w[1].0),
+                "suggestion": "Use gaps of 10+ between priorities for future flexibility"
+            }));
+        }
+    }
+
+    // Check 4: Blacklist mode without STP protection
+    let is_blacklist = matches!(config.pacgate.defaults.action, model::Action::Pass);
+    if is_blacklist {
+        let blocks_stp = rules.iter().any(|r| {
+            !r.is_stateful() && r.match_criteria.dst_mac.as_deref() == Some("01:80:c2:00:00:00")
+                && matches!(r.action(), model::Action::Drop)
+        });
+        if !blocks_stp {
+            findings.push(serde_json::json!({
+                "level": "warning",
+                "code": "LINT004",
+                "message": "Blacklist mode with no STP BPDU block rule — vulnerable to spanning tree attacks",
+                "suggestion": "Add a rule to drop dst_mac: \"01:80:c2:00:00:00\" on user-facing ports"
+            }));
+        }
+    }
+
+    // Check 5: Stateful rules without timeout
+    for rule in rules.iter().filter(|r| r.is_stateful()) {
+        if let Some(fsm) = &rule.fsm {
+            let states_without_timeout: Vec<_> = fsm.states.iter()
+                .filter(|(name, state)| name.as_str() != &fsm.initial_state && state.timeout_cycles.is_none())
+                .map(|(name, _)| name.as_str())
+                .collect();
+            if !states_without_timeout.is_empty() {
+                findings.push(serde_json::json!({
+                    "level": "warning",
+                    "code": "LINT005",
+                    "message": format!("Stateful rule '{}' has states without timeouts: {} — FSM may get stuck", rule.name, states_without_timeout.join(", ")),
+                    "suggestion": "Add timeout_cycles to non-idle states to ensure FSM recovery"
+                }));
+            }
+        }
+    }
+
+    // Check 6: Large rule count
+    if rules.len() > 32 {
+        findings.push(serde_json::json!({
+            "level": "warning",
+            "code": "LINT006",
+            "message": format!("{} rules — priority encoder critical path may limit Fmax on Artix-7", rules.len()),
+            "suggestion": "Consider pipelining or reducing rule count for timing closure"
+        }));
+    }
+
+    // Check 7: Single-field rules that could be combined
+    let ethertype_pass: Vec<_> = rules.iter().filter(|r| {
+        !r.is_stateful()
+            && r.match_criteria.ethertype.is_some()
+            && r.match_criteria.dst_mac.is_none()
+            && r.match_criteria.src_mac.is_none()
+            && r.match_criteria.vlan_id.is_none()
+            && r.match_criteria.vlan_pcp.is_none()
+            && matches!(r.action(), model::Action::Pass)
+    }).collect();
+    if ethertype_pass.len() > 5 {
+        findings.push(serde_json::json!({
+            "level": "info",
+            "code": "LINT007",
+            "message": format!("{} rules match only on ethertype — consider using a future multi-value match feature", ethertype_pass.len()),
+            "suggestion": "Group related protocol allows for maintainability"
+        }));
+    }
+
+    // Include overlap warnings
+    for w in warnings {
+        findings.push(serde_json::json!({
+            "level": "warning",
+            "code": "OVERLAP",
+            "message": w,
+        }));
+    }
+
+    let error_count = findings.iter().filter(|f| f["level"] == "error").count();
+    let warn_count = findings.iter().filter(|f| f["level"] == "warning").count();
+    let info_count = findings.iter().filter(|f| f["level"] == "info").count();
+
+    serde_json::json!({
+        "rules_file": "analyzed",
+        "total_rules": rules.len(),
+        "findings": findings,
+        "summary": {
+            "errors": error_count,
+            "warnings": warn_count,
+            "info": info_count,
+            "total": findings.len(),
+        }
+    })
+}
+
+fn print_lint_results(results: &serde_json::Value) {
+    let findings = results["findings"].as_array().unwrap();
+    let total = results["total_rules"].as_u64().unwrap();
+
+    println!();
+    println!("  PacGate Lint Results ({} rules analyzed)", total);
+    println!("  ════════════════════════════════════════════");
+    println!();
+
+    if findings.is_empty() {
+        println!("  No issues found. Rules look good!");
+        println!();
+        return;
+    }
+
+    for f in findings {
+        let level = f["level"].as_str().unwrap();
+        let icon = match level {
+            "error" => "ERROR",
+            "warning" => " WARN",
+            "info" => " INFO",
+            _ => "     ",
+        };
+        let code = f["code"].as_str().unwrap_or("");
+        let msg = f["message"].as_str().unwrap();
+        println!("  [{}] {} {}", icon, code, msg);
+        if let Some(suggestion) = f["suggestion"].as_str() {
+            println!("         -> {}", suggestion);
+        }
+        println!();
+    }
+
+    let summary = &results["summary"];
+    println!("  Summary: {} errors, {} warnings, {} info",
+        summary["errors"], summary["warnings"], summary["info"]);
+    println!();
+}
+
 const INIT_TEMPLATE: &str = r#"# PacGate Rule File
-# Documentation: https://github.com/joemooney/flippy
+# Documentation: https://github.com/joemooney/pacgate
 #
 # Quick start:
 #   1. Edit the rules below

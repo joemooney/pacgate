@@ -308,3 +308,36 @@ fn compile_generates_property_tests() {
     assert!(props.contains("RULES"), "rule definitions missing");
     assert!(props.contains("DEFAULT_ACTION"), "default action missing");
 }
+
+#[test]
+fn lint_json_output() {
+    let output = pacgate_bin()
+        .args(["lint", "rules/examples/enterprise.yaml", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    assert!(json["findings"].is_array());
+    assert!(json["summary"]["total"].as_u64().unwrap() > 0, "enterprise should have findings");
+    assert_eq!(json["total_rules"], 7);
+}
+
+#[test]
+fn lint_clean_blacklist() {
+    let output = pacgate_bin()
+        .args(["lint", "rules/examples/blacklist.yaml", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    // Blacklist example has STP block, so no LINT004 warning
+    let findings = json["findings"].as_array().unwrap();
+    let lint_findings: Vec<_> = findings.iter().filter(|f| {
+        f["code"].as_str().map(|c| c.starts_with("LINT")).unwrap_or(false)
+    }).collect();
+    assert!(lint_findings.is_empty(), "blacklist should have no lint findings (only overlap warnings if any)");
+}
