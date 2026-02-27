@@ -159,6 +159,73 @@ if HYPOTHESIS_AVAILABLE:
         return frame, extracted
 
     @st.composite
+    def gtp_u_frames(draw):
+        """Generate GTP-U frames: IPv4/UDP(2152)/GTP-U header with random TEID."""
+        dst = draw(mac_addresses())
+        src = draw(mac_addresses())
+        teid = draw(st.integers(0, 0xFFFFFFFF))
+        src_ip = draw(ipv4_addresses())
+        dst_ip = draw(ipv4_addresses())
+        # Build UDP(2152) + GTP-U header (8 bytes: flags/type/len/teid)
+        udp_hdr = struct.pack("!HHHH", 2123, 2152, 16, 0)  # src_port, dst_port=2152, len, csum
+        gtp_hdr = struct.pack("!BBHI", 0x30, 0xFF, 0, teid)  # flags, type, length, TEID
+        ip_hdr = Ipv4Header(src_addr=src_ip, dst_addr=dst_ip, protocol=17,
+                            total_length=20 + len(udp_hdr) + len(gtp_hdr))
+        payload = ip_hdr.to_bytes() + udp_hdr + gtp_hdr
+        frame = EthernetFrame(dst_mac=dst, src_mac=src, ethertype=0x0800, payload=payload)
+        extracted = {"gtp_teid": teid, "ip_protocol": 17, "dst_port": 2152}
+        return frame, extracted
+
+    @st.composite
+    def mpls_frames(draw):
+        """Generate MPLS frames with random label/TC/BOS."""
+        dst = draw(mac_addresses())
+        src = draw(mac_addresses())
+        label = draw(st.integers(0, 0xFFFFF))  # 20-bit
+        tc = draw(st.integers(0, 7))  # 3-bit
+        bos = draw(st.sampled_from([0, 1]))  # 1-bit
+        # MPLS label entry: 20-bit label | 3-bit TC | 1-bit BOS | 8-bit TTL
+        mpls_entry = (label << 12) | (tc << 9) | (bos << 8) | 64
+        payload = struct.pack("!I", mpls_entry) + bytes(46)
+        frame = EthernetFrame(dst_mac=dst, src_mac=src, ethertype=0x8847, payload=payload)
+        extracted = {"mpls_label": label, "mpls_tc": tc, "mpls_bos": bos}
+        return frame, extracted
+
+    @st.composite
+    def igmp_frames(draw):
+        """Generate IGMP frames with sampled type."""
+        dst = draw(mac_addresses())
+        src = draw(mac_addresses())
+        igmp_type = draw(st.sampled_from([0x11, 0x12, 0x16, 0x17]) |
+                         st.integers(0, 255))
+        src_ip = draw(ipv4_addresses())
+        # IPv4 (proto=2) + IGMP message
+        igmp_payload = bytes([igmp_type, 0, 0, 0]) + bytes(4)  # type, code, checksum, group
+        ip_hdr = Ipv4Header(src_addr=src_ip, dst_addr="224.0.0.1", protocol=2,
+                            total_length=20 + len(igmp_payload))
+        payload = ip_hdr.to_bytes() + igmp_payload
+        frame = EthernetFrame(dst_mac=dst, src_mac=src, ethertype=0x0800, payload=payload)
+        extracted = {"ip_protocol": 2, "igmp_type": igmp_type}
+        return frame, extracted
+
+    @st.composite
+    def mld_frames(draw):
+        """Generate MLD frames: IPv6(next_header=58)/ICMPv6 MLD."""
+        dst = draw(mac_addresses())
+        src = draw(mac_addresses())
+        mld_type = draw(st.sampled_from([130, 131, 132]) |
+                        st.integers(128, 255))
+        src_ipv6 = draw(ipv6_addresses())
+        # ICMPv6 MLD message: type, code, checksum + 16-byte multicast address
+        mld_payload = bytes([mld_type, 0, 0, 0]) + bytes(20)
+        ip6_hdr = Ipv6Header(src_addr=src_ipv6, dst_addr="ff02::1",
+                             next_header=58, payload_length=len(mld_payload))
+        payload = ip6_hdr.to_bytes() + mld_payload
+        frame = EthernetFrame(dst_mac=dst, src_mac=src, ethertype=0x86DD, payload=payload)
+        extracted = {"ipv6_next_header": 58, "mld_type": mld_type}
+        return frame, extracted
+
+    @st.composite
     def ethernet_frames(draw):
         """Generate random Ethernet frames."""
         dst = draw(mac_addresses())
@@ -325,6 +392,28 @@ def check_l3l4_determinism(
     return result1 == result2
 
 
+def check_tunnel_determinism(
+    scoreboard: PacketFilterScoreboard,
+    frame: EthernetFrame,
+    extracted: Optional[dict] = None,
+) -> bool:
+    """Same frame+extracted with tunnel fields always produces the same decision."""
+    result1 = scoreboard.predict(frame, extracted)
+    result2 = scoreboard.predict(frame, extracted)
+    return result1 == result2
+
+
+def check_protocol_determinism(
+    scoreboard: PacketFilterScoreboard,
+    frame: EthernetFrame,
+    extracted: Optional[dict] = None,
+) -> bool:
+    """Same frame+extracted with IGMP/MLD/MPLS fields always produces the same decision."""
+    result1 = scoreboard.predict(frame, extracted)
+    result2 = scoreboard.predict(frame, extracted)
+    return result1 == result2
+
+
 # ── Property Test Runner ───────────────────────────────────────
 
 class PropertyTestResults:
@@ -391,7 +480,24 @@ def run_property_tests(
             vlan_tag=vlan_tag, payload=bytes(payload_len),
         )
 
-        # Test properties
+        # Generate L3/L4 extracted fields for some frames
+        extracted = None
+        if etype == 0x0800 and random.random() < 0.5:
+            extracted = {
+                "src_ip": f"{random.randint(1,223)}.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(0,255)}",
+                "dst_ip": f"{random.randint(1,223)}.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(0,255)}",
+                "ip_protocol": random.choice([6, 17, 1]),
+                "src_port": random.randint(1, 65535),
+                "dst_port": random.randint(1, 65535),
+            }
+        elif etype == 0x86DD and random.random() < 0.5:
+            extracted = {
+                "src_ipv6": ":".join(f"{random.randint(0,0xFFFF):04x}" for _ in range(8)),
+                "dst_ipv6": ":".join(f"{random.randint(0,0xFFFF):04x}" for _ in range(8)),
+                "ipv6_next_header": random.choice([6, 17, 58]),
+            }
+
+        # Test all 9 properties
         results.record("determinism", check_determinism(scoreboard, frame),
                         f"frame {i}: non-deterministic result")
         results.record("conservation", check_conservation(scoreboard, frame),
@@ -402,5 +508,13 @@ def run_property_tests(
                         f"frame {i}: default action incorrect")
         results.record("independence", check_independence(scoreboard, frame),
                         f"frame {i}: payload change affected decision")
+        results.record("cidr_boundary", check_cidr_boundary(scoreboard, rules, frame, extracted),
+                        f"frame {i}: CIDR boundary inconsistency")
+        results.record("port_range_boundary", check_port_range_boundary(scoreboard, rules, frame, extracted),
+                        f"frame {i}: port range boundary inconsistency")
+        results.record("ipv6_cidr_match", check_ipv6_cidr_match(scoreboard, frame, extracted),
+                        f"frame {i}: IPv6 CIDR non-deterministic")
+        results.record("l3l4_determinism", check_l3l4_determinism(scoreboard, frame, extracted),
+                        f"frame {i}: L3/L4 non-deterministic")
 
     return results

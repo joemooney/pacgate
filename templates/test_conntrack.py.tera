@@ -85,9 +85,10 @@ async def test_conntrack_return_traffic(dut):
 
     # Lookup reverse flow: 10.0.0.2:80 -> 10.0.0.1:1234
     hit = await lookup_flow(dut, 0x0A000002, 0x0A000001, 80, 1234, 6)
-    # Note: Whether reverse flow is tracked depends on implementation.
-    # Some conntrack tables store both directions, others use symmetric hash.
-    dut._log.info("test_conntrack_return_traffic: reverse lookup hit=%s", hit)
+    # conntrack_table.v uses asymmetric 5-tuple hash — reverse traffic is not
+    # auto-tracked unless explicitly inserted with swapped src/dst
+    assert hit == 0, f"Reverse flow should not match with asymmetric hash, got hit={hit}"
+    dut._log.info("test_conntrack_return_traffic: PASSED (reverse not tracked)")
 
 
 @cocotb.test()
@@ -106,8 +107,9 @@ async def test_conntrack_timeout(dut):
     # For testing, advance many cycles
     await ClockCycles(dut.clk, 5000)
 
-    # Lookup again — may have timed out depending on config
+    # Lookup again — should have timed out depending on TIMEOUT parameter
     hit = await lookup_flow(dut, 0x0A000001, 0x0A000002, 5555, 443, 6)
+    assert hit is not None, "lookup timed out after timeout period — DUT may be stuck"
     dut._log.info("test_conntrack_timeout: after 5000 cycles, hit=%s", hit)
 
 
@@ -125,8 +127,8 @@ async def test_conntrack_hash_collision(dut):
     hit2 = await lookup_flow(dut, 0xC0A80001, 0xC0A80002, 5678, 443, 6)
 
     dut._log.info("test_conntrack_hash_collision: flow1=%s, flow2=%s", hit1, hit2)
-    # At least one should hit (linear probing resolves collisions)
-    assert hit1 == 1 or hit2 == 1, "Neither flow found after hash collision"
+    # Both distinct flows must survive collision via linear probing
+    assert hit1 == 1 and hit2 == 1, f"Both flows should be found after collision (hit1={hit1}, hit2={hit2})"
 
 
 @cocotb.test()
@@ -144,4 +146,5 @@ async def test_conntrack_table_full(dut):
     # Table should handle overflow gracefully (no crash/hang)
     # Lookup a recently inserted flow
     hit = await lookup_flow(dut, 0x0A0000FF, 0x0A000002, 1255, 80, 6)
+    assert hit is not None, "Table-full lookup timed out — DUT may be stuck"
     dut._log.info("test_conntrack_table_full: inserted=%d, last_lookup=%s", inserted, hit)
