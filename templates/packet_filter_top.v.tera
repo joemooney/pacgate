@@ -41,12 +41,16 @@ module packet_filter_top (
         .fields_valid (fields_valid)
     );
 
-    // Per-rule matchers
+    // Per-rule matchers (stateless: combinational, stateful: registered FSM)
 {% for rule in rules %}
     wire match_hit_{{ rule.index }};
     wire match_action_{{ rule.index }};
 
     rule_match_{{ rule.index }} u_rule_{{ rule.index }} (
+{% if rule.is_fsm == "true" %}
+        .clk          (clk),
+        .rst_n        (rst_n),
+{% endif %}
         .dst_mac      (dst_mac),
         .src_mac      (src_mac),
         .ethertype    (ethertype),

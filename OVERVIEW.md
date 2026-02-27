@@ -11,8 +11,34 @@ Flippy is an FPGA-based packet filtering switch where YAML-defined rules compile
 3. Run simulation with Icarus Verilog + cocotb to verify correctness
 4. (Future) Synthesize for Xilinx Artix-7 FPGA
 
+## Innovation / Unique Value
+Flippy is unique in that no other open-source tool generates both the hardware implementation (Verilog) and the verification environment (cocotb) from a single specification. Commercial tools like Agnisys IDS-Verify generate tests from register specs but assume the RTL already exists. LLM-based approaches generate one or the other non-deterministically. Flippy generates both, ensuring perfect alignment between specification, implementation, and verification.
+
 ## Architecture
 The generated hardware has a simple streaming interface (byte-at-a-time Ethernet frames). A hand-written frame parser extracts header fields, generated per-rule matchers evaluate in parallel (combinational), and a priority encoder selects the first matching rule's action (pass or drop).
+
+```
+rules.yaml ──> Compiler (Rust) ──┬──> Verilog (DUT)
+                                 └──> cocotb tests (Python)
+                                       │
+             Icarus Verilog + cocotb <──┘
+```
+
+**Verilog module hierarchy:**
+- `packet_filter_top` — generated top-level, wires everything
+  - `frame_parser` — hand-written, extracts dst/src MAC, EtherType, VLAN, raw bytes
+  - `rule_match_N` — generated per stateless rule, combinational field matching
+  - `rule_fsm_N` — generated per stateful rule, registered FSM with timeout
+  - `decision_logic` — generated priority encoder, first-match wins
+
+## Verification Framework
+UVM-inspired Python verification environment with:
+- **PacketFactory** — generates directed, random, boundary, and corner-case Ethernet frames
+- **PacketDriver** (BFM) — drives frames into the DUT byte-by-byte
+- **DecisionMonitor** — captures pass/drop decisions from the DUT
+- **Scoreboard** — Python reference model that predicts correct behavior, checks against DUT
+- **Coverage** — functional coverage with cover points, bins, and cross coverage
+- Enterprise example: 7 rules, 13 tests, 500 random packets with 0 scoreboard mismatches
 
 ## Project Structure
 - `rules/` — YAML rule definitions and schema
@@ -20,21 +46,30 @@ The generated hardware has a simple streaming interface (byte-at-a-time Ethernet
 - `templates/` — Tera templates for Verilog and cocotb generation
 - `rtl/` — Hand-written Verilog (frame parser)
 - `gen/` — Generated output (rtl/ and tb/ subdirectories)
+- `verification/` — Python verification framework (packet, scoreboard, coverage, driver)
+- `docs/` — Comprehensive documentation (design, verification, user guide, API, management)
 - `synth/` — Synthesis files (future)
 
 ## Technology Stack
-- **Compiler**: Rust (clap, serde_yaml, tera, anyhow)
+- **Compiler**: Rust (clap, serde_yaml, serde_json, tera, anyhow)
 - **HDL**: Verilog (IEEE 1364-2005 compatible, portable)
-- **Simulation**: Icarus Verilog + cocotb (Python)
+- **Simulation**: Icarus Verilog + cocotb 2.x (Python)
+- **Verification**: UVM-inspired Python framework with scoreboard and coverage
 - **Target FPGA**: Xilinx 7-series (Artix-7) — future phase
 
-## Development Phases
-- **Phase 1** (current): Minimal end-to-end — one stateless rule, frame parser, cocotb tests
-- **Phase 2**: Multiple stateless rules, MAC wildcards, VLAN matching, byte_match + advanced verification (coverage model generation, constrained random, negative/boundary tests)
-- **Phase 3**: Stateful FSM rules with timeout counters and sequence testing + mutation testing (MCY), formal property generation (SymbiYosys)
-- **Phase 4**: Synthesis targeting (Vivado, Artix-7 constraints, AXI-Stream via cocotbext-axi, store-and-forward)
+## Development Status
+- **Phase 1** (complete): Single stateless rule (allow ARP), frame parser, 2 cocotb tests PASS
+- **Phase 2** (complete): 7-rule enterprise example, MAC wildcards, VLAN matching, advanced verification framework, 13 tests PASS, 500/500 scoreboard matches
+- **Phase 3** (complete): Stateful FSM rules with timeout counters, sequence detection, FSM Verilog template
+- **Phase 4** (future): Synthesis targeting (Vivado, Artix-7 constraints, AXI-Stream, store-and-forward)
 
-## Innovation / Unique Value
-Flippy is unique in that no other open-source tool generates both the hardware implementation (Verilog) and the verification environment (cocotb) from a single specification. Commercial tools like Agnisys IDS-Verify generate tests from register specs but assume the RTL already exists. LLM-based approaches generate one or the other non-deterministically. Flippy generates both, ensuring perfect alignment between specification, implementation, and verification.
+## Documentation
+See `docs/README.md` for the full documentation index including:
+- Design: architecture, design decisions, CI pipeline
+- Verification: strategy, test plan, test harness architecture, coverage model
+- User guide: getting started, rule language reference
+- API reference: compiler CLI and internal modules
+- Management: executive summary, innovation analysis, roadmap
+- Research: cocotb, coverage, mutation testing, formal verification
 
 See `docs/RESEARCH.md` for the full verification framework research report.

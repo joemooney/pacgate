@@ -7,55 +7,64 @@
 - REQ-002: Each rule has a unique name, priority (0-65535), match criteria, and action (pass/drop)
 - REQ-003: Default action (pass or drop) applies when no rule matches
 - REQ-004: Priorities must be unique; higher priority wins on match
-- REQ-005: Support stateless field matching (Phase 1) and stateful FSM (Phase 3)
+- REQ-005: Support stateless field matching and stateful FSM rules
 
 ### Match Fields
-- REQ-010: Match on destination MAC address (exact or wildcard octets)
-- REQ-011: Match on source MAC address (exact or wildcard octets)
-- REQ-012: Match on EtherType (16-bit hex value)
-- REQ-013: Match on VLAN ID (12-bit, 0-4095) — Phase 2
-- REQ-014: Match on VLAN PCP (3-bit, 0-7) — Phase 2
-- REQ-015: Match on arbitrary byte offset (byte_match) — Phase 2
-- REQ-016: MAC wildcard octets ("*") generate mask-based comparison
+- REQ-010: Match on destination MAC address (exact or wildcard octets) [IMPLEMENTED]
+- REQ-011: Match on source MAC address (exact or wildcard octets) [IMPLEMENTED]
+- REQ-012: Match on EtherType (16-bit hex value) [IMPLEMENTED]
+- REQ-013: Match on VLAN ID (12-bit, 0-4095) [IMPLEMENTED]
+- REQ-014: Match on VLAN PCP (3-bit, 0-7) [IMPLEMENTED]
+- REQ-015: Match on arbitrary byte offset (byte_match) — Phase 4
+- REQ-016: MAC wildcard octets ("*") generate mask-based comparison [IMPLEMENTED]
 
 ### Compiler
-- REQ-020: Rust CLI with `compile` and `validate` subcommands
-- REQ-021: `compile` generates Verilog RTL and cocotb test bench from YAML
-- REQ-022: `validate` checks YAML without generating output
-- REQ-023: Generated Verilog passes Icarus Verilog lint (`-g2012`)
-- REQ-024: Generated cocotb tests include positive (match) and negative (default action) cases
+- REQ-020: Rust CLI with `compile` and `validate` subcommands [IMPLEMENTED]
+- REQ-021: `compile` generates Verilog RTL and cocotb test bench from YAML [IMPLEMENTED]
+- REQ-022: `validate` checks YAML without generating output [IMPLEMENTED]
+- REQ-023: Generated Verilog passes Icarus Verilog lint (`-g2012`) [IMPLEMENTED]
+- REQ-024: Generated cocotb tests include positive, negative, random, and corner-case tests [IMPLEMENTED]
 
 ### Verilog Architecture
-- REQ-030: Hand-written frame parser extracts Ethernet header fields
-- REQ-031: Frame parser handles 802.1Q VLAN-tagged frames (EtherType 0x8100)
-- REQ-032: Per-rule matchers are combinational (parallel evaluation, O(1) latency)
-- REQ-033: Priority encoder selects first-match-wins action
-- REQ-034: Decision output is latched until next frame starts (pkt_sof)
-- REQ-035: Simple streaming interface: pkt_data[7:0], pkt_valid, pkt_sof, pkt_eof
+- REQ-030: Hand-written frame parser extracts Ethernet header fields [IMPLEMENTED]
+- REQ-031: Frame parser handles 802.1Q VLAN-tagged frames (EtherType 0x8100) [IMPLEMENTED]
+- REQ-032: Per-rule matchers are combinational (parallel evaluation, O(1) latency) [IMPLEMENTED]
+- REQ-033: Priority encoder selects first-match-wins action [IMPLEMENTED]
+- REQ-034: Decision output is latched until next frame starts (pkt_sof) [IMPLEMENTED]
+- REQ-035: Simple streaming interface: pkt_data[7:0], pkt_valid, pkt_sof, pkt_eof [IMPLEMENTED]
 - REQ-036: Target Xilinx 7-series (Artix-7), architecture-portable Verilog
 
 ### Verification
-- REQ-040: cocotb simulation with Icarus Verilog
-- REQ-041: ARP frame (EtherType 0x0806) triggers pass when allow_arp rule is active
-- REQ-042: Non-matching frame triggers default action (drop in whitelist mode)
-- REQ-043: All cocotb tests must report PASS for acceptance
+- REQ-040: cocotb simulation with Icarus Verilog [IMPLEMENTED]
+- REQ-041: ARP frame (EtherType 0x0806) triggers pass when allow_arp rule is active [IMPLEMENTED]
+- REQ-042: Non-matching frame triggers default action (drop in whitelist mode) [IMPLEMENTED]
+- REQ-043: All cocotb tests must report PASS for acceptance [IMPLEMENTED]
 
-## Future Requirements (Not Yet Implemented)
+## Phase 2 Requirements — Multi-Rule + Advanced Verification [IMPLEMENTED]
 
-### Phase 2 — Multi-Rule Support
-- REQ-050: Multiple stateless rules with different match fields
-- REQ-051: MAC wildcard/mask matching in hardware
-- REQ-052: VLAN ID and PCP matching
-- REQ-053: Arbitrary byte offset matching (byte_match)
-- REQ-054: Compiler unit tests
+### Multi-Rule Support
+- REQ-050: Multiple stateless rules with different match fields [IMPLEMENTED]
+- REQ-051: MAC wildcard/mask matching in hardware [IMPLEMENTED]
+- REQ-052: VLAN ID matching [IMPLEMENTED]
+- REQ-053: Enterprise example: 7 rules, 13 tests, all PASS [IMPLEMENTED]
 
-### Phase 3 — Stateful FSM Rules
-- REQ-060: Stateful rules with FSM state machines
-- REQ-061: Timeout counters for state transitions
-- REQ-062: Sequence-based matching (e.g., ARP then IPv4)
-- REQ-063: cocotb tests for FSM sequences
+### Verification Framework
+- REQ-055: UVM-inspired verification architecture (Driver/Monitor/Scoreboard/Coverage) [IMPLEMENTED]
+- REQ-056: PacketFactory with directed, random, boundary, and corner-case frame generation [IMPLEMENTED]
+- REQ-057: Scoreboard reference model with predict/check achieving 500/500 matches [IMPLEMENTED]
+- REQ-058: Functional coverage model with cover points, bins, and cross coverage [IMPLEMENTED]
+- REQ-059: Corner-case tests: back-to-back, jumbo, min-size, reset recovery [IMPLEMENTED]
 
-### Phase 4 — Synthesis
+## Phase 3 Requirements — Stateful FSM Rules [IMPLEMENTED]
+
+- REQ-060: Stateful rules with FSM state machines [IMPLEMENTED]
+- REQ-061: Timeout counters for state transitions (32-bit configurable) [IMPLEMENTED]
+- REQ-062: Sequence-based matching (e.g., ARP then IPv4) [IMPLEMENTED]
+- REQ-063: FSM Verilog template (rule_fsm.v.tera) [IMPLEMENTED]
+- REQ-064: FSM validation (initial state exists, transitions reference valid states) [IMPLEMENTED]
+
+## Phase 4 Requirements — Synthesis (Future)
+
 - REQ-070: Vivado synthesis targeting Artix-7
 - REQ-071: XDC constraint files
 - REQ-072: AXI-Stream packet interface
@@ -64,15 +73,15 @@
 ## Advanced Verification Requirements (Research-Identified)
 
 ### Coverage-Driven Verification
-- REQ-080: Generate cocotb-coverage cover points from YAML rule specification
-- REQ-081: Constrained random Ethernet frame generation with cocotb-coverage Randomized class
+- REQ-080: Generate cocotb-coverage cover points from YAML rule specification [IMPLEMENTED]
+- REQ-081: Constrained random Ethernet frame generation [IMPLEMENTED]
 - REQ-082: Coverage-driven test generation with runtime-adaptive randomization
 - REQ-083: Coverage export to XML/YAML format with merge support across runs
-- REQ-084: Cross coverage for ethertype x decision and rule_index x action
+- REQ-084: Cross coverage for ethertype x decision and rule_index x action [IMPLEMENTED]
 
 ### Negative and Boundary Testing
-- REQ-085: Auto-generate negative test frames that match no rule (verify default action)
-- REQ-086: Auto-generate boundary test frames (broadcast MAC, multicast, max payload, etc.)
+- REQ-085: Auto-generate negative test frames that match no rule (verify default action) [IMPLEMENTED]
+- REQ-086: Auto-generate boundary test frames (broadcast MAC, multicast, max payload, etc.) [IMPLEMENTED]
 
 ### Mutation Testing
 - REQ-090: Integrate MCY (Mutation Cover with Yosys) to measure test harness quality

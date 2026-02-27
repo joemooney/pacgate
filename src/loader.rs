@@ -22,21 +22,44 @@ fn validate(config: &FilterConfig) -> Result<()> {
         if rule.name.is_empty() {
             anyhow::bail!("Rule name cannot be empty");
         }
-        // Validate ethertype format if present
-        if let Some(ref et) = rule.match_criteria.ethertype {
-            crate::model::parse_ethertype(et)?;
-        }
-        // Validate MAC format if present
-        if let Some(ref mac) = rule.match_criteria.dst_mac {
-            crate::model::MacAddress::parse(mac)?;
-        }
-        if let Some(ref mac) = rule.match_criteria.src_mac {
-            crate::model::MacAddress::parse(mac)?;
-        }
-        // Validate VLAN PCP range
-        if let Some(pcp) = rule.match_criteria.vlan_pcp {
-            if pcp > 7 {
-                anyhow::bail!("VLAN PCP must be 0-7, got {}", pcp);
+
+        if rule.is_stateful() {
+            // Stateful rule validation
+            let fsm = rule.fsm.as_ref()
+                .ok_or_else(|| anyhow::anyhow!("Stateful rule '{}' missing fsm definition", rule.name))?;
+
+            if !fsm.states.contains_key(&fsm.initial_state) {
+                anyhow::bail!("FSM initial_state '{}' not found in states for rule '{}'",
+                    fsm.initial_state, rule.name);
+            }
+
+            for (state_name, state) in &fsm.states {
+                for transition in &state.transitions {
+                    if !fsm.states.contains_key(&transition.next_state) {
+                        anyhow::bail!("FSM transition from '{}' to unknown state '{}' in rule '{}'",
+                            state_name, transition.next_state, rule.name);
+                    }
+                    // Validate match criteria in transitions
+                    if let Some(ref et) = transition.match_criteria.ethertype {
+                        crate::model::parse_ethertype(et)?;
+                    }
+                }
+            }
+        } else {
+            // Stateless rule validation
+            if let Some(ref et) = rule.match_criteria.ethertype {
+                crate::model::parse_ethertype(et)?;
+            }
+            if let Some(ref mac) = rule.match_criteria.dst_mac {
+                crate::model::MacAddress::parse(mac)?;
+            }
+            if let Some(ref mac) = rule.match_criteria.src_mac {
+                crate::model::MacAddress::parse(mac)?;
+            }
+            if let Some(pcp) = rule.match_criteria.vlan_pcp {
+                if pcp > 7 {
+                    anyhow::bail!("VLAN PCP must be 0-7, got {}", pcp);
+                }
             }
         }
     }

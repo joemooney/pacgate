@@ -1,0 +1,53 @@
+flippy:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: block_broadcast
+      type: stateless
+      priority: 200
+      match:
+        dst_mac: "ff:ff:ff:ff:ff:ff"
+      action: drop
+
+    - name: allow_mgmt_vlan
+      type: stateless
+      priority: 150
+      match:
+        vlan_id: 100
+      action: pass
+
+    - name: allow_arp
+      type: stateless
+      priority: 100
+      match:
+        ethertype: "0x0806"
+      action: pass
+
+    - name: allow_ipv4
+      type: stateless
+      priority: 90
+      match:
+        ethertype: "0x0800"
+      action: pass
+
+    - name: allow_ipv6
+      type: stateless
+      priority: 80
+      match:
+        ethertype: "0x86DD"
+      action: pass
+
+    - name: allow_vendor_acme
+      type: stateless
+      priority: 70
+      match:
+        src_mac: "00:1a:2b:*:*:*"
+      action: pass
+
+    - name: allow_lldp
+      type: stateless
+      priority: 60
+      match:
+        ethertype: "0x88CC"
+      action: pass

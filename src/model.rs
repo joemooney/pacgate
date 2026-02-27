@@ -16,16 +16,56 @@ pub struct MatchCriteria {
     pub vlan_pcp: Option<u8>,
 }
 
+// --- Stateful FSM types ---
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct FsmTransition {
+    #[serde(rename = "match")]
+    pub match_criteria: MatchCriteria,
+    pub next_state: String,
+    pub action: Action,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct FsmState {
+    #[serde(default)]
+    pub timeout_cycles: Option<u64>,
+    pub transitions: Vec<FsmTransition>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct FsmDefinition {
+    pub initial_state: String,
+    pub states: std::collections::HashMap<String, FsmState>,
+}
+
+// --- Rule types ---
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct StatelessRule {
     pub name: String,
     pub priority: u32,
+    #[serde(default)]
     #[serde(rename = "match")]
     pub match_criteria: MatchCriteria,
-    pub action: Action,
+    #[serde(default)]
+    pub action: Option<Action>,
     #[serde(default)]
     #[serde(rename = "type")]
     pub rule_type: Option<String>,
+    #[serde(default)]
+    pub fsm: Option<FsmDefinition>,
+}
+
+impl StatelessRule {
+    pub fn is_stateful(&self) -> bool {
+        self.rule_type.as_deref() == Some("stateful")
+    }
+
+    /// Get action (required for stateless, not for stateful)
+    pub fn action(&self) -> Action {
+        self.action.clone().unwrap_or(Action::Drop)
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
