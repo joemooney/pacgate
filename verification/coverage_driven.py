@@ -43,6 +43,11 @@ class CoverageDirector:
             "dst_port_range": self._gen_dst_port_range,
             "ipv6_address_type": self._gen_ipv6_addr_type,
             "l3_type": self._gen_l3_type,
+            "tunnel_type": self._gen_tunnel_type,
+            "mpls_present": self._gen_mpls_present,
+            "igmp_type_range": self._gen_igmp_type,
+            "mld_type_range": self._gen_mld_type,
+            "gtp_teid_range": self._gen_gtp_teid_range,
         }
         gen = generators.get(cp_name)
         if gen:
@@ -185,4 +190,48 @@ class CoverageDirector:
             return EthernetFrame(dst_mac=mac_to_bytes("de:ad:be:ef:00:01"),
                                  src_mac=mac_to_bytes("02:00:00:00:00:01"),
                                  ethertype=0x88B5, payload=bytes(46))
+        return None
+
+    def _gen_tunnel_type(self, bin_name: str) -> Optional[EthernetFrame]:
+        if bin_name == "gtp_u":
+            return PacketFactory.gtp_u(teid=1000)
+        elif bin_name == "vxlan":
+            # Build a VXLAN-encapsulated frame (UDP:4789 + VXLAN header)
+            return PacketFactory.ipv4_udp(dst_port=4789)
+        elif bin_name == "plain":
+            return PacketFactory.ipv4()
+        return None
+
+    def _gen_mpls_present(self, bin_name: str) -> Optional[EthernetFrame]:
+        if bin_name == "with_mpls":
+            return PacketFactory.mpls(label=100)
+        elif bin_name == "without_mpls":
+            return PacketFactory.ipv4()
+        return None
+
+    def _gen_igmp_type(self, bin_name: str) -> Optional[EthernetFrame]:
+        igmp_map = {
+            "query": 0x11, "report_v1": 0x12,
+            "report_v2": 0x16, "leave": 0x17, "other": 0x22,
+        }
+        igmp_type = igmp_map.get(bin_name)
+        if igmp_type is not None:
+            return PacketFactory.igmp(igmp_type=igmp_type)
+        return None
+
+    def _gen_mld_type(self, bin_name: str) -> Optional[EthernetFrame]:
+        mld_map = {
+            "listener_query": 130, "listener_report": 131,
+            "listener_done": 132, "other": 143,
+        }
+        mld_type = mld_map.get(bin_name)
+        if mld_type is not None:
+            return PacketFactory.mld(mld_type=mld_type)
+        return None
+
+    def _gen_gtp_teid_range(self, bin_name: str) -> Optional[EthernetFrame]:
+        teid_map = {"low": 500, "mid": 5000, "high": 50000}
+        teid = teid_map.get(bin_name)
+        if teid is not None:
+            return PacketFactory.gtp_u(teid=teid)
         return None

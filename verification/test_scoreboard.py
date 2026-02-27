@@ -258,6 +258,56 @@ class TestIgmpMldMatch:
         assert not rule.matches(frame, extracted={"mld_type": 131})
 
 
+class TestCoverageProtocols:
+    """Tests for protocol-specific coverage sampling."""
+
+    def _make_coverage(self):
+        from verification.coverage import FilterCoverage
+        return FilterCoverage(default_action="drop")
+
+    def test_tunnel_type_vxlan_sampled(self):
+        cov = self._make_coverage()
+        frame = _make_frame()
+        cov.sample(frame, decision_pass=True, vxlan_vni=100)
+        assert cov.coverpoints["tunnel_type"].bins["vxlan"].hit
+
+    def test_tunnel_type_gtp_sampled(self):
+        cov = self._make_coverage()
+        frame = _make_frame()
+        cov.sample(frame, decision_pass=True, gtp_teid=1000)
+        assert cov.coverpoints["tunnel_type"].bins["gtp_u"].hit
+
+    def test_tunnel_type_plain_sampled(self):
+        cov = self._make_coverage()
+        frame = _make_frame()
+        cov.sample(frame, decision_pass=True)
+        assert cov.coverpoints["tunnel_type"].bins["plain"].hit
+
+    def test_mpls_present_sampled(self):
+        cov = self._make_coverage()
+        frame = _make_frame()
+        cov.sample(frame, decision_pass=True, mpls_label=100)
+        assert cov.coverpoints["mpls_present"].bins["with_mpls"].hit
+
+    def test_igmp_query_sampled(self):
+        cov = self._make_coverage()
+        frame = _make_frame()
+        cov.sample(frame, decision_pass=True, igmp_type=0x11)
+        assert cov.coverpoints["igmp_type_range"].bins["query"].hit
+
+    def test_mld_listener_query_sampled(self):
+        cov = self._make_coverage()
+        frame = _make_frame(ethertype=0x86DD)
+        cov.sample(frame, decision_pass=True, mld_type=130)
+        assert cov.coverpoints["mld_type_range"].bins["listener_query"].hit
+
+    def test_gtp_teid_range_sampled(self):
+        cov = self._make_coverage()
+        frame = _make_frame()
+        cov.sample(frame, decision_pass=True, gtp_teid=5000)
+        assert cov.coverpoints["gtp_teid_range"].bins["mid"].hit
+
+
 if __name__ == "__main__":
     import pytest
     pytest.main([__file__, "-v"])

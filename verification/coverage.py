@@ -139,10 +139,41 @@ class FilterCoverage:
             cp.add_bin(name)
         self.coverpoints["l3_type"] = cp
 
+        # Tunnel type coverage
+        cp = CoverPoint("tunnel_type")
+        for name in ["vxlan", "gtp_u", "plain"]:
+            cp.add_bin(name)
+        self.coverpoints["tunnel_type"] = cp
+
+        # MPLS presence
+        cp = CoverPoint("mpls_present")
+        for name in ["with_mpls", "without_mpls"]:
+            cp.add_bin(name)
+        self.coverpoints["mpls_present"] = cp
+
+        # IGMP type range
+        cp = CoverPoint("igmp_type_range")
+        for name in ["query", "report_v1", "report_v2", "leave", "other"]:
+            cp.add_bin(name)
+        self.coverpoints["igmp_type_range"] = cp
+
+        # MLD type range
+        cp = CoverPoint("mld_type_range")
+        for name in ["listener_query", "listener_report", "listener_done", "other"]:
+            cp.add_bin(name)
+        self.coverpoints["mld_type_range"] = cp
+
+        # GTP TEID range
+        cp = CoverPoint("gtp_teid_range")
+        for name in ["low", "mid", "high"]:
+            cp.add_bin(name)
+        self.coverpoints["gtp_teid_range"] = cp
+
         # Cross coverage tracking
         self.cross_coverage["ethertype_x_decision"] = defaultdict(int)
         self.cross_coverage["rule_x_decision"] = defaultdict(int)
         self.cross_coverage["protocol_x_decision"] = defaultdict(int)
+        self.cross_coverage["tunnel_x_decision"] = defaultdict(int)
 
     def add_rule(self, rule_name: str):
         """Add a rule to the coverage model."""
@@ -246,12 +277,54 @@ class FilterCoverage:
             else:
                 self.coverpoints["ipv6_address_type"].sample("global_unicast")
 
+        # Tunnel type (from kwargs)
+        vxlan_vni = kwargs.get("vxlan_vni")
+        gtp_teid = kwargs.get("gtp_teid")
+        if vxlan_vni is not None:
+            tunnel_bin = "vxlan"
+        elif gtp_teid is not None:
+            tunnel_bin = "gtp_u"
+        else:
+            tunnel_bin = "plain"
+        self.coverpoints["tunnel_type"].sample(tunnel_bin)
+
+        # MPLS presence (from kwargs)
+        mpls_label = kwargs.get("mpls_label")
+        mpls_bin = "with_mpls" if mpls_label is not None else "without_mpls"
+        self.coverpoints["mpls_present"].sample(mpls_bin)
+
+        # IGMP type range (from kwargs)
+        igmp_type = kwargs.get("igmp_type")
+        if igmp_type is not None:
+            igmp_bin = {
+                0x11: "query", 0x12: "report_v1", 0x16: "report_v2", 0x17: "leave",
+            }.get(igmp_type, "other")
+            self.coverpoints["igmp_type_range"].sample(igmp_bin)
+
+        # MLD type range (from kwargs)
+        mld_type = kwargs.get("mld_type")
+        if mld_type is not None:
+            mld_bin = {
+                130: "listener_query", 131: "listener_report", 132: "listener_done",
+            }.get(mld_type, "other")
+            self.coverpoints["mld_type_range"].sample(mld_bin)
+
+        # GTP TEID range (from kwargs)
+        if gtp_teid is not None:
+            if gtp_teid < 1000:
+                self.coverpoints["gtp_teid_range"].sample("low")
+            elif gtp_teid < 10000:
+                self.coverpoints["gtp_teid_range"].sample("mid")
+            else:
+                self.coverpoints["gtp_teid_range"].sample("high")
+
         # Cross coverage
         self.cross_coverage["ethertype_x_decision"][(etype_bin, dec_bin)] += 1
         self.cross_coverage["rule_x_decision"][(matched_rule, dec_bin)] += 1
         if ip_proto is not None:
             proto_bin = {1: "icmp", 6: "tcp", 17: "udp", 58: "icmpv6"}.get(ip_proto, "other")
             self.cross_coverage["protocol_x_decision"][(proto_bin, dec_bin)] += 1
+        self.cross_coverage["tunnel_x_decision"][(tunnel_bin, dec_bin)] += 1
 
     @property
     def overall_coverage(self) -> float:
