@@ -398,8 +398,74 @@ pub fn check_rule_overlaps(rules: &[crate::model::StatelessRule]) -> Vec<String>
     warnings
 }
 
+/// Check if CIDR prefix A fully contains CIDR prefix B.
+/// e.g., 10.0.0.0/8 contains 10.1.0.0/16 (all of B's addresses are within A).
+pub fn cidr_contains(a: &str, b: &str) -> bool {
+    let (a_prefix, b_prefix) = match (crate::model::Ipv4Prefix::parse(a), crate::model::Ipv4Prefix::parse(b)) {
+        (Ok(ap), Ok(bp)) => (ap, bp),
+        _ => return a == b, // fallback to string comparison
+    };
+    // A contains B iff A's prefix is shorter/equal AND B's network address masked by A matches A's network
+    if a_prefix.prefix_len > b_prefix.prefix_len {
+        return false; // A is more specific than B
+    }
+    // Check that B's address ANDed with A's mask equals A's address ANDed with A's mask
+    for i in 0..4 {
+        if (b_prefix.addr[i] & a_prefix.mask[i]) != (a_prefix.addr[i] & a_prefix.mask[i]) {
+            return false;
+        }
+    }
+    true
+}
+
+/// Check if two CIDR prefixes share any common addresses.
+pub fn cidr_overlaps(a: &str, b: &str) -> bool {
+    let (a_prefix, b_prefix) = match (crate::model::Ipv4Prefix::parse(a), crate::model::Ipv4Prefix::parse(b)) {
+        (Ok(ap), Ok(bp)) => (ap, bp),
+        _ => return true, // assume overlap if can't parse
+    };
+    // Use the shorter prefix's mask — if both masked to the shorter match, they overlap
+    let shorter_mask = if a_prefix.prefix_len <= b_prefix.prefix_len {
+        a_prefix.mask
+    } else {
+        b_prefix.mask
+    };
+    for i in 0..4 {
+        if (a_prefix.addr[i] & shorter_mask[i]) != (b_prefix.addr[i] & shorter_mask[i]) {
+            return false;
+        }
+    }
+    true
+}
+
+/// Check if port match A fully contains port match B.
+pub fn port_contains(a: &crate::model::PortMatch, b: &crate::model::PortMatch) -> bool {
+    let (a_lo, a_hi) = match a {
+        crate::model::PortMatch::Exact(v) => (*v, *v),
+        crate::model::PortMatch::Range { range } => (range[0], range[1]),
+    };
+    let (b_lo, b_hi) = match b {
+        crate::model::PortMatch::Exact(v) => (*v, *v),
+        crate::model::PortMatch::Range { range } => (range[0], range[1]),
+    };
+    a_lo <= b_lo && a_hi >= b_hi
+}
+
+/// Check if two port matches share any common port values.
+pub fn port_ranges_overlap(a: &crate::model::PortMatch, b: &crate::model::PortMatch) -> bool {
+    let (a_lo, a_hi) = match a {
+        crate::model::PortMatch::Exact(v) => (*v, *v),
+        crate::model::PortMatch::Range { range } => (range[0], range[1]),
+    };
+    let (b_lo, b_hi) = match b {
+        crate::model::PortMatch::Exact(v) => (*v, *v),
+        crate::model::PortMatch::Range { range } => (range[0], range[1]),
+    };
+    a_lo <= b_hi && b_lo <= a_hi
+}
+
 /// Check if rule A's criteria fully contain rule B's criteria (A shadows B).
-fn criteria_shadows(a: &crate::model::MatchCriteria, b: &crate::model::MatchCriteria) -> bool {
+pub fn criteria_shadows(a: &crate::model::MatchCriteria, b: &crate::model::MatchCriteria) -> bool {
     // A shadows B if every packet that matches B also matches A.
     // This happens when A's criteria are a superset (less restrictive) than B's.
 
@@ -452,24 +518,36 @@ fn criteria_shadows(a: &crate::model::MatchCriteria, b: &crate::model::MatchCrit
         }
     }
 
-    // L3/L4 shadow checks (simple equality — CIDR containment is complex, skip for now)
+    // L3 shadow checks — uses CIDR containment
     if let Some(ref a_ip) = a.src_ip {
         match &b.src_ip {
-            Some(b_ip) if a_ip == b_ip => {},
-            Some(_) => return false,
-            None => return false,
+            Some(b_ip) if cidr_contains(a_ip, b_ip) => {},
+            _ => return false,
         }
     }
     if let Some(ref a_ip) = a.dst_ip {
         match &b.dst_ip {
-            Some(b_ip) if a_ip == b_ip => {},
-            Some(_) => return false,
-            None => return false,
+            Some(b_ip) if cidr_contains(a_ip, b_ip) => {},
+            _ => return false,
         }
     }
     if let Some(a_proto) = a.ip_protocol {
         match b.ip_protocol {
             Some(b_proto) if a_proto == b_proto => {},
+            _ => return false,
+        }
+    }
+
+    // L4 shadow checks — uses port containment
+    if let Some(ref a_port) = a.src_port {
+        match &b.src_port {
+            Some(b_port) if port_contains(a_port, b_port) => {},
+            _ => return false,
+        }
+    }
+    if let Some(ref a_port) = a.dst_port {
+        match &b.dst_port {
+            Some(b_port) if port_contains(a_port, b_port) => {},
             _ => return false,
         }
     }
@@ -534,15 +612,23 @@ fn criteria_overlaps(a: &crate::model::MatchCriteria, b: &crate::model::MatchCri
         }
     }
 
-    // L3/L4 overlap checks
+    // L3 overlap checks — uses CIDR overlap
     if let (Some(ref a_ip), Some(ref b_ip)) = (&a.src_ip, &b.src_ip) {
-        if a_ip != b_ip { return false; }
+        if !cidr_overlaps(a_ip, b_ip) { return false; }
     }
     if let (Some(ref a_ip), Some(ref b_ip)) = (&a.dst_ip, &b.dst_ip) {
-        if a_ip != b_ip { return false; }
+        if !cidr_overlaps(a_ip, b_ip) { return false; }
     }
     if let (Some(a_proto), Some(b_proto)) = (a.ip_protocol, b.ip_protocol) {
         if a_proto != b_proto { return false; }
+    }
+
+    // L4 overlap checks — uses port range overlap
+    if let (Some(ref a_port), Some(ref b_port)) = (&a.src_port, &b.src_port) {
+        if !port_ranges_overlap(a_port, b_port) { return false; }
+    }
+    if let (Some(ref a_port), Some(ref b_port)) = (&a.dst_port, &b.dst_port) {
+        if !port_ranges_overlap(a_port, b_port) { return false; }
     }
 
     // IPv6 overlap checks
@@ -1049,5 +1135,42 @@ pacgate:
         assert!(!mac_pattern_contains("ff:ff:ff:ff:ff:ff", "*:*:*:*:*:*"));
         assert!(mac_pattern_contains("00:1a:2b:*:*:*", "00:1a:2b:cc:dd:ee"));
         assert!(!mac_pattern_contains("00:1a:2b:cc:dd:ee", "00:1a:2b:*:*:*"));
+    }
+
+    #[test]
+    fn cidr_contains_subnet() {
+        assert!(cidr_contains("10.0.0.0/8", "10.1.0.0/16"));
+        assert!(cidr_contains("10.0.0.0/8", "10.255.255.255/32"));
+        assert!(!cidr_contains("10.1.0.0/16", "10.0.0.0/8")); // narrower doesn't contain wider
+        assert!(cidr_contains("0.0.0.0/0", "192.168.1.0/24")); // /0 contains everything
+        assert!(cidr_contains("192.168.1.0/24", "192.168.1.100/32")); // /24 contains host
+        assert!(!cidr_contains("192.168.1.0/24", "192.168.2.0/24")); // different subnets
+    }
+
+    #[test]
+    fn cidr_overlaps_detection() {
+        assert!(cidr_overlaps("10.0.0.0/8", "10.1.0.0/16")); // containment → overlap
+        assert!(cidr_overlaps("10.1.0.0/16", "10.0.0.0/8")); // reverse containment
+        assert!(!cidr_overlaps("10.0.0.0/8", "172.16.0.0/12")); // disjoint
+        assert!(cidr_overlaps("192.168.0.0/16", "192.168.1.0/24")); // subset
+        assert!(!cidr_overlaps("192.168.1.0/24", "192.168.2.0/24")); // adjacent but disjoint
+    }
+
+    #[test]
+    fn port_contains_detection() {
+        use crate::model::PortMatch;
+        assert!(port_contains(&PortMatch::Range { range: [1, 1024] }, &PortMatch::Exact(80)));
+        assert!(port_contains(&PortMatch::Range { range: [1, 1024] }, &PortMatch::Range { range: [80, 443] }));
+        assert!(!port_contains(&PortMatch::Exact(80), &PortMatch::Range { range: [1, 1024] }));
+        assert!(port_contains(&PortMatch::Exact(80), &PortMatch::Exact(80)));
+    }
+
+    #[test]
+    fn port_ranges_overlap_detection() {
+        use crate::model::PortMatch;
+        assert!(port_ranges_overlap(&PortMatch::Range { range: [1, 100] }, &PortMatch::Range { range: [50, 200] }));
+        assert!(!port_ranges_overlap(&PortMatch::Range { range: [1, 100] }, &PortMatch::Range { range: [101, 200] }));
+        assert!(port_ranges_overlap(&PortMatch::Exact(80), &PortMatch::Range { range: [1, 1024] }));
+        assert!(!port_ranges_overlap(&PortMatch::Exact(80), &PortMatch::Exact(443)));
     }
 }

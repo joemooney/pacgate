@@ -1377,6 +1377,146 @@ fn lint_rules(config: &model::FilterConfig, warnings: &[String]) -> serde_json::
         }));
     }
 
+    // Check 8: Dead rule — fully shadowed by a higher-priority rule with same action
+    {
+        let stateless: Vec<_> = rules.iter().filter(|r| !r.is_stateful()).collect();
+        let mut sorted = stateless.clone();
+        sorted.sort_by(|a, b| b.priority.cmp(&a.priority));
+        for i in 0..sorted.len() {
+            for j in (i + 1)..sorted.len() {
+                let high = sorted[i];
+                let low = sorted[j];
+                if high.action() == low.action()
+                    && loader::criteria_shadows(&high.match_criteria, &low.match_criteria)
+                {
+                    findings.push(serde_json::json!({
+                        "level": "error",
+                        "code": "LINT008",
+                        "message": format!("Dead rule '{}' (priority {}) — fully shadowed by '{}' (priority {}) with same action",
+                            low.name, low.priority, high.name, high.priority),
+                        "suggestion": format!("Remove '{}' or change its action/criteria", low.name)
+                    }));
+                }
+            }
+        }
+    }
+
+    // Check 9: Unused FSM variable — declared but never referenced in guards, actions, entry/exit
+    for rule in rules.iter().filter(|r| r.is_stateful()) {
+        if let Some(fsm) = &rule.fsm {
+            if let Some(vars) = &fsm.variables {
+                for var in vars {
+                    let var_name = &var.name;
+                    let mut used = false;
+                    for state in fsm.states.values() {
+                        // Check transitions: guards and on_transition actions
+                        for tr in &state.transitions {
+                            if let Some(guard) = &tr.guard {
+                                if guard.contains(var_name.as_str()) { used = true; }
+                            }
+                            if let Some(actions) = &tr.on_transition {
+                                for a in actions {
+                                    if a.contains(var_name.as_str()) { used = true; }
+                                }
+                            }
+                        }
+                        // Check on_entry/on_exit actions
+                        if let Some(actions) = &state.on_entry {
+                            for a in actions {
+                                if a.contains(var_name.as_str()) { used = true; }
+                            }
+                        }
+                        if let Some(actions) = &state.on_exit {
+                            for a in actions {
+                                if a.contains(var_name.as_str()) { used = true; }
+                            }
+                        }
+                    }
+                    if !used {
+                        findings.push(serde_json::json!({
+                            "level": "warning",
+                            "code": "LINT009",
+                            "message": format!("Unused FSM variable '{}' in rule '{}' — declared but never referenced in guards/actions",
+                                var_name, rule.name),
+                            "suggestion": format!("Remove variable '{}' or reference it in a guard or action", var_name)
+                        }));
+                    }
+                }
+            }
+        }
+    }
+
+    // Check 10: Unreachable FSM state — BFS from initial state finds no path to this state
+    for rule in rules.iter().filter(|r| r.is_stateful()) {
+        if let Some(fsm) = &rule.fsm {
+            let mut reachable = std::collections::HashSet::new();
+            let mut queue = std::collections::VecDeque::new();
+            reachable.insert(fsm.initial_state.clone());
+            queue.push_back(fsm.initial_state.clone());
+            while let Some(state_name) = queue.pop_front() {
+                if let Some(state) = fsm.states.get(&state_name) {
+                    for tr in &state.transitions {
+                        if !reachable.contains(&tr.next_state) {
+                            reachable.insert(tr.next_state.clone());
+                            queue.push_back(tr.next_state.clone());
+                        }
+                    }
+                    // Also check timeout target (goes back to initial by convention)
+                }
+            }
+            for state_name in fsm.states.keys() {
+                if !reachable.contains(state_name) {
+                    findings.push(serde_json::json!({
+                        "level": "warning",
+                        "code": "LINT010",
+                        "message": format!("Unreachable FSM state '{}' in rule '{}' — no transition path from initial state '{}'",
+                            state_name, rule.name, fsm.initial_state),
+                        "suggestion": format!("Add a transition to '{}' or remove it", state_name)
+                    }));
+                }
+            }
+        }
+    }
+
+    // Check 11: L3/L4 rules in whitelist mode without explicit IPv4 (0x0800) allow
+    if is_whitelist {
+        let has_l3l4_rules = rules.iter().any(|r| !r.is_stateful() && r.match_criteria.uses_l3l4());
+        let has_ipv4_allow = rules.iter().any(|r| {
+            !r.is_stateful()
+                && r.match_criteria.ethertype.as_deref() == Some("0x0800")
+                && matches!(r.action(), model::Action::Pass)
+                && r.match_criteria.dst_mac.is_none()
+                && r.match_criteria.src_mac.is_none()
+                && r.match_criteria.src_ip.is_none()
+                && r.match_criteria.dst_ip.is_none()
+        });
+        if has_l3l4_rules && !has_ipv4_allow {
+            findings.push(serde_json::json!({
+                "level": "info",
+                "code": "LINT011",
+                "message": "L3/L4 match rules present in whitelist mode but no generic IPv4 (ethertype 0x0800) allow rule",
+                "suggestion": "L3/L4 rules already match IPv4 packets; add a broad 0x0800 allow if you want all IPv4 traffic passed"
+            }));
+        }
+    }
+
+    // Check 12: byte_match offset > 64 — beyond typical header region
+    for rule in rules.iter().filter(|r| !r.is_stateful()) {
+        if let Some(byte_matches) = &rule.match_criteria.byte_match {
+            for bm in byte_matches {
+                if bm.offset > 64 {
+                    findings.push(serde_json::json!({
+                        "level": "info",
+                        "code": "LINT012",
+                        "message": format!("byte_match offset {} in rule '{}' — beyond typical header region (>64 bytes)",
+                            bm.offset, rule.name),
+                        "suggestion": "Verify this offset is intentional; typical L2/L3/L4 headers are within first 64 bytes"
+                    }));
+                }
+            }
+        }
+    }
+
     // Include overlap warnings
     for w in warnings {
         findings.push(serde_json::json!({
