@@ -43,6 +43,10 @@ enum Commands {
         /// Include per-rule counters with AXI-Lite CSR readout
         #[arg(long)]
         counters: bool,
+
+        /// Generate multi-port wrapper with N independent filter instances
+        #[arg(long, default_value = "1")]
+        ports: u16,
     },
     /// Validate YAML rules without generating output
     Validate {
@@ -180,12 +184,17 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Compile { rules, output, templates, json, axi, counters } => {
+        Commands::Compile { rules, output, templates, json, axi, counters, ports } => {
             log::info!("Compiling rules from {}", rules.display());
             let (config, warnings) = loader::load_rules_with_warnings(&rules)?;
 
             // Generate Verilog
             verilog_gen::generate(&config, &templates, &output)?;
+
+            // Generate multi-port wrapper if --ports > 1
+            if ports > 1 {
+                verilog_gen::generate_multiport(&config, &templates, &output, ports)?;
+            }
 
             // Copy AXI-Stream wrapper RTL if --axi
             if axi {
@@ -214,6 +223,7 @@ fn main() -> Result<()> {
                     "output_dir": output.to_string_lossy(),
                     "axi_stream": axi,
                     "counters": counters,
+                    "ports": ports,
                     "generated": {
                         "verilog_dir": format!("{}/rtl", output.display()),
                         "cocotb_dir": format!("{}/tb", output.display()),

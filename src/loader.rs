@@ -160,6 +160,13 @@ fn validate(config: &FilterConfig) -> Result<()> {
             // Stateless rule validation
             validate_match_criteria(&rule.match_criteria, &rule.name)?;
         }
+
+        // Validate ports list if specified
+        if let Some(ref ports) = rule.ports {
+            if ports.is_empty() {
+                anyhow::bail!("Empty ports list in rule '{}'", rule.name);
+            }
+        }
     }
 
     // Check for duplicate priorities

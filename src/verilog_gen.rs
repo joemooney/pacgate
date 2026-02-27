@@ -231,6 +231,30 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
     Ok(())
 }
 
+/// Generate multi-port wrapper that instantiates N independent packet_filter_top instances.
+pub fn generate_multiport(config: &FilterConfig, templates_dir: &Path, output_dir: &Path, num_ports: u16) -> Result<()> {
+    let glob = format!("{}/**/*.tera", templates_dir.display());
+    let tera = Tera::new(&glob)
+        .with_context(|| format!("Failed to load templates from {}", templates_dir.display()))?;
+
+    let rtl_dir = output_dir.join("rtl");
+    std::fs::create_dir_all(&rtl_dir)?;
+
+    let mut ctx = tera::Context::new();
+    ctx.insert("num_ports", &num_ports);
+    ctx.insert("num_rules", &config.pacgate.rules.len());
+
+    let byte_offsets = collect_byte_match_offsets(config);
+    let has_byte_capture = !byte_offsets.is_empty();
+    ctx.insert("has_byte_capture", &has_byte_capture);
+
+    let rendered = tera.render("packet_filter_multiport_top.v.tera", &ctx)?;
+    std::fs::write(rtl_dir.join("packet_filter_multiport_top.v"), &rendered)?;
+    log::info!("Generated packet_filter_multiport_top.v ({} ports)", num_ports);
+
+    Ok(())
+}
+
 /// Copy hand-written AXI-Stream RTL modules to the output directory.
 pub fn copy_axi_rtl(output_dir: &Path) -> Result<()> {
     let rtl_dir = output_dir.join("rtl");

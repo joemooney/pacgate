@@ -508,6 +508,48 @@ fn pcap_import() {
     assert!(stimulus.contains("PCAP_FRAMES"), "missing PCAP_FRAMES");
 }
 
+// ── Multi-Port Integration Tests ──────────────────────────────────
+
+#[test]
+fn compile_multiport() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/allow_arp.yaml", "--ports", "4",
+               "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile --ports 4 failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // Should generate multiport wrapper
+    assert!(tmp.path().join("rtl/packet_filter_multiport_top.v").exists(),
+        "packet_filter_multiport_top.v missing");
+
+    let multiport = std::fs::read_to_string(
+        tmp.path().join("rtl/packet_filter_multiport_top.v")
+    ).unwrap();
+    assert!(multiport.contains("module packet_filter_multiport_top"), "multiport module missing");
+    assert!(multiport.contains("port0_pkt_data"), "port0 interface missing");
+    assert!(multiport.contains("port3_pkt_data"), "port3 interface missing");
+    assert!(multiport.contains("u_filter_port0"), "port0 instance missing");
+    assert!(multiport.contains("u_filter_port3"), "port3 instance missing");
+}
+
+#[test]
+fn compile_multiport_json() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/allow_arp.yaml", "--ports", "2",
+               "--json", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    assert_eq!(json["status"], "ok");
+    assert_eq!(json["ports"], 2);
+}
+
 // ── Mermaid Integration Tests ──────────────────────────────────
 
 #[test]
