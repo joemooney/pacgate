@@ -219,6 +219,10 @@ enum Commands {
         /// Write simulation results as PCAP file (Wireshark-compatible)
         #[arg(long)]
         pcap_out: Option<PathBuf>,
+
+        /// Enable stateful simulation (rate-limit + connection tracking)
+        #[arg(long)]
+        stateful: bool,
     },
     /// Analyze PCAP traffic and suggest PacGate rules
     PcapAnalyze {
@@ -704,10 +708,18 @@ fn main() -> Result<()> {
             let mermaid_text = mermaid::from_yaml(&config);
             println!("{}", mermaid_text);
         }
-        Commands::Simulate { rules, packet, json, pcap_out } => {
+        Commands::Simulate { rules, packet, json, pcap_out, stateful } => {
             let config = loader::load_rules(&rules)?;
             let sim_pkt = simulator::parse_packet_spec(&packet)?;
-            let result = simulator::simulate(&config, &sim_pkt);
+            let result = if stateful {
+                let mut rate_state = simulator::SimRateLimitState::new(&config);
+                let conntrack_timeout = config.pacgate.conntrack.as_ref()
+                    .map(|c| c.timeout_cycles).unwrap_or(30);
+                let mut conntrack = simulator::SimConntrackTable::new(conntrack_timeout);
+                simulator::simulate_stateful(&config, &sim_pkt, &mut rate_state, &mut conntrack, 0.01, 0)
+            } else {
+                simulator::simulate(&config, &sim_pkt)
+            };
 
             // Write PCAP file if requested
             if let Some(ref pcap_path) = pcap_out {
@@ -754,6 +766,17 @@ fn main() -> Result<()> {
                     summary.as_object_mut().unwrap().insert(
                         "pcap_file".to_string(),
                         serde_json::Value::String(pcap_path.display().to_string()),
+                    );
+                }
+                if stateful {
+                    let is_rate_limited = result.rule_name.as_deref() == Some("rate_limited");
+                    summary.as_object_mut().unwrap().insert(
+                        "rate_limited".to_string(),
+                        serde_json::Value::Bool(is_rate_limited),
+                    );
+                    summary.as_object_mut().unwrap().insert(
+                        "stateful".to_string(),
+                        serde_json::Value::Bool(true),
                     );
                 }
                 println!("{}", serde_json::to_string_pretty(&summary)?);

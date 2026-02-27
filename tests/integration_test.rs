@@ -2458,6 +2458,37 @@ fn lint_detects_igmp_without_protocol() {
 }
 
 #[test]
+fn simulate_stateful_flag_accepted() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/rate_limited.yaml",
+               "--packet", "ethertype=0x0800,ip_protocol=6,dst_port=80",
+               "--stateful"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "simulate --stateful failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Simulation") || stdout.contains("Result"),
+        "should contain simulation output");
+}
+
+#[test]
+fn simulate_stateful_rate_limit_drops() {
+    // With --stateful and rate-limited rule, first packet should pass (burst > 0)
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/rate_limited.yaml",
+               "--packet", "ethertype=0x0800,ip_protocol=6,dst_port=80",
+               "--stateful", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "simulate --stateful --json failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    assert_eq!(json["status"], "ok");
+    assert!(json["stateful"].as_bool().unwrap_or(false), "should have stateful=true");
+    assert!(json.get("rate_limited").is_some(), "should have rate_limited field");
+}
+
+#[test]
 fn reachability_shows_protocol_fields() {
     let output = pacgate_bin()
         .args(["reachability", "rules/examples/gtp_5g.yaml"])

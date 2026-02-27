@@ -248,6 +248,98 @@ pub fn simulate_with_rate_limit(
     result
 }
 
+/// Connection tracking table for software simulation
+pub struct SimConntrackTable {
+    pub flows: HashMap<u64, (String, u64)>, // hash → (rule_name, timestamp)
+    pub timeout: u64,
+}
+
+impl SimConntrackTable {
+    pub fn new(timeout: u64) -> Self {
+        SimConntrackTable {
+            flows: HashMap::new(),
+            timeout,
+        }
+    }
+
+    /// Hash a 5-tuple (src_ip, dst_ip, protocol, src_port, dst_port) into a u64
+    pub fn hash_5tuple(packet: &SimPacket) -> u64 {
+        use std::hash::{Hash, Hasher};
+        use std::collections::hash_map::DefaultHasher;
+        let mut hasher = DefaultHasher::new();
+        packet.src_ip.hash(&mut hasher);
+        packet.dst_ip.hash(&mut hasher);
+        packet.ip_protocol.hash(&mut hasher);
+        packet.src_port.hash(&mut hasher);
+        packet.dst_port.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    /// Hash the reverse 5-tuple (swap src/dst)
+    fn hash_reverse(packet: &SimPacket) -> u64 {
+        use std::hash::{Hash, Hasher};
+        use std::collections::hash_map::DefaultHasher;
+        let mut hasher = DefaultHasher::new();
+        packet.dst_ip.hash(&mut hasher);
+        packet.src_ip.hash(&mut hasher);
+        packet.ip_protocol.hash(&mut hasher);
+        packet.dst_port.hash(&mut hasher);
+        packet.src_port.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    /// Insert a flow entry
+    pub fn insert_flow(&mut self, packet: &SimPacket, rule_name: &str, timestamp: u64) {
+        let hash = Self::hash_5tuple(packet);
+        self.flows.insert(hash, (rule_name.to_string(), timestamp));
+    }
+
+    /// Check if the reverse flow exists and hasn't timed out
+    pub fn check_return(&self, packet: &SimPacket, timestamp: u64) -> Option<String> {
+        let rev_hash = Self::hash_reverse(packet);
+        if let Some((rule_name, ts)) = self.flows.get(&rev_hash) {
+            if timestamp - ts <= self.timeout {
+                return Some(rule_name.clone());
+            }
+        }
+        None
+    }
+}
+
+/// Full stateful simulation combining rate-limit + connection tracking
+pub fn simulate_stateful(
+    config: &FilterConfig,
+    packet: &SimPacket,
+    rate_state: &mut SimRateLimitState,
+    conntrack: &mut SimConntrackTable,
+    elapsed_secs: f64,
+    timestamp: u64,
+) -> SimResult {
+    // First check if this is a return flow in conntrack
+    if let Some(rule_name) = conntrack.check_return(packet, timestamp) {
+        return SimResult {
+            rule_name: Some(rule_name),
+            action: Action::Pass,
+            is_default: false,
+            fields: Vec::new(),
+        };
+    }
+
+    // Run normal simulation with rate limiting
+    let result = simulate_with_rate_limit(config, packet, rate_state, elapsed_secs);
+
+    // If matched a rule (not default), add to conntrack
+    if !result.is_default {
+        if let Some(ref rule_name) = result.rule_name {
+            if result.action == Action::Pass {
+                conntrack.insert_flow(packet, rule_name, timestamp);
+            }
+        }
+    }
+
+    result
+}
+
 /// Evaluate match criteria against a packet, returning (overall_match, per-field breakdown)
 pub fn match_criteria_against_packet(mc: &MatchCriteria, pkt: &SimPacket) -> (bool, Vec<FieldMatch>) {
     let mut fields = Vec::new();
@@ -1472,5 +1564,36 @@ mod tests {
         assert_eq!(result.action, Action::Pass);
         assert_eq!(result.rule_name.as_deref(), Some("allow_arp"));
         assert!(!result.is_default);
+    }
+
+    // --- Conntrack simulation tests ---
+
+    #[test]
+    fn conntrack_hash_5tuple_deterministic() {
+        let pkt = parse_packet_spec("src_ip=10.0.0.1,dst_ip=10.0.0.2,ip_protocol=6,src_port=12345,dst_port=80").unwrap();
+        let h1 = SimConntrackTable::hash_5tuple(&pkt);
+        let h2 = SimConntrackTable::hash_5tuple(&pkt);
+        assert_eq!(h1, h2);
+    }
+
+    #[test]
+    fn conntrack_insert_and_check_return() {
+        let mut ct = SimConntrackTable::new(100);
+        let pkt = parse_packet_spec("src_ip=10.0.0.1,dst_ip=10.0.0.2,ip_protocol=6,src_port=12345,dst_port=80").unwrap();
+        ct.insert_flow(&pkt, "allow_web", 0);
+
+        // Reverse packet should match
+        let rev = parse_packet_spec("src_ip=10.0.0.2,dst_ip=10.0.0.1,ip_protocol=6,src_port=80,dst_port=12345").unwrap();
+        assert!(ct.check_return(&rev, 50).is_some());
+    }
+
+    #[test]
+    fn conntrack_timeout_expires() {
+        let mut ct = SimConntrackTable::new(100);
+        let pkt = parse_packet_spec("src_ip=10.0.0.1,dst_ip=10.0.0.2,ip_protocol=6,src_port=12345,dst_port=80").unwrap();
+        ct.insert_flow(&pkt, "allow_web", 0);
+
+        let rev = parse_packet_spec("src_ip=10.0.0.2,dst_ip=10.0.0.1,ip_protocol=6,src_port=80,dst_port=12345").unwrap();
+        assert!(ct.check_return(&rev, 200).is_none()); // expired
     }
 }
