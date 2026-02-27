@@ -71,12 +71,12 @@ PacGate's scoreboard checks 500+ random packets per run. If your filter disagree
 
 | Feature | PacGate | Vivado HLS | Agnisys IDS | Mentor Questa |
 |---------|:-------:|:----------:|:-----------:|:-------------:|
-| Price | Free | $3K-50K/yr | $50K+/yr | $100K+/yr |
+| Price | Competitive | $3K-50K/yr | $50K+/yr | $100K+/yr |
 | RTL generation | Yes | Yes (C→RTL) | No | No |
 | Test generation | Yes | No | Yes (reg→test) | No |
 | Both from one spec | **Yes** | No | No | No |
 | Formal verification | Yes (SVA+SBY) | No | No | Yes |
-| Open source | Yes | No | No | No |
+| Open-source toolchain | Yes | No | No | No |
 | L2 packet filtering | Purpose-built | General | Register-focused | General |
 
 PacGate doesn't compete with Questa on general-purpose verification. It competes on **developer velocity** for a specific, high-value problem domain.
@@ -157,7 +157,7 @@ Tests:       63 Rust tests + 13+ cocotb tests + formal + property
 
 ## The Bottom Line
 
-PacGate is the only open-source tool that generates both synthesizable FPGA hardware and a complete verification environment from a single YAML specification. It's not trying to replace Vivado, P4, or general-purpose verification tools. It's solving a specific, well-defined problem — L2 packet filtering — with a level of verification depth that most hand-coded solutions never achieve.
+PacGate is the only tool that generates both synthesizable FPGA hardware and a complete verification environment from a single YAML specification. It's not trying to replace Vivado, P4, or general-purpose verification tools. It's solving a specific, well-defined problem — L2 packet filtering — with a level of verification depth that most hand-coded solutions never achieve.
 
 **Try it:**
 ```bash

@@ -33,7 +33,7 @@ rules.yaml ──► pacgate ──┬──► Verilog RTL (hardware)
 - Define packet filter rules in **readable YAML**
 - Compiler generates **synthesizable Verilog** AND **complete verification**
 - **By construction**, hardware and tests can never diverge
-- Open-source toolchain: Icarus Verilog, cocotb, SymbiYosys, Yosys
+- Leverages open-source toolchain: Icarus Verilog, cocotb, SymbiYosys, Yosys
 
 ---
 
@@ -74,7 +74,7 @@ Generated: 1 rule matcher, decision logic, cocotb tests
 
 | Tool | Hardware Gen | Test Gen | Open Source | Single Spec |
 |------|:-----------:|:--------:|:-----------:|:-----------:|
-| **PacGate** | **Yes** | **Yes** | **Yes** | **Yes** |
+| **PacGate** | **Yes** | **Yes** | Proprietary | **Yes** |
 | Corundum (UW) | Yes | No | Yes | No |
 | NetFPGA | Partial | No | Yes | No |
 | P4/Tofino | Yes | No | No | No |
@@ -227,7 +227,7 @@ pacgate formal my_filter.yaml
 | 2-4 weeks RTL coding | **Minutes** (YAML) |
 | 4-8 weeks verification | **Zero** (auto-generated) |
 | Manual spec tracking | **By construction** |
-| $100K+ tool licenses | **Free** (open source) |
+| $100K+ tool licenses | **Fraction of cost** |
 | Error-prone updates | **Diff + recompile** |
 
 **Conservative estimate: 10-20x faster development cycle**
@@ -242,7 +242,7 @@ pacgate formal my_filter.yaml
 
 ## Slide 11: Technology Stack
 
-### Mature, Open-Source Foundation
+### Mature Technology Foundation
 
 | Component | Technology | Maturity |
 |-----------|-----------|----------|
@@ -254,7 +254,7 @@ pacgate formal my_filter.yaml
 | Synthesis | Yosys | Production |
 | FPGA Target | Xilinx Artix-7 | Production |
 
-No vendor lock-in. No license fees. Full stack open source.
+No EDA vendor lock-in. Built on proven open-source simulation and synthesis tools.
 
 ---
 

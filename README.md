@@ -31,26 +31,26 @@ ___FPGA Packet Switch Verification Gateway___
 
 PacGate is an **FPGA packet filtering compiler** that turns YAML rule definitions into both **synthesizable Verilog hardware** and a **complete verification environment** — from a single specification.
 
-No other open-source tool generates both the hardware implementation *and* the test harness from the same spec. Commercial tools assume the RTL already exists. PacGate generates both, guaranteeing perfect alignment between what you specify, what gets built, and what gets tested.
+No other tool generates both the hardware implementation *and* the test harness from the same spec. Commercial tools assume the RTL already exists. PacGate generates both, guaranteeing perfect alignment between what you specify, what gets built, and what gets tested.
 
 ### One Spec, Four Outputs
 
 ```
-                    ┌──────────────────────────────┐
-                    │         rules.yaml            │
-                    │  ┌──────────────────────────┐ │
+                    ┌────────────────────────────────┐
+                    │         rules.yaml             │
+                    │  ┌───────────────────────────┐ │
                     │  │ - allow_arp:              │ │
                     │  │     ethertype: 0x0806     │ │
                     │  │     action: pass          │ │
                     │  │ - block_broadcast:        │ │
                     │  │     dst_mac: ff:ff:...:ff │ │
                     │  │     action: drop          │ │
-                    │  └──────────────────────────┘ │
-                    └──────────────┬───────────────┘
+                    │  └───────────────────────────┘ │
+                    └──────────────┬─────────────────┘
                                    │
                           pacgate compile
                                    │
-              ┌────────────────────┼────────────────────┐
+              ┌────────────────────┼─────────────────────┐
               ▼                    ▼                     ▼
      ┌────────────────┐  ┌─────────────────┐  ┌──────────────────┐
      │  Verilog RTL   │  │  cocotb Tests   │  │  SVA Assertions  │
@@ -312,7 +312,7 @@ $ pacgate estimate rules/examples/enterprise.yaml
   │ 7 rule matchers │ ~280  │ ~0            │
   │ Decision logic  │ ~35   │ ~2            │
   │ Total           │ ~435  │ ~82           │
-  │ Artix-7 usage   │ 2.1%  │ 0.2%         │
+  │ Artix-7 usage   │ 2.1%  │ 0.2%          │
   └─────────────────┴───────┴───────────────┘
 
   Pipeline: 16 cycles @ 125 MHz = 128 ns latency
@@ -372,7 +372,7 @@ pacgate/
 
 ## License
 
-MIT
+Proprietary. All rights reserved. See [LICENSE](LICENSE) for details.
 
 ---
 
