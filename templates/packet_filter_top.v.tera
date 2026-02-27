@@ -45,6 +45,22 @@ module packet_filter_top (
     wire [23:0] vxlan_vni;
     wire        vxlan_valid;
 
+    // Frame parser outputs — GTP-U
+    wire [31:0] gtp_teid;
+    wire        gtp_valid;
+
+    // Frame parser outputs — MPLS
+    wire [19:0] mpls_label;
+    wire [2:0]  mpls_tc;
+    wire        mpls_bos;
+    wire        mpls_valid;
+
+    // Frame parser outputs — IGMP/MLD
+    wire [7:0]  igmp_type;
+    wire        igmp_valid;
+    wire [7:0]  mld_type;
+    wire        mld_valid;
+
     wire        fields_valid;
 
     frame_parser u_parser (
@@ -73,6 +89,16 @@ module packet_filter_top (
         .l4_valid     (l4_valid),
         .vxlan_vni    (vxlan_vni),
         .vxlan_valid  (vxlan_valid),
+        .gtp_teid     (gtp_teid),
+        .gtp_valid    (gtp_valid),
+        .mpls_label   (mpls_label),
+        .mpls_tc      (mpls_tc),
+        .mpls_bos     (mpls_bos),
+        .mpls_valid   (mpls_valid),
+        .igmp_type    (igmp_type),
+        .igmp_valid   (igmp_valid),
+        .mld_type     (mld_type),
+        .mld_valid    (mld_valid),
         .fields_valid (fields_valid)
     );
 
@@ -122,6 +148,18 @@ module packet_filter_top (
         .src_ipv6     (src_ipv6),
         .dst_ipv6     (dst_ipv6),
         .ipv6_next_header (ipv6_next_header),
+{% endif %}
+{% if has_gtp %}
+        .gtp_teid     (gtp_teid),
+{% endif %}
+{% if has_mpls %}
+        .mpls_label   (mpls_label),
+        .mpls_tc      (mpls_tc),
+        .mpls_bos     (mpls_bos),
+{% endif %}
+{% if has_multicast %}
+        .igmp_type    (igmp_type),
+        .mld_type     (mld_type),
 {% endif %}
 {% if has_byte_capture %}
 {% for cap in byte_captures %}

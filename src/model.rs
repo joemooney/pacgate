@@ -30,6 +30,21 @@ pub struct MatchCriteria {
     pub dst_ipv6: Option<String>,
     #[serde(default)]
     pub ipv6_next_header: Option<u8>,
+    // GTP tunnel (5G)
+    #[serde(default)]
+    pub gtp_teid: Option<u32>,
+    // MPLS label stack
+    #[serde(default)]
+    pub mpls_label: Option<u32>,
+    #[serde(default)]
+    pub mpls_tc: Option<u8>,
+    #[serde(default)]
+    pub mpls_bos: Option<bool>,
+    // Multicast
+    #[serde(default)]
+    pub igmp_type: Option<u8>,
+    #[serde(default)]
+    pub mld_type: Option<u8>,
     // Byte-offset matching
     #[serde(default)]
     pub byte_match: Option<Vec<ByteMatch>>,
@@ -211,6 +226,21 @@ impl MatchCriteria {
     /// Returns true if this criteria uses byte_match
     pub fn uses_byte_match(&self) -> bool {
         self.byte_match.as_ref().map(|v| !v.is_empty()).unwrap_or(false)
+    }
+
+    /// Returns true if this criteria uses GTP tunnel fields
+    pub fn uses_gtp(&self) -> bool {
+        self.gtp_teid.is_some()
+    }
+
+    /// Returns true if this criteria uses MPLS fields
+    pub fn uses_mpls(&self) -> bool {
+        self.mpls_label.is_some() || self.mpls_tc.is_some() || self.mpls_bos.is_some()
+    }
+
+    /// Returns true if this criteria uses multicast fields
+    pub fn uses_multicast(&self) -> bool {
+        self.igmp_type.is_some() || self.mld_type.is_some()
     }
 }
 
@@ -919,5 +949,133 @@ pacgate:
         assert_eq!(fsm.initial_state, "idle");
         assert_eq!(fsm.states.len(), 2);
         assert_eq!(fsm.states["arp_seen"].timeout_cycles, Some(1000));
+    }
+
+    // --- Protocol extension helpers ---
+
+    #[test]
+    fn uses_gtp_true() {
+        let mc = MatchCriteria { gtp_teid: Some(1000), ..Default::default() };
+        assert!(mc.uses_gtp());
+    }
+
+    #[test]
+    fn uses_gtp_false() {
+        let mc = MatchCriteria::default();
+        assert!(!mc.uses_gtp());
+    }
+
+    #[test]
+    fn uses_mpls_label() {
+        let mc = MatchCriteria { mpls_label: Some(100), ..Default::default() };
+        assert!(mc.uses_mpls());
+    }
+
+    #[test]
+    fn uses_mpls_tc() {
+        let mc = MatchCriteria { mpls_tc: Some(7), ..Default::default() };
+        assert!(mc.uses_mpls());
+    }
+
+    #[test]
+    fn uses_mpls_bos() {
+        let mc = MatchCriteria { mpls_bos: Some(true), ..Default::default() };
+        assert!(mc.uses_mpls());
+    }
+
+    #[test]
+    fn uses_multicast_igmp() {
+        let mc = MatchCriteria { igmp_type: Some(17), ..Default::default() };
+        assert!(mc.uses_multicast());
+    }
+
+    #[test]
+    fn uses_multicast_mld() {
+        let mc = MatchCriteria { mld_type: Some(130), ..Default::default() };
+        assert!(mc.uses_multicast());
+    }
+
+    #[test]
+    fn uses_multicast_false() {
+        let mc = MatchCriteria::default();
+        assert!(!mc.uses_multicast());
+    }
+
+    // --- GTP/MPLS/multicast YAML deserialization ---
+
+    #[test]
+    fn deserialize_gtp_rule() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: gtp_test
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17
+        dst_port: 2152
+        gtp_teid: 1000
+      action: pass
+"#;
+        let config: FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let rule = &config.pacgate.rules[0];
+        assert_eq!(rule.match_criteria.gtp_teid, Some(1000));
+        assert_eq!(rule.match_criteria.ip_protocol, Some(17));
+        assert_eq!(rule.match_criteria.dst_port, Some(crate::model::PortMatch::Exact(2152)));
+    }
+
+    #[test]
+    fn deserialize_mpls_rule() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: mpls_test
+      priority: 100
+      match:
+        ethertype: "0x8847"
+        mpls_label: 200
+        mpls_tc: 5
+        mpls_bos: true
+      action: pass
+"#;
+        let config: FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let rule = &config.pacgate.rules[0];
+        assert_eq!(rule.match_criteria.mpls_label, Some(200));
+        assert_eq!(rule.match_criteria.mpls_tc, Some(5));
+        assert_eq!(rule.match_criteria.mpls_bos, Some(true));
+    }
+
+    #[test]
+    fn deserialize_multicast_rule() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: pass
+  rules:
+    - name: igmp_test
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 2
+        igmp_type: 22
+      action: pass
+    - name: mld_test
+      priority: 90
+      match:
+        ethertype: "0x86DD"
+        ipv6_next_header: 58
+        mld_type: 131
+      action: pass
+"#;
+        let config: FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.pacgate.rules[0].match_criteria.igmp_type, Some(22));
+        assert_eq!(config.pacgate.rules[1].match_criteria.mld_type, Some(131));
     }
 }

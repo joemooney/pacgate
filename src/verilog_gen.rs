@@ -4,6 +4,14 @@ use tera::Tera;
 
 use crate::model::{Action, FilterConfig, Ipv4Prefix, Ipv6Prefix, MacAddress, PortMatch, parse_ethertype};
 
+/// Global protocol flags — ensures all rule modules in a design have consistent port lists
+struct GlobalProtocolFlags {
+    has_ipv6: bool,
+    has_gtp: bool,
+    has_mpls: bool,
+    has_multicast: bool,
+}
+
 fn build_condition_expr(mc: &crate::model::MatchCriteria) -> Result<String> {
     let mut conditions: Vec<String> = Vec::new();
 
@@ -129,6 +137,30 @@ fn build_condition_expr(mc: &crate::model::MatchCriteria) -> Result<String> {
         conditions.push(format!("(vxlan_vni == 24'd{})", vni));
     }
 
+    // GTP-U TEID
+    if let Some(teid) = mc.gtp_teid {
+        conditions.push(format!("(gtp_teid == 32'd{})", teid));
+    }
+
+    // MPLS fields
+    if let Some(label) = mc.mpls_label {
+        conditions.push(format!("(mpls_label == 20'd{})", label));
+    }
+    if let Some(tc) = mc.mpls_tc {
+        conditions.push(format!("(mpls_tc == 3'd{})", tc));
+    }
+    if let Some(bos) = mc.mpls_bos {
+        conditions.push(format!("(mpls_bos == 1'b{})", if bos { 1 } else { 0 }));
+    }
+
+    // Multicast fields
+    if let Some(igmp) = mc.igmp_type {
+        conditions.push(format!("(igmp_type == 8'd{})", igmp));
+    }
+    if let Some(mld) = mc.mld_type {
+        conditions.push(format!("(mld_type == 8'd{})", mld));
+    }
+
     // Byte-offset matching
     if let Some(ref byte_matches) = mc.byte_match {
         for bm in byte_matches {
@@ -171,16 +203,7 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
     // Collect byte_match offsets for byte_capture generation
     let byte_offsets = collect_byte_match_offsets(config);
 
-    // Separate stateless and stateful rules (both get indices in priority order)
-    for (idx, rule) in rules.iter().enumerate() {
-        if rule.is_stateful() {
-            // Generate FSM module (with HSM flattening if needed)
-            generate_fsm_rule(&tera, &rtl_dir, idx, rule, &byte_offsets)?;
-        } else {
-            // Generate combinational matcher
-            generate_stateless_rule(&tera, &rtl_dir, idx, rule, &byte_offsets)?;
-        }
-    }
+    // Per-rule generation is done after global protocol flags are computed (below)
 
     // Generate decision logic
     {
@@ -245,12 +268,37 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         }
     });
 
+    // Check for protocol extension features
+    let has_gtp = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_gtp());
+    let has_mpls = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_mpls());
+    let has_multicast = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_multicast());
+
+    // Global protocol flags — all rules in a design must have consistent port lists
+    let global_protos = GlobalProtocolFlags {
+        has_ipv6,
+        has_gtp,
+        has_mpls,
+        has_multicast,
+    };
+
+    // Generate per-rule matchers (stateless: combinational, stateful: registered FSM)
+    for (idx, rule) in rules.iter().enumerate() {
+        if rule.is_stateful() {
+            generate_fsm_rule(&tera, &rtl_dir, idx, rule, &byte_offsets, &global_protos)?;
+        } else {
+            generate_stateless_rule(&tera, &rtl_dir, idx, rule, &byte_offsets, &global_protos)?;
+        }
+    }
+
     // Generate top-level
     {
         let mut ctx = tera::Context::new();
         ctx.insert("num_rules", &rules.len());
         ctx.insert("has_byte_capture", &has_byte_capture);
         ctx.insert("has_ipv6", &has_ipv6);
+        ctx.insert("has_gtp", &has_gtp);
+        ctx.insert("has_mpls", &has_mpls);
+        ctx.insert("has_multicast", &has_multicast);
 
         let byte_cap_info: Vec<std::collections::HashMap<String, serde_json::Value>> = byte_offsets.iter().map(|(offset, len)| {
             let mut map = std::collections::HashMap::new();
@@ -408,7 +456,7 @@ pub fn collect_byte_match_offsets(config: &FilterConfig) -> Vec<(u16, usize)> {
 
 fn generate_stateless_rule(
     tera: &Tera, rtl_dir: &Path, idx: usize, rule: &crate::model::StatelessRule,
-    byte_offsets: &[(u16, usize)],
+    byte_offsets: &[(u16, usize)], global_protos: &GlobalProtocolFlags,
 ) -> Result<()> {
     let mut ctx = tera::Context::new();
     ctx.insert("rule_index", &idx);
@@ -418,7 +466,11 @@ fn generate_stateless_rule(
 
     let has_byte_capture = !byte_offsets.is_empty();
     ctx.insert("has_byte_capture", &has_byte_capture);
-    ctx.insert("has_ipv6", &rule.match_criteria.uses_ipv6());
+    // Use global flags so all rules have consistent port lists
+    ctx.insert("has_ipv6", &global_protos.has_ipv6);
+    ctx.insert("has_gtp", &global_protos.has_gtp);
+    ctx.insert("has_mpls", &global_protos.has_mpls);
+    ctx.insert("has_multicast", &global_protos.has_multicast);
     let byte_cap_info: Vec<std::collections::HashMap<String, serde_json::Value>> = byte_offsets.iter().map(|(offset, len)| {
         let mut map = std::collections::HashMap::new();
         map.insert("offset".to_string(), serde_json::json!(offset));
@@ -622,7 +674,7 @@ pub fn parse_fsm_action(action: &str, variables: &[crate::model::FsmVariable]) -
 
 fn generate_fsm_rule(
     tera: &Tera, rtl_dir: &Path, idx: usize, rule: &crate::model::StatelessRule,
-    byte_offsets: &[(u16, usize)],
+    byte_offsets: &[(u16, usize)], global_protos: &GlobalProtocolFlags,
 ) -> Result<()> {
     let raw_fsm = rule.fsm.as_ref().unwrap();
 
@@ -740,11 +792,11 @@ fn generate_fsm_rule(
     }).collect();
     ctx.insert("byte_captures", &byte_cap_info);
 
-    // Check if any transition in this FSM uses IPv6
-    let fsm_uses_ipv6 = fsm.states.values().any(|s| {
-        s.transitions.iter().any(|t| t.match_criteria.uses_ipv6())
-    });
-    ctx.insert("has_ipv6", &fsm_uses_ipv6);
+    // Use global flags so all rules have consistent port lists
+    ctx.insert("has_ipv6", &global_protos.has_ipv6);
+    ctx.insert("has_gtp", &global_protos.has_gtp);
+    ctx.insert("has_mpls", &global_protos.has_mpls);
+    ctx.insert("has_multicast", &global_protos.has_multicast);
 
     let rendered = tera.render("rule_fsm.v.tera", &ctx)
         .with_context(|| format!("Failed to render rule_fsm for rule {}", rule.name))?;

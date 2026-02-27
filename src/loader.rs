@@ -387,6 +387,7 @@ pub fn check_rule_overlaps(rules: &[crate::model::StatelessRule]) -> Vec<String>
             && mc.vxlan_vni.is_none()
             && mc.src_ipv6.is_none() && mc.dst_ipv6.is_none() && mc.ipv6_next_header.is_none()
             && !mc.uses_byte_match()
+            && !mc.uses_gtp() && !mc.uses_mpls() && !mc.uses_multicast()
         {
             warnings.push(format!(
                 "rule '{}' (priority {}) has no match criteria — matches ALL packets",

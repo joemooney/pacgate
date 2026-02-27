@@ -3,11 +3,17 @@
 //           src_ip, dst_ip, ip_protocol, src_port, dst_port (IPv4/TCP/UDP)
 //           src_ipv6, dst_ipv6, ipv6_next_header (IPv6)
 //           vxlan_vni (VXLAN Network Identifier)
+//           gtp_teid (GTP-U Tunnel Endpoint ID, 5G)
+//           mpls_label, mpls_tc, mpls_bos (MPLS label stack)
+//           igmp_type (IGMP message type), mld_type (MLD message type)
 // Handles 802.1Q VLAN-tagged frames (EtherType 0x8100)
 // Handles IPv4 header parsing (20-byte fixed, IHL=5)
 // Handles IPv6 header parsing (40-byte fixed)
 // Handles TCP/UDP port extraction (first 4 bytes of L4 header)
 // Handles VXLAN tunnel detection (UDP dst port 4789)
+// Handles GTP-U tunnel detection (UDP dst port 2152)
+// Handles MPLS label stack parsing (EtherType 0x8847/0x8848)
+// Handles IGMP (IPv4 protocol 2) and MLD (ICMPv6 type 130-132)
 //
 // Interface: simple byte-stream (not AXI-Stream)
 //   pkt_data[7:0], pkt_valid, pkt_sof, pkt_eof — input
@@ -52,6 +58,22 @@ module frame_parser (
     output reg  [23:0] vxlan_vni,
     output reg         vxlan_valid, // frame is VXLAN-encapsulated
 
+    // GTP-U fields (5G tunnel)
+    output reg  [31:0] gtp_teid,
+    output reg         gtp_valid,   // frame is GTP-U encapsulated
+
+    // MPLS fields
+    output reg  [19:0] mpls_label,
+    output reg  [2:0]  mpls_tc,
+    output reg         mpls_bos,
+    output reg         mpls_valid,  // frame has MPLS label
+
+    // IGMP/MLD fields
+    output reg  [7:0]  igmp_type,
+    output reg         igmp_valid,  // frame has IGMP message
+    output reg  [7:0]  mld_type,
+    output reg         mld_valid,   // frame has MLD message
+
     output reg         fields_valid // pulse: all header fields extracted
 );
 
@@ -67,8 +89,11 @@ module frame_parser (
     localparam S_VXLAN_HDR = 4'd8;  // VXLAN header (8 bytes)
     localparam S_PAYLOAD   = 4'd9;
     localparam S_IPV6_HDR  = 4'd10; // IPv6 header (40 bytes)
+    localparam S_GTP_HDR   = 4'd11; // GTP-U header (8 bytes min)
+    localparam S_MPLS_HDR  = 4'd12; // MPLS label stack
+    localparam S_IGMP_HDR  = 4'd13; // IGMP message header
 
-    reg [3:0] state;
+    reg [4:0] state;
     reg [5:0] byte_cnt;  // counts bytes within current state (up to 39 for IPv6)
 
     always @(posedge clk or negedge rst_n) begin
@@ -94,6 +119,16 @@ module frame_parser (
             l4_valid     <= 1'b0;
             vxlan_vni    <= 24'd0;
             vxlan_valid  <= 1'b0;
+            gtp_teid     <= 32'd0;
+            gtp_valid    <= 1'b0;
+            mpls_label   <= 20'd0;
+            mpls_tc      <= 3'd0;
+            mpls_bos     <= 1'b0;
+            mpls_valid   <= 1'b0;
+            igmp_type    <= 8'd0;
+            igmp_valid   <= 1'b0;
+            mld_type     <= 8'd0;
+            mld_valid    <= 1'b0;
             fields_valid <= 1'b0;
         end else begin
             fields_valid <= 1'b0;  // default: deassert
@@ -121,6 +156,16 @@ module frame_parser (
                 l4_valid <= 1'b0;
                 vxlan_vni   <= 24'd0;
                 vxlan_valid <= 1'b0;
+                gtp_teid    <= 32'd0;
+                gtp_valid   <= 1'b0;
+                mpls_label  <= 20'd0;
+                mpls_tc     <= 3'd0;
+                mpls_bos    <= 1'b0;
+                mpls_valid  <= 1'b0;
+                igmp_type   <= 8'd0;
+                igmp_valid  <= 1'b0;
+                mld_type    <= 8'd0;
+                mld_valid   <= 1'b0;
             end else if (pkt_valid) begin
                 case (state)
                     S_DST_MAC: begin
@@ -164,6 +209,11 @@ module frame_parser (
                             else if (ethertype[15:8] == 8'h86 && pkt_data == 8'hDD) begin
                                 state    <= S_IPV6_HDR;
                                 byte_cnt <= 6'd0;
+                            end
+                            // Check for MPLS (0x8847 unicast or 0x8848 multicast)
+                            else if (ethertype[15:8] == 8'h88 && (pkt_data == 8'h47 || pkt_data == 8'h48)) begin
+                                state    <= S_MPLS_HDR;
+                                byte_cnt <= 6'd0;
                             end else begin
                                 state        <= S_PAYLOAD;
                                 fields_valid <= 1'b1;
@@ -200,6 +250,11 @@ module frame_parser (
                             else if (ethertype[15:8] == 8'h86 && pkt_data == 8'hDD) begin
                                 state    <= S_IPV6_HDR;
                                 byte_cnt <= 6'd0;
+                            end
+                            // Check for MPLS after VLAN
+                            else if (ethertype[15:8] == 8'h88 && (pkt_data == 8'h47 || pkt_data == 8'h48)) begin
+                                state    <= S_MPLS_HDR;
+                                byte_cnt <= 6'd0;
                             end else begin
                                 state        <= S_PAYLOAD;
                                 fields_valid <= 1'b1;
@@ -228,6 +283,11 @@ module frame_parser (
                                 if (ip_protocol == 8'd6 || ip_protocol == 8'd17) begin
                                     state    <= S_L4_HDR;
                                     byte_cnt <= 6'd0;
+                                end
+                                // Check for IGMP (protocol 2)
+                                else if (ip_protocol == 8'd2) begin
+                                    state    <= S_IGMP_HDR;
+                                    byte_cnt <= 6'd0;
                                 end else begin
                                     state        <= S_PAYLOAD;
                                     fields_valid <= 1'b1;
@@ -252,13 +312,20 @@ module frame_parser (
                             6'd3: begin
                                 dst_port[7:0] <= pkt_data;
                                 l4_valid     <= 1'b1;
-                                // Check for VXLAN: UDP (protocol already checked) + dst port 4789
+                                // Check for VXLAN: UDP + dst port 4789 (0x12B5)
                                 if (ip_protocol == 8'd17 &&
                                     dst_port[15:8] == 8'h12 && pkt_data == 8'hB5) begin
-                                    // dst_port == 16'd4789 (0x12B5)
                                     // Skip 4 bytes of remaining UDP header (length + checksum)
                                     // then parse 8-byte VXLAN header
                                     state    <= S_VXLAN_HDR;
+                                    byte_cnt <= 6'd0;
+                                end
+                                // Check for GTP-U: UDP + dst port 2152 (0x0868)
+                                else if (ip_protocol == 8'd17 &&
+                                         dst_port[15:8] == 8'h08 && pkt_data == 8'h68) begin
+                                    // Skip 4 bytes of remaining UDP header
+                                    // then parse 8-byte GTP-U header
+                                    state    <= S_GTP_HDR;
                                     byte_cnt <= 6'd0;
                                 end else begin
                                     state        <= S_PAYLOAD;
@@ -343,6 +410,11 @@ module frame_parser (
                                 if (ipv6_next_header == 8'd6 || ipv6_next_header == 8'd17) begin
                                     state    <= S_L4_HDR;
                                     byte_cnt <= 6'd0;
+                                end
+                                // Check for ICMPv6 (next header 58) — may contain MLD
+                                else if (ipv6_next_header == 8'd58) begin
+                                    state    <= S_IGMP_HDR;  // reuse for MLD (first byte = type)
+                                    byte_cnt <= 6'd0;
                                 end else begin
                                     state        <= S_PAYLOAD;
                                     fields_valid <= 1'b1;
@@ -353,6 +425,79 @@ module frame_parser (
 
                         if (byte_cnt != 6'd39) begin
                             byte_cnt <= byte_cnt + 6'd1;
+                        end
+                    end
+
+                    S_GTP_HDR: begin
+                        // GTP-U header: 4 bytes UDP remainder + 8 bytes GTP
+                        // Bytes 0-3: UDP length + checksum (skip)
+                        // Byte 4: GTP flags
+                        // Byte 5: GTP message type
+                        // Bytes 6-7: GTP length
+                        // Bytes 8-11: TEID (32-bit Tunnel Endpoint ID)
+                        case (byte_cnt)
+                            6'd8:  gtp_teid[31:24] <= pkt_data;
+                            6'd9:  gtp_teid[23:16] <= pkt_data;
+                            6'd10: gtp_teid[15:8]  <= pkt_data;
+                            6'd11: begin
+                                gtp_teid[7:0] <= pkt_data;
+                                gtp_valid    <= 1'b1;
+                                state        <= S_PAYLOAD;
+                                fields_valid <= 1'b1;
+                            end
+                            default: ;
+                        endcase
+
+                        if (byte_cnt != 6'd11) begin
+                            byte_cnt <= byte_cnt + 6'd1;
+                        end
+                    end
+
+                    S_MPLS_HDR: begin
+                        // MPLS label entry: 4 bytes per label
+                        // Bits 31-12: Label (20 bits)
+                        // Bits 11-9: TC (Traffic Class, 3 bits)
+                        // Bit 8: S (Bottom of Stack)
+                        // Bits 7-0: TTL
+                        // We parse only the first label entry
+                        case (byte_cnt)
+                            6'd0: mpls_label[19:12] <= pkt_data;
+                            6'd1: begin
+                                mpls_label[11:4] <= pkt_data;
+                            end
+                            6'd2: begin
+                                mpls_label[3:0] <= pkt_data[7:4];
+                                mpls_tc         <= pkt_data[3:1];
+                                mpls_bos        <= pkt_data[0];
+                            end
+                            6'd3: begin
+                                // TTL byte — done with first label
+                                mpls_valid   <= 1'b1;
+                                state        <= S_PAYLOAD;
+                                fields_valid <= 1'b1;
+                            end
+                        endcase
+
+                        if (byte_cnt != 6'd3) begin
+                            byte_cnt <= byte_cnt + 6'd1;
+                        end
+                    end
+
+                    S_IGMP_HDR: begin
+                        // IGMP/MLD: first byte is the message type
+                        if (byte_cnt == 6'd0) begin
+                            // For IPv4 IGMP (protocol 2): igmp_type
+                            // For IPv6 ICMPv6 (next_header 58): could be MLD
+                            if (ipv6_valid) begin
+                                // ICMPv6 type: MLD types are 130-132
+                                mld_type  <= pkt_data;
+                                mld_valid <= 1'b1;
+                            end else begin
+                                igmp_type  <= pkt_data;
+                                igmp_valid <= 1'b1;
+                            end
+                            state        <= S_PAYLOAD;
+                            fields_valid <= 1'b1;
                         end
                     end
 

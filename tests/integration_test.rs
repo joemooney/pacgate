@@ -1680,3 +1680,193 @@ fn all_examples_lint() {
         }
     }
 }
+
+// ---- Phase 12: Protocol Extensions ----
+
+#[test]
+fn compile_gtp_5g() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/gtp_5g.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // Verify GTP TEID appears in generated Verilog
+    let rule0 = std::fs::read_to_string(tmp.path().join("rtl/rule_match_0.v")).unwrap();
+    assert!(rule0.contains("gtp_teid"), "rule_match_0 should have gtp_teid port");
+    assert!(rule0.contains("gtp_teid == 32'd1000"), "rule_match_0 should match TEID 1000");
+
+    // Verify all rules have gtp_teid port (consistent interface)
+    let rule2 = std::fs::read_to_string(tmp.path().join("rtl/rule_match_2.v")).unwrap();
+    assert!(rule2.contains("gtp_teid"), "rule_match_2 should also have gtp_teid port");
+}
+
+#[test]
+fn compile_mpls_network() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/mpls_network.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // Verify MPLS fields in generated Verilog
+    let rule0 = std::fs::read_to_string(tmp.path().join("rtl/rule_match_0.v")).unwrap();
+    assert!(rule0.contains("mpls_label"), "rule_match_0 should have mpls_label port");
+    assert!(rule0.contains("mpls_label == 20'd100"), "rule_match_0 should match label 100");
+
+    let rule1 = std::fs::read_to_string(tmp.path().join("rtl/rule_match_1.v")).unwrap();
+    assert!(rule1.contains("mpls_bos"), "rule_match_1 should have mpls_bos port");
+}
+
+#[test]
+fn compile_multicast() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/multicast.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // Verify IGMP and MLD fields in generated Verilog
+    let rule0 = std::fs::read_to_string(tmp.path().join("rtl/rule_match_0.v")).unwrap();
+    assert!(rule0.contains("igmp_type"), "rule_match_0 should have igmp_type port");
+    assert!(rule0.contains("igmp_type == 8'd17"), "rule_match_0 should match IGMP query type 17");
+
+    // MLD rule
+    let rule2 = std::fs::read_to_string(tmp.path().join("rtl/rule_match_2.v")).unwrap();
+    assert!(rule2.contains("mld_type"), "rule_match_2 should have mld_type port");
+    assert!(rule2.contains("mld_type == 8'd130"), "rule_match_2 should match MLD query type 130");
+}
+
+#[test]
+fn simulate_gtp_tunnel_match() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/gtp_5g.yaml",
+               "--packet", "ethertype=0x0800,ip_protocol=17,dst_port=2152,gtp_teid=1000"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("allow_gtp_tunnel_1"), "should match GTP tunnel 1");
+    assert!(stdout.contains("PASS"), "should pass");
+}
+
+#[test]
+fn simulate_gtp_tunnel_2_match() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/gtp_5g.yaml",
+               "--packet", "ethertype=0x0800,ip_protocol=17,dst_port=2152,gtp_teid=2000"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("allow_gtp_tunnel_2"), "should match GTP tunnel 2");
+}
+
+#[test]
+fn simulate_gtp_unknown_teid_dropped() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/gtp_5g.yaml",
+               "--packet", "ethertype=0x0800,ip_protocol=17,dst_port=2152,gtp_teid=9999"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("block_unknown_gtp"), "should match block rule");
+    assert!(stdout.contains("DROP"), "unknown TEID should be dropped");
+}
+
+#[test]
+fn simulate_mpls_label_match() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/mpls_network.yaml",
+               "--packet", "ethertype=0x8847,mpls_label=200,mpls_bos=true"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("allow_mpls_vpn_200"), "should match MPLS VPN 200");
+    assert!(stdout.contains("PASS"), "should pass");
+}
+
+#[test]
+fn simulate_mpls_tc_match() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/mpls_network.yaml",
+               "--packet", "ethertype=0x8847,mpls_tc=7"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("allow_mpls_priority"), "should match MPLS priority rule");
+}
+
+#[test]
+fn simulate_igmp_query() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/multicast.yaml",
+               "--packet", "ethertype=0x0800,ip_protocol=2,igmp_type=17"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("allow_igmp_membership_query"), "should match IGMP query");
+    assert!(stdout.contains("PASS"), "should pass");
+}
+
+#[test]
+fn simulate_mld_listener_query() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/multicast.yaml",
+               "--packet", "ethertype=0x86DD,ipv6_next_header=58,mld_type=130"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("allow_mld_listener_query"), "should match MLD listener query");
+    assert!(stdout.contains("PASS"), "should pass");
+}
+
+#[test]
+fn simulate_gtp_json_output() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/gtp_5g.yaml",
+               "--packet", "ethertype=0x0800,ip_protocol=17,dst_port=2152,gtp_teid=1000",
+               "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["action"], "pass");
+    assert_eq!(json["matched_rule"], "allow_gtp_tunnel_1");
+    let fields = json["fields"].as_array().unwrap();
+    assert!(fields.iter().any(|f| f["field"] == "gtp_teid"), "should include gtp_teid in fields");
+}
+
+#[test]
+fn gtp_top_level_has_parser_connections() {
+    let tmp = tempfile::tempdir().unwrap();
+    pacgate_bin()
+        .args(["compile", "rules/examples/gtp_5g.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    let top = std::fs::read_to_string(tmp.path().join("rtl/packet_filter_top.v")).unwrap();
+    assert!(top.contains(".gtp_teid"), "top-level should connect gtp_teid to parser");
+    assert!(top.contains("wire [31:0] gtp_teid"), "top-level should declare gtp_teid wire");
+}
+
+#[test]
+fn mpls_top_level_has_parser_connections() {
+    let tmp = tempfile::tempdir().unwrap();
+    pacgate_bin()
+        .args(["compile", "rules/examples/mpls_network.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    let top = std::fs::read_to_string(tmp.path().join("rtl/packet_filter_top.v")).unwrap();
+    assert!(top.contains(".mpls_label"), "top-level should connect mpls_label to parser");
+    assert!(top.contains(".mpls_tc"), "top-level should connect mpls_tc to parser");
+    assert!(top.contains(".mpls_bos"), "top-level should connect mpls_bos to parser");
+}

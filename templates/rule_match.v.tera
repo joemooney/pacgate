@@ -18,6 +18,18 @@ module rule_match_{{ rule_index }} (
     input  wire [127:0] dst_ipv6,
     input  wire [7:0]   ipv6_next_header,
 {% endif %}
+{% if has_gtp %}
+    input  wire [31:0] gtp_teid,
+{% endif %}
+{% if has_mpls %}
+    input  wire [19:0] mpls_label,
+    input  wire [2:0]  mpls_tc,
+    input  wire        mpls_bos,
+{% endif %}
+{% if has_multicast %}
+    input  wire [7:0]  igmp_type,
+    input  wire [7:0]  mld_type,
+{% endif %}
 {% if has_byte_capture %}
 {% for cap in byte_captures %}
     input  wire [{{ cap.bit_width - 1 }}:0] byte_cap_{{ cap.offset }},

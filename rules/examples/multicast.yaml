@@ -1,0 +1,44 @@
+pacgate:
+  version: "1.0"
+  defaults:
+    action: pass
+
+  rules:
+    - name: allow_igmp_membership_query
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 2
+        igmp_type: 17
+      action: pass
+
+    - name: allow_igmp_report_v2
+      priority: 90
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 2
+        igmp_type: 22
+      action: pass
+
+    - name: allow_mld_listener_query
+      priority: 80
+      match:
+        ethertype: "0x86DD"
+        ipv6_next_header: 58
+        mld_type: 130
+      action: pass
+
+    - name: allow_mld_listener_report
+      priority: 70
+      match:
+        ethertype: "0x86DD"
+        ipv6_next_header: 58
+        mld_type: 131
+      action: pass
+
+    - name: block_unknown_igmp
+      priority: 50
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 2
+      action: drop

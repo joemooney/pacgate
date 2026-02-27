@@ -1,0 +1,31 @@
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+
+  rules:
+    - name: allow_gtp_tunnel_1
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17
+        dst_port: 2152
+        gtp_teid: 1000
+      action: pass
+
+    - name: allow_gtp_tunnel_2
+      priority: 90
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17
+        dst_port: 2152
+        gtp_teid: 2000
+      action: pass
+
+    - name: block_unknown_gtp
+      priority: 50
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17
+        dst_port: 2152
+      action: drop

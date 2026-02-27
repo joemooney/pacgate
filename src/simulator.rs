@@ -19,6 +19,12 @@ pub struct SimPacket {
     pub dst_ipv6: Option<String>,
     pub ipv6_next_header: Option<u8>,
     pub raw_bytes: Option<Vec<u8>>,
+    pub gtp_teid: Option<u32>,
+    pub mpls_label: Option<u32>,
+    pub mpls_tc: Option<u8>,
+    pub mpls_bos: Option<bool>,
+    pub igmp_type: Option<u8>,
+    pub mld_type: Option<u8>,
 }
 
 /// Result of simulating a packet against the rule set
@@ -102,6 +108,24 @@ pub fn parse_packet_spec(spec: &str) -> Result<SimPacket> {
             }
             "raw_bytes" => {
                 pkt.raw_bytes = Some(parse_hex_bytes(value)?);
+            }
+            "gtp_teid" => {
+                pkt.gtp_teid = Some(value.parse().map_err(|e| anyhow::anyhow!("Bad gtp_teid '{}': {}", value, e))?);
+            }
+            "mpls_label" => {
+                pkt.mpls_label = Some(value.parse().map_err(|e| anyhow::anyhow!("Bad mpls_label '{}': {}", value, e))?);
+            }
+            "mpls_tc" => {
+                pkt.mpls_tc = Some(value.parse().map_err(|e| anyhow::anyhow!("Bad mpls_tc '{}': {}", value, e))?);
+            }
+            "mpls_bos" => {
+                pkt.mpls_bos = Some(value == "true" || value == "1");
+            }
+            "igmp_type" => {
+                pkt.igmp_type = Some(value.parse().map_err(|e| anyhow::anyhow!("Bad igmp_type '{}': {}", value, e))?);
+            }
+            "mld_type" => {
+                pkt.mld_type = Some(value.parse().map_err(|e| anyhow::anyhow!("Bad mld_type '{}': {}", value, e))?);
             }
             _ => bail!("Unknown packet field '{}'", key),
         }
@@ -333,6 +357,84 @@ pub fn match_criteria_against_packet(mc: &MatchCriteria, pkt: &SimPacket) -> (bo
         fields.push(FieldMatch {
             field: "ipv6_next_header".to_string(),
             rule_value: rule_nh.to_string(),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // GTP TEID
+    if let Some(teid) = mc.gtp_teid {
+        let pkt_val = pkt.gtp_teid.map(|v| v.to_string()).unwrap_or("none".to_string());
+        let matches = pkt.gtp_teid.map(|v| v == teid).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "gtp_teid".to_string(),
+            rule_value: teid.to_string(),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // MPLS label
+    if let Some(label) = mc.mpls_label {
+        let pkt_val = pkt.mpls_label.map(|v| v.to_string()).unwrap_or("none".to_string());
+        let matches = pkt.mpls_label.map(|v| v == label).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "mpls_label".to_string(),
+            rule_value: label.to_string(),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // MPLS TC
+    if let Some(tc) = mc.mpls_tc {
+        let pkt_val = pkt.mpls_tc.map(|v| v.to_string()).unwrap_or("none".to_string());
+        let matches = pkt.mpls_tc.map(|v| v == tc).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "mpls_tc".to_string(),
+            rule_value: tc.to_string(),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // MPLS BOS
+    if let Some(bos) = mc.mpls_bos {
+        let pkt_val = pkt.mpls_bos.map(|v| v.to_string()).unwrap_or("none".to_string());
+        let matches = pkt.mpls_bos.map(|v| v == bos).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "mpls_bos".to_string(),
+            rule_value: bos.to_string(),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // IGMP type
+    if let Some(igmp) = mc.igmp_type {
+        let pkt_val = pkt.igmp_type.map(|v| v.to_string()).unwrap_or("none".to_string());
+        let matches = pkt.igmp_type.map(|v| v == igmp).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "igmp_type".to_string(),
+            rule_value: igmp.to_string(),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // MLD type
+    if let Some(mld) = mc.mld_type {
+        let pkt_val = pkt.mld_type.map(|v| v.to_string()).unwrap_or("none".to_string());
+        let matches = pkt.mld_type.map(|v| v == mld).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "mld_type".to_string(),
+            rule_value: mld.to_string(),
             packet_value: pkt_val,
             matches,
         });
@@ -1039,5 +1141,139 @@ mod tests {
     fn parse_raw_bytes_in_packet_spec() {
         let pkt = parse_packet_spec("raw_bytes=0x4500deadbeef").unwrap();
         assert_eq!(pkt.raw_bytes, Some(vec![0x45, 0x00, 0xde, 0xad, 0xbe, 0xef]));
+    }
+
+    // --- GTP/MPLS/multicast simulation ---
+
+    #[test]
+    fn parse_gtp_teid() {
+        let pkt = parse_packet_spec("gtp_teid=1000").unwrap();
+        assert_eq!(pkt.gtp_teid, Some(1000));
+    }
+
+    #[test]
+    fn parse_mpls_fields() {
+        let pkt = parse_packet_spec("mpls_label=200,mpls_tc=7,mpls_bos=true").unwrap();
+        assert_eq!(pkt.mpls_label, Some(200));
+        assert_eq!(pkt.mpls_tc, Some(7));
+        assert_eq!(pkt.mpls_bos, Some(true));
+    }
+
+    #[test]
+    fn parse_igmp_type() {
+        let pkt = parse_packet_spec("igmp_type=17").unwrap();
+        assert_eq!(pkt.igmp_type, Some(17));
+    }
+
+    #[test]
+    fn parse_mld_type() {
+        let pkt = parse_packet_spec("mld_type=130").unwrap();
+        assert_eq!(pkt.mld_type, Some(130));
+    }
+
+    #[test]
+    fn simulate_gtp_teid_match() {
+        let rules = vec![
+            StatelessRule {
+                name: "allow_tunnel".into(),
+                priority: 100,
+                match_criteria: MatchCriteria {
+                    gtp_teid: Some(1000),
+                    ..Default::default()
+                },
+                action: Some(Action::Pass),
+                rule_type: None,
+                fsm: None,
+                ports: None,
+                rate_limit: None,
+            },
+        ];
+        let config = make_config(rules, Action::Drop);
+        let mut pkt = SimPacket::default();
+        pkt.gtp_teid = Some(1000);
+        assert_eq!(simulate(&config, &pkt).action, Action::Pass);
+
+        // Wrong TEID → default drop
+        pkt.gtp_teid = Some(9999);
+        assert_eq!(simulate(&config, &pkt).action, Action::Drop);
+    }
+
+    #[test]
+    fn simulate_mpls_label_match() {
+        let rules = vec![
+            StatelessRule {
+                name: "allow_vpn".into(),
+                priority: 100,
+                match_criteria: MatchCriteria {
+                    mpls_label: Some(200),
+                    mpls_bos: Some(true),
+                    ..Default::default()
+                },
+                action: Some(Action::Pass),
+                rule_type: None,
+                fsm: None,
+                ports: None,
+                rate_limit: None,
+            },
+        ];
+        let config = make_config(rules, Action::Drop);
+        let mut pkt = SimPacket::default();
+        pkt.mpls_label = Some(200);
+        pkt.mpls_bos = Some(true);
+        assert_eq!(simulate(&config, &pkt).action, Action::Pass);
+
+        // Wrong label → drop
+        pkt.mpls_label = Some(300);
+        assert_eq!(simulate(&config, &pkt).action, Action::Drop);
+    }
+
+    #[test]
+    fn simulate_igmp_type_match() {
+        let rules = vec![
+            StatelessRule {
+                name: "allow_igmp".into(),
+                priority: 100,
+                match_criteria: MatchCriteria {
+                    igmp_type: Some(17),
+                    ..Default::default()
+                },
+                action: Some(Action::Pass),
+                rule_type: None,
+                fsm: None,
+                ports: None,
+                rate_limit: None,
+            },
+        ];
+        let config = make_config(rules, Action::Drop);
+        let mut pkt = SimPacket::default();
+        pkt.igmp_type = Some(17);
+        assert_eq!(simulate(&config, &pkt).action, Action::Pass);
+
+        // Wrong type → drop
+        pkt.igmp_type = Some(22);
+        assert_eq!(simulate(&config, &pkt).action, Action::Drop);
+    }
+
+    #[test]
+    fn simulate_mld_type_match() {
+        let rules = vec![
+            StatelessRule {
+                name: "allow_mld".into(),
+                priority: 100,
+                match_criteria: MatchCriteria {
+                    mld_type: Some(130),
+                    ..Default::default()
+                },
+                action: Some(Action::Pass),
+                rule_type: None,
+                fsm: None,
+                ports: None,
+                rate_limit: None,
+            },
+        ];
+        let config = make_config(rules, Action::Drop);
+        let mut pkt = SimPacket::default();
+        pkt.mld_type = Some(130);
+        assert_eq!(simulate(&config, &pkt).action, Action::Pass);
     }
 }

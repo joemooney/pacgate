@@ -1,0 +1,27 @@
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+
+  rules:
+    - name: allow_mpls_vpn_100
+      priority: 100
+      match:
+        ethertype: "0x8847"
+        mpls_label: 100
+      action: pass
+
+    - name: allow_mpls_vpn_200
+      priority: 90
+      match:
+        ethertype: "0x8847"
+        mpls_label: 200
+        mpls_bos: true
+      action: pass
+
+    - name: allow_mpls_priority
+      priority: 80
+      match:
+        ethertype: "0x8847"
+        mpls_tc: 7
+      action: pass
