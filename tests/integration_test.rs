@@ -508,7 +508,49 @@ fn pcap_import() {
     assert!(stimulus.contains("PCAP_FRAMES"), "missing PCAP_FRAMES");
 }
 
-// ── Byte-Match Integration Tests ──────────────────────────────────
+// ── Mermaid Integration Tests ──────────────────────────────────
+
+#[test]
+fn from_mermaid_generates_yaml() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mermaid_path = tmp.path().join("test.md");
+    std::fs::write(&mermaid_path, r#"
+stateDiagram-v2
+    [*] --> idle
+    idle --> seen: [ethertype=0x0806]/pass
+    note right of seen: timeout=1000cycles
+    seen --> idle: [ethertype=0x0800]/drop
+"#).unwrap();
+
+    let out_path = tmp.path().join("rules.yaml");
+    let output = pacgate_bin()
+        .args(["from-mermaid", mermaid_path.to_str().unwrap(),
+               "--name", "arp_detect", "--priority", "150",
+               "-o", out_path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "from-mermaid failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(out_path.exists(), "output YAML missing");
+
+    let yaml = std::fs::read_to_string(&out_path).unwrap();
+    assert!(yaml.contains("arp_detect"), "rule name missing");
+    assert!(yaml.contains("stateful"), "should be stateful rule");
+}
+
+#[test]
+fn to_mermaid_outputs_diagram() {
+    let output = pacgate_bin()
+        .args(["to-mermaid", "rules/examples/stateful_sequence.yaml"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "to-mermaid failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("stateDiagram-v2"), "missing Mermaid header");
+    assert!(stdout.contains("[*] -->"), "missing initial state arrow");
+}
+
+// ── HSM Integration Tests ──────────────────────────────────
 
 #[test]
 fn compile_hsm_conntrack() {

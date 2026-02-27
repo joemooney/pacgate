@@ -1,13 +1,13 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum Action {
     Pass,
     Drop,
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct MatchCriteria {
     pub dst_mac: Option<String>,
     pub src_mac: Option<String>,
@@ -29,7 +29,7 @@ pub struct MatchCriteria {
 }
 
 /// Byte-offset matching: match raw bytes at a specific offset in the packet
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ByteMatch {
     pub offset: u16,
     pub value: String,
@@ -38,7 +38,7 @@ pub struct ByteMatch {
 }
 
 /// Port matching: exact value or range
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum PortMatch {
     Exact(u16),
@@ -112,7 +112,7 @@ impl MatchCriteria {
 // --- Stateful FSM types ---
 
 /// Variable declaration for HSM
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct FsmVariable {
     pub name: String,
     #[serde(default = "default_var_width")]
@@ -123,7 +123,7 @@ pub struct FsmVariable {
 
 fn default_var_width() -> u8 { 16 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct FsmTransition {
     #[serde(rename = "match")]
     pub match_criteria: MatchCriteria,
@@ -137,7 +137,7 @@ pub struct FsmTransition {
     pub on_transition: Option<Vec<String>>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct FsmState {
     #[serde(default)]
     pub timeout_cycles: Option<u64>,
@@ -159,7 +159,7 @@ pub struct FsmState {
     pub history: Option<bool>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct FsmDefinition {
     pub initial_state: String,
     pub states: std::collections::HashMap<String, FsmState>,
@@ -170,7 +170,7 @@ pub struct FsmDefinition {
 
 // --- Rule types ---
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct StatelessRule {
     pub name: String,
     pub priority: u32,
@@ -184,6 +184,9 @@ pub struct StatelessRule {
     pub rule_type: Option<String>,
     #[serde(default)]
     pub fsm: Option<FsmDefinition>,
+    /// Which ports this rule applies to (multi-port mode)
+    #[serde(default)]
+    pub ports: Option<Vec<u16>>,
 }
 
 impl StatelessRule {
@@ -197,19 +200,37 @@ impl StatelessRule {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Defaults {
     pub action: Action,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+/// Connection tracking configuration
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ConntrackConfig {
+    pub table_size: u32,
+    pub timeout_cycles: u64,
+    #[serde(default = "default_conntrack_fields")]
+    pub fields: Vec<String>,
+}
+
+fn default_conntrack_fields() -> Vec<String> {
+    vec![
+        "src_ip".to_string(), "dst_ip".to_string(),
+        "ip_protocol".to_string(), "src_port".to_string(), "dst_port".to_string(),
+    ]
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PacgateConfig {
     pub version: String,
     pub defaults: Defaults,
     pub rules: Vec<StatelessRule>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conntrack: Option<ConntrackConfig>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct FilterConfig {
     pub pacgate: PacgateConfig,
 }
@@ -494,6 +515,7 @@ mod tests {
             action: None,
             rule_type: None,
             fsm: None,
+            ports: None,
         };
         assert_eq!(rule.action(), Action::Drop);
     }
@@ -507,6 +529,7 @@ mod tests {
             action: Some(Action::Pass),
             rule_type: None,
             fsm: None,
+            ports: None,
         };
         assert_eq!(rule.action(), Action::Pass);
     }
@@ -520,6 +543,7 @@ mod tests {
             action: None,
             rule_type: Some("stateful".to_string()),
             fsm: None,
+            ports: None,
         };
         assert!(rule.is_stateful());
     }
@@ -533,6 +557,7 @@ mod tests {
             action: Some(Action::Pass),
             rule_type: Some("stateless".to_string()),
             fsm: None,
+            ports: None,
         };
         assert!(!rule.is_stateful());
     }

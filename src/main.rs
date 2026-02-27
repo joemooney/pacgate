@@ -4,6 +4,7 @@ mod verilog_gen;
 mod cocotb_gen;
 mod formal_gen;
 mod pcap;
+mod mermaid;
 
 use std::path::{Path, PathBuf};
 use clap::{CommandFactory, Parser, Subcommand};
@@ -149,6 +150,28 @@ enum Commands {
         /// Output JSON summary instead of human-readable text
         #[arg(long)]
         json: bool,
+    },
+    /// Import a Mermaid stateDiagram-v2 and convert to PacGate YAML
+    FromMermaid {
+        /// Path to the Mermaid diagram file (.md)
+        diagram: PathBuf,
+
+        /// Rule name for the generated YAML
+        #[arg(long, default_value = "fsm_rule")]
+        name: String,
+
+        /// Rule priority
+        #[arg(long, default_value = "100")]
+        priority: u32,
+
+        /// Output YAML file path (stdout if not specified)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Export PacGate YAML stateful rules as Mermaid stateDiagram-v2
+    ToMermaid {
+        /// Path to the YAML rules file
+        rules: PathBuf,
     },
 }
 
@@ -392,6 +415,25 @@ fn main() -> Result<()> {
                 println!("  Generated stimulus: {}/tb/pcap_stimulus.py", output.display());
                 println!("  Use in cocotb: from pcap_stimulus import PCAP_FRAMES");
             }
+        }
+        Commands::FromMermaid { diagram, name, priority, output } => {
+            let contents = std::fs::read_to_string(&diagram)
+                .with_context(|| format!("Failed to read Mermaid file: {}", diagram.display()))?;
+            let parsed = mermaid::parse_mermaid(&contents)
+                .with_context(|| "Failed to parse Mermaid diagram")?;
+            let config = mermaid::to_yaml(parsed, &name, priority);
+            let yaml = serde_yaml::to_string(&config)?;
+            if let Some(out_path) = output {
+                std::fs::write(&out_path, &yaml)?;
+                eprintln!("Wrote YAML to {}", out_path.display());
+            } else {
+                println!("{}", yaml);
+            }
+        }
+        Commands::ToMermaid { rules } => {
+            let (config, _warnings) = loader::load_rules_with_warnings(&rules)?;
+            let mermaid_text = mermaid::from_yaml(&config);
+            println!("{}", mermaid_text);
         }
     }
 

@@ -726,6 +726,7 @@ pacgate:
                 action: Some(Action::Drop),
                 rule_type: None,
                 fsm: None,
+                ports: None,
             },
             StatelessRule {
                 name: "allow_ipv4".to_string(),
@@ -737,6 +738,7 @@ pacgate:
                 action: Some(Action::Pass),
                 rule_type: None,
                 fsm: None,
+                ports: None,
             },
         ];
         let warnings = check_rule_overlaps(&rules);
@@ -758,6 +760,7 @@ pacgate:
                 action: Some(Action::Pass),
                 rule_type: None,
                 fsm: None,
+                ports: None,
             },
             StatelessRule {
                 name: "drop_arp".to_string(),
@@ -769,6 +772,7 @@ pacgate:
                 action: Some(Action::Drop),
                 rule_type: None,
                 fsm: None,
+                ports: None,
             },
         ];
         let warnings = check_rule_overlaps(&rules);
@@ -789,6 +793,7 @@ pacgate:
                 action: Some(Action::Pass),
                 rule_type: None,
                 fsm: None,
+                ports: None,
             },
             StatelessRule {
                 name: "allow_ipv4".to_string(),
@@ -800,6 +805,7 @@ pacgate:
                 action: Some(Action::Pass),
                 rule_type: None,
                 fsm: None,
+                ports: None,
             },
         ];
         let warnings = check_rule_overlaps(&rules);
@@ -817,6 +823,7 @@ pacgate:
                 action: Some(Action::Drop),
                 rule_type: None,
                 fsm: None,
+                ports: None,
             },
         ];
         let warnings = check_rule_overlaps(&rules);
