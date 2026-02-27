@@ -12,6 +12,7 @@ mod mutation;
 mod templates_lib;
 mod reachability;
 mod pcap_writer;
+mod benchmark;
 
 use std::path::{Path, PathBuf};
 use clap::{CommandFactory, Parser, Subcommand};
@@ -310,6 +311,19 @@ enum Commands {
     Reachability {
         /// Path to the YAML rules file
         rules: PathBuf,
+
+        /// Output JSON instead of human-readable text
+        #[arg(long)]
+        json: bool,
+    },
+    /// Run performance benchmark (compile time, simulation throughput, scaling)
+    Bench {
+        /// Path to the YAML rules file
+        rules: PathBuf,
+
+        /// Templates directory
+        #[arg(short, long, default_value = "templates")]
+        templates: PathBuf,
 
         /// Output JSON instead of human-readable text
         #[arg(long)]
@@ -966,6 +980,15 @@ fn main() -> Result<()> {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
                 println!("{}", reachability::format_report(&report));
+            }
+        }
+        Commands::Bench { rules, templates, json } => {
+            let config = loader::load_rules(&rules)?;
+            let report = benchmark::run_benchmark(&config, &templates)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!("{}", benchmark::format_report(&report));
             }
         }
         Commands::Doc { rules, output, templates } => {

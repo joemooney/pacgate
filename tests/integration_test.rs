@@ -1505,6 +1505,40 @@ fn reachability_json() {
     assert!(json["default_action"].is_string());
 }
 
+// ── Performance Benchmark Tests ────────────────────────────────
+
+#[test]
+fn bench_basic() {
+    let output = pacgate_bin()
+        .args(["bench", "rules/examples/l3l4_firewall.yaml"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "bench failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("PERFORMANCE BENCHMARK"), "should show benchmark report");
+    assert!(stdout.contains("Scaling Curve"), "should show scaling curve");
+    assert!(stdout.contains("LUT Utilization"), "should show LUT chart");
+    assert!(stdout.contains("packets/sec"), "should show throughput");
+}
+
+#[test]
+fn bench_json() {
+    let output = pacgate_bin()
+        .args(["bench", "rules/examples/l3l4_firewall.yaml", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "bench --json failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    assert!(json["compile_time_ms"].is_number());
+    assert!(json["sim_throughput_pps"].is_number());
+    assert!(json["scaling"].is_array());
+    let scaling = json["scaling"].as_array().unwrap();
+    assert!(scaling.len() >= 3, "should have multiple scaling points");
+}
+
 // ── PCAP Output from Simulation Tests ─────────────────────────
 
 #[test]
