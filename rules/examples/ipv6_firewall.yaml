@@ -1,0 +1,59 @@
+# PacGate IPv6 Firewall Example
+# Demonstrates IPv6 matching with next-header and CIDR prefix filtering
+
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    # Allow ICMPv6 (next_header=58) — needed for NDP, ping6
+    - name: allow_icmpv6
+      priority: 500
+      match:
+        ethertype: "0x86DD"
+        ipv6_next_header: 58
+      action: pass
+
+    # Allow IPv6 HTTP from documentation prefix
+    - name: allow_ipv6_http
+      priority: 400
+      match:
+        ethertype: "0x86DD"
+        src_ipv6: "2001:db8::/32"
+        ipv6_next_header: 6
+        dst_port: 80
+      action: pass
+
+    # Allow IPv6 HTTPS from documentation prefix
+    - name: allow_ipv6_https
+      priority: 350
+      match:
+        ethertype: "0x86DD"
+        src_ipv6: "2001:db8::/32"
+        ipv6_next_header: 6
+        dst_port: 443
+      action: pass
+
+    # Block link-local scope (fe80::/10) from WAN
+    - name: block_link_local
+      priority: 300
+      match:
+        ethertype: "0x86DD"
+        src_ipv6: "fe80::/10"
+      action: drop
+
+    # Allow ARP (still needed for IPv4 coexistence)
+    - name: allow_arp
+      priority: 200
+      match:
+        ethertype: "0x0806"
+      action: pass
+
+    # Allow IPv6 DNS (UDP, port 53)
+    - name: allow_ipv6_dns
+      priority: 250
+      match:
+        ethertype: "0x86DD"
+        ipv6_next_header: 17
+        dst_port: 53
+      action: pass

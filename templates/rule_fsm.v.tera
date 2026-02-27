@@ -15,6 +15,11 @@ module rule_match_{{ rule_index }} (
     input  wire [15:0] src_port,
     input  wire [15:0] dst_port,
     input  wire [23:0] vxlan_vni,
+{% if has_ipv6 %}
+    input  wire [127:0] src_ipv6,
+    input  wire [127:0] dst_ipv6,
+    input  wire [7:0]   ipv6_next_header,
+{% endif %}
 {% if has_byte_capture %}
 {% for cap in byte_captures %}
     input  wire [{{ cap.bit_width - 1 }}:0] byte_cap_{{ cap.offset }},

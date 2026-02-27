@@ -62,7 +62,8 @@ fn validate_all_examples() {
                      "industrial_ot", "automotive_gateway", "5g_fronthaul", "campus_access",
                      "iot_gateway", "syn_flood_detect", "arp_spoof_detect",
                      "l3l4_firewall", "vxlan_datacenter",
-                     "byte_match", "hsm_conntrack"] {
+                     "byte_match", "hsm_conntrack",
+                     "ipv6_firewall"] {
         let path = format!("rules/examples/{}.yaml", example);
         let output = pacgate_bin()
             .args(["validate", &path])
@@ -657,7 +658,6 @@ fn compile_byte_match() {
     assert!(rule0.contains("byte_cap_14"), "byte_cap_14 missing from rule matcher");
 }
 
-#[test]
 // ── Simulate Integration Tests ──────────────────────────────────
 
 #[test]
@@ -703,6 +703,42 @@ fn simulate_json_output() {
     assert_eq!(json["status"], "ok");
     assert!(json["matched_rule"].is_string() || json["matched_rule"].is_null());
     assert!(json["action"].as_str().unwrap() == "pass" || json["action"].as_str().unwrap() == "drop");
+}
+
+// ── IPv6 Integration Tests ──────────────────────────────────
+
+#[test]
+fn compile_ipv6_firewall() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/ipv6_firewall.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let top_v = std::fs::read_to_string(tmp.path().join("rtl/packet_filter_top.v")).unwrap();
+    assert!(top_v.contains("src_ipv6"), "missing src_ipv6 signal in top");
+    assert!(top_v.contains("dst_ipv6"), "missing dst_ipv6 signal in top");
+    assert!(top_v.contains("ipv6_next_header"), "missing ipv6_next_header signal in top");
+
+    // Check generated rule matcher has IPv6 conditions
+    let rule0 = std::fs::read_to_string(tmp.path().join("rtl/rule_match_0.v")).unwrap();
+    assert!(rule0.contains("ipv6_next_header") || rule0.contains("src_ipv6"),
+        "IPv6 conditions missing from rule matcher");
+}
+
+#[test]
+fn validate_ipv6() {
+    let output = pacgate_bin()
+        .args(["validate", "rules/examples/ipv6_firewall.yaml", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "validate ipv6 failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    assert_eq!(json["status"], "valid");
+    assert_eq!(json["rules_count"], 6);
 }
 
 #[test]

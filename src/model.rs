@@ -23,6 +23,13 @@ pub struct MatchCriteria {
     pub dst_port: Option<PortMatch>,
     // VXLAN tunnel
     pub vxlan_vni: Option<u32>,
+    // L3 fields (IPv6)
+    #[serde(default)]
+    pub src_ipv6: Option<String>,
+    #[serde(default)]
+    pub dst_ipv6: Option<String>,
+    #[serde(default)]
+    pub ipv6_next_header: Option<u8>,
     // Byte-offset matching
     #[serde(default)]
     pub byte_match: Option<Vec<ByteMatch>>,
@@ -95,12 +102,110 @@ impl Ipv4Prefix {
     }
 }
 
+/// Parsed IPv6 address with prefix length for CIDR matching
+#[derive(Debug, Clone)]
+pub struct Ipv6Prefix {
+    pub addr: [u8; 16],
+    pub prefix_len: u8,
+    pub mask: [u8; 16],
+}
+
+impl Ipv6Prefix {
+    /// Parse "2001:db8::1/32", "fe80::/10", "::1" (implies /128)
+    pub fn parse(s: &str) -> anyhow::Result<Self> {
+        let (addr_str, prefix_len) = if let Some(idx) = s.find('/') {
+            let plen: u8 = s[idx+1..].parse()
+                .map_err(|e| anyhow::anyhow!("Bad prefix length in '{}': {}", s, e))?;
+            if plen > 128 {
+                anyhow::bail!("IPv6 prefix length must be 0-128, got {} in '{}'", plen, s);
+            }
+            (&s[..idx], plen)
+        } else {
+            (s, 128)
+        };
+
+        let addr = Self::parse_ipv6_addr(addr_str)
+            .map_err(|e| anyhow::anyhow!("Bad IPv6 address '{}': {}", s, e))?;
+
+        // Build mask from prefix length
+        let mut mask = [0u8; 16];
+        for i in 0..16 {
+            let bit_pos = i * 8;
+            if bit_pos + 8 <= prefix_len as usize {
+                mask[i] = 0xff;
+            } else if bit_pos < prefix_len as usize {
+                let bits = prefix_len as usize - bit_pos;
+                mask[i] = !0u8 << (8 - bits);
+            }
+        }
+
+        Ok(Ipv6Prefix { addr, prefix_len, mask })
+    }
+
+    /// Parse an IPv6 address string into 16 bytes
+    fn parse_ipv6_addr(s: &str) -> anyhow::Result<[u8; 16]> {
+        // Handle :: expansion
+        let parts: Vec<&str> = if s.contains("::") {
+            let halves: Vec<&str> = s.splitn(2, "::").collect();
+            let left: Vec<&str> = if halves[0].is_empty() {
+                Vec::new()
+            } else {
+                halves[0].split(':').collect()
+            };
+            let right: Vec<&str> = if halves.len() > 1 && !halves[1].is_empty() {
+                halves[1].split(':').collect()
+            } else {
+                Vec::new()
+            };
+            let missing = 8 - left.len() - right.len();
+            let mut result = left;
+            for _ in 0..missing {
+                result.push("0");
+            }
+            result.extend(right);
+            result
+        } else {
+            s.split(':').collect()
+        };
+
+        if parts.len() != 8 {
+            anyhow::bail!("IPv6 address must have 8 groups (got {})", parts.len());
+        }
+
+        let mut addr = [0u8; 16];
+        for (i, part) in parts.iter().enumerate() {
+            let val = u16::from_str_radix(part, 16)
+                .map_err(|e| anyhow::anyhow!("Bad IPv6 group '{}': {}", part, e))?;
+            addr[i * 2] = (val >> 8) as u8;
+            addr[i * 2 + 1] = val as u8;
+        }
+
+        Ok(addr)
+    }
+
+    pub fn to_verilog_value(&self) -> String {
+        let hex: String = self.addr.iter().map(|b| format!("{:02x}", b)).collect();
+        format!("128'h{}", hex)
+    }
+
+    pub fn to_verilog_mask(&self) -> String {
+        let hex: String = self.mask.iter().map(|b| format!("{:02x}", b)).collect();
+        format!("128'h{}", hex)
+    }
+}
+
 impl MatchCriteria {
     /// Returns true if this criteria uses any L3/L4 fields
     pub fn uses_l3l4(&self) -> bool {
         self.src_ip.is_some() || self.dst_ip.is_some() || self.ip_protocol.is_some()
             || self.src_port.is_some() || self.dst_port.is_some()
             || self.vxlan_vni.is_some()
+            || self.src_ipv6.is_some() || self.dst_ipv6.is_some() || self.ipv6_next_header.is_some()
+    }
+
+    /// Returns true if this criteria uses IPv6 fields
+    pub fn uses_ipv6(&self) -> bool {
+        self.src_ipv6.is_some() || self.dst_ipv6.is_some() || self.ipv6_next_header.is_some()
     }
 
     /// Returns true if this criteria uses byte_match
@@ -491,6 +596,92 @@ mod tests {
     fn ipv4_verilog_mask_slash16() {
         let p = Ipv4Prefix::parse("10.0.0.0/16").unwrap();
         assert_eq!(p.to_verilog_mask(), "32'hffff0000");
+    }
+
+    // --- Ipv6Prefix parsing ---
+
+    #[test]
+    fn ipv6_full_address() {
+        let p = Ipv6Prefix::parse("2001:0db8:0000:0000:0000:0000:0000:0001").unwrap();
+        assert_eq!(p.addr[0..2], [0x20, 0x01]);
+        assert_eq!(p.addr[2..4], [0x0d, 0xb8]);
+        assert_eq!(p.addr[14..16], [0x00, 0x01]);
+        assert_eq!(p.prefix_len, 128);
+    }
+
+    #[test]
+    fn ipv6_compressed() {
+        let p = Ipv6Prefix::parse("2001:db8::1").unwrap();
+        assert_eq!(p.addr[0..2], [0x20, 0x01]);
+        assert_eq!(p.addr[2..4], [0x0d, 0xb8]);
+        assert_eq!(p.addr[14..16], [0x00, 0x01]);
+        assert_eq!(p.prefix_len, 128);
+    }
+
+    #[test]
+    fn ipv6_cidr_slash32() {
+        let p = Ipv6Prefix::parse("2001:db8::/32").unwrap();
+        assert_eq!(p.prefix_len, 32);
+        assert_eq!(p.mask[0..4], [0xff, 0xff, 0xff, 0xff]);
+        assert_eq!(p.mask[4..8], [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn ipv6_link_local() {
+        let p = Ipv6Prefix::parse("fe80::/10").unwrap();
+        assert_eq!(p.addr[0], 0xfe);
+        assert_eq!(p.addr[1], 0x80);
+        assert_eq!(p.prefix_len, 10);
+        assert_eq!(p.mask[0], 0xff);
+        assert_eq!(p.mask[1], 0xc0); // top 2 bits of byte 1
+    }
+
+    #[test]
+    fn ipv6_loopback() {
+        let p = Ipv6Prefix::parse("::1").unwrap();
+        assert_eq!(p.addr[15], 1);
+        assert_eq!(p.prefix_len, 128);
+    }
+
+    #[test]
+    fn ipv6_all_zeros() {
+        let p = Ipv6Prefix::parse("::/0").unwrap();
+        assert_eq!(p.addr, [0u8; 16]);
+        assert_eq!(p.mask, [0u8; 16]);
+    }
+
+    #[test]
+    fn ipv6_reject_prefix_129() {
+        assert!(Ipv6Prefix::parse("::1/129").is_err());
+    }
+
+    #[test]
+    fn ipv6_reject_bad_hex() {
+        assert!(Ipv6Prefix::parse("gggg::1").is_err());
+    }
+
+    #[test]
+    fn ipv6_verilog_value() {
+        let p = Ipv6Prefix::parse("2001:db8::1").unwrap();
+        let v = p.to_verilog_value();
+        assert!(v.starts_with("128'h"));
+        assert!(v.contains("20010db8"));
+    }
+
+    #[test]
+    fn ipv6_verilog_mask_slash64() {
+        let p = Ipv6Prefix::parse("2001:db8::/64").unwrap();
+        let m = p.to_verilog_mask();
+        assert!(m.starts_with("128'h"));
+        assert!(m.contains("ffffffffffffffff0000000000000000"));
+    }
+
+    #[test]
+    fn ipv6_slash48() {
+        let p = Ipv6Prefix::parse("2001:db8:abcd::/48").unwrap();
+        assert_eq!(p.prefix_len, 48);
+        assert_eq!(p.mask[0..6], [0xff; 6]);
+        assert_eq!(p.mask[6], 0x00);
     }
 
     // --- PortMatch deserialization ---

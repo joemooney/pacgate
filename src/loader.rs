@@ -71,6 +71,15 @@ fn validate_match_criteria(mc: &crate::model::MatchCriteria, rule_name: &str) ->
             anyhow::bail!("VXLAN VNI must be 0-16777215 (24-bit), got {} in rule '{}'", vni, rule_name);
         }
     }
+    // L3: Validate IPv6 addresses
+    if let Some(ref ip) = mc.src_ipv6 {
+        crate::model::Ipv6Prefix::parse(ip)
+            .with_context(|| format!("Bad src_ipv6 in rule '{}'", rule_name))?;
+    }
+    if let Some(ref ip) = mc.dst_ipv6 {
+        crate::model::Ipv6Prefix::parse(ip)
+            .with_context(|| format!("Bad dst_ipv6 in rule '{}'", rule_name))?;
+    }
     // Byte-offset matching validation
     if let Some(ref byte_matches) = mc.byte_match {
         if byte_matches.len() > 4 {
@@ -366,6 +375,7 @@ pub fn check_rule_overlaps(rules: &[crate::model::StatelessRule]) -> Vec<String>
             && mc.src_ip.is_none() && mc.dst_ip.is_none() && mc.ip_protocol.is_none()
             && mc.src_port.is_none() && mc.dst_port.is_none()
             && mc.vxlan_vni.is_none()
+            && mc.src_ipv6.is_none() && mc.dst_ipv6.is_none() && mc.ipv6_next_header.is_none()
             && !mc.uses_byte_match()
         {
             warnings.push(format!(
@@ -454,6 +464,28 @@ fn criteria_shadows(a: &crate::model::MatchCriteria, b: &crate::model::MatchCrit
         }
     }
 
+    // IPv6 shadow checks
+    if let Some(ref a_ip) = a.src_ipv6 {
+        match &b.src_ipv6 {
+            Some(b_ip) if a_ip == b_ip => {},
+            Some(_) => return false,
+            None => return false,
+        }
+    }
+    if let Some(ref a_ip) = a.dst_ipv6 {
+        match &b.dst_ipv6 {
+            Some(b_ip) if a_ip == b_ip => {},
+            Some(_) => return false,
+            None => return false,
+        }
+    }
+    if let Some(a_nh) = a.ipv6_next_header {
+        match b.ipv6_next_header {
+            Some(b_nh) if a_nh == b_nh => {},
+            _ => return false,
+        }
+    }
+
     true
 }
 
@@ -501,6 +533,17 @@ fn criteria_overlaps(a: &crate::model::MatchCriteria, b: &crate::model::MatchCri
     }
     if let (Some(a_proto), Some(b_proto)) = (a.ip_protocol, b.ip_protocol) {
         if a_proto != b_proto { return false; }
+    }
+
+    // IPv6 overlap checks
+    if let (Some(ref a_ip), Some(ref b_ip)) = (&a.src_ipv6, &b.src_ipv6) {
+        if a_ip != b_ip { return false; }
+    }
+    if let (Some(ref a_ip), Some(ref b_ip)) = (&a.dst_ipv6, &b.dst_ipv6) {
+        if a_ip != b_ip { return false; }
+    }
+    if let (Some(a_nh), Some(b_nh)) = (a.ipv6_next_header, b.ipv6_next_header) {
+        if a_nh != b_nh { return false; }
     }
 
     true
