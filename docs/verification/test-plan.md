@@ -1,6 +1,6 @@
-# Flippy Test Plan
+# PacGate Test Plan
 
-**Document ID**: FLIP-TP-001
+**Document ID**: PG-TP-001
 **Version**: 2.0
 **Date**: 2026-02-26
 **Status**: Approved
@@ -9,7 +9,7 @@
 
 ## 1. Test Plan Overview
 
-This document defines the complete verification test plan for the Flippy packet filter. All tests are organized by feature area, priority, and automation status.
+This document defines the complete verification test plan for the PacGate packet filter. All tests are organized by feature area, priority, and automation status.
 
 ## 2. Test Matrix
 

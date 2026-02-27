@@ -13,7 +13,7 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
     std::fs::create_dir_all(&tb_dir)?;
 
     // Sort rules by priority (highest first) — same order as verilog_gen
-    let mut rules = config.flippy.rules.clone();
+    let mut rules = config.pacgate.rules.clone();
     rules.sort_by(|a, b| b.priority.cmp(&a.priority));
 
     // Build test cases from stateless rules only (stateful rules need sequence tests)
@@ -54,7 +54,7 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
     }
 
     // Add negative test: a frame that should hit default action
-    let default_pass = config.flippy.defaults.action == Action::Pass;
+    let default_pass = config.pacgate.defaults.action == Action::Pass;
     {
         let mut tc = std::collections::HashMap::new();
         tc.insert("name".to_string(), "test_default_action".to_string());

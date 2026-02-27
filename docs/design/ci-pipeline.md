@@ -1,6 +1,6 @@
-# Flippy CI/CD Pipeline Design
+# PacGate CI/CD Pipeline Design
 
-**Document ID**: FLIP-CI-001
+**Document ID**: PG-CI-001
 **Version**: 1.0
 **Date**: 2026-02-26
 
@@ -23,7 +23,7 @@
 ## GitHub Actions Workflow
 
 ```yaml
-name: Flippy Verification Pipeline
+name: PacGate Verification Pipeline
 on:
   push:
     branches: [main]
@@ -53,7 +53,7 @@ jobs:
           source .venv/bin/activate
           pip install cocotb
 
-      - name: Build Flippy compiler
+      - name: Build PacGate compiler
         run: cargo build --release
 
       - name: Validate all rule files

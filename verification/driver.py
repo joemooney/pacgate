@@ -1,5 +1,5 @@
 """
-Flippy Packet Driver — Bus Functional Model for the packet stream interface.
+PacGate Packet Driver — Bus Functional Model for the packet stream interface.
 
 Converts EthernetFrame objects into pin-level pkt_data/valid/sof/eof signals
 for driving the DUT. Supports configurable inter-frame gaps and error injection.

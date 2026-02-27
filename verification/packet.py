@@ -1,5 +1,5 @@
 """
-Ethernet frame construction and manipulation for Flippy verification.
+Ethernet frame construction and manipulation for PacGate verification.
 
 Provides a PacketFactory for building directed and random test frames,
 plus utilities for MAC address and EtherType handling.

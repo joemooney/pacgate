@@ -1,5 +1,5 @@
 """
-Flippy Scoreboard — Reference model for packet filter decisions.
+PacGate Scoreboard — Reference model for packet filter decisions.
 
 Implements the same rule-matching logic as the generated Verilog,
 in Python, for independent verification. Compares DUT decisions

@@ -1,4 +1,4 @@
-# Flippy Requirements
+# PacGate Requirements
 
 ## Core Requirements
 
@@ -19,11 +19,16 @@
 - REQ-016: MAC wildcard octets ("*") generate mask-based comparison [IMPLEMENTED]
 
 ### Compiler
-- REQ-020: Rust CLI with `compile` and `validate` subcommands [IMPLEMENTED]
+- REQ-020: Rust CLI with `compile`, `validate`, `init`, and `estimate` subcommands [IMPLEMENTED]
 - REQ-021: `compile` generates Verilog RTL and cocotb test bench from YAML [IMPLEMENTED]
 - REQ-022: `validate` checks YAML without generating output [IMPLEMENTED]
 - REQ-023: Generated Verilog passes Icarus Verilog lint (`-g2012`) [IMPLEMENTED]
 - REQ-024: Generated cocotb tests include positive, negative, random, and corner-case tests [IMPLEMENTED]
+- REQ-025: `init` creates a well-commented starter rules file [IMPLEMENTED]
+- REQ-026: `estimate` reports FPGA resource estimates (LUTs, FFs) for Artix-7 [IMPLEMENTED]
+- REQ-027: Rule overlap and shadow detection with compile-time warnings [IMPLEMENTED]
+- REQ-028: Duplicate rule name and priority validation [IMPLEMENTED]
+- REQ-029: 44 Rust unit tests covering model, loader, and validation [IMPLEMENTED]
 
 ### Verilog Architecture
 - REQ-030: Hand-written frame parser extracts Ethernet header fields [IMPLEMENTED]

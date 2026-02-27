@@ -1,6 +1,6 @@
-# Flippy Innovation Analysis
+# PacGate Innovation Analysis
 
-**Document ID**: FLIP-IA-001
+**Document ID**: PG-IA-001
 **Date**: 2026-02-26
 
 ---
@@ -16,11 +16,11 @@
 | **Chisel/SpinalHDL** | Yes | Partial | No | Yes | No |
 | **VivadoHLS** | Yes | No | No | No | No |
 | **Corundum (open NIC)** | Partial | No | No | Yes | Yes |
-| **Flippy** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** |
+| **PacGate** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** |
 
 ### Key Differentiator: Nobody Else Auto-Generates Tests
 
-The industry has focused on hardware generation (P4, HLS, Chisel). **Nobody generates the verification environment from the same specification.** This is Flippy's unique value proposition.
+The industry has focused on hardware generation (P4, HLS, Chisel). **Nobody generates the verification environment from the same specification.** This is PacGate's unique value proposition.
 
 ## 2. Innovation Pillars
 
@@ -32,7 +32,7 @@ Traditional:   Spec (doc) ──→ Engineer A ──→ Verilog
                                     ↑
                               Specification Drift
 
-Flippy:        Spec (YAML) ──→ Compiler ──→ Verilog + Testbench
+PacGate:        Spec (YAML) ──→ Compiler ──→ Verilog + Testbench
                                     ↑
                               Impossible to Drift
 ```
@@ -41,7 +41,7 @@ Flippy:        Spec (YAML) ──→ Compiler ──→ Verilog + Testbench
 
 ### Pillar 2: Multi-Layer Verification from Specification
 
-Most auto-generated tests are simple directed tests. Flippy generates a **complete verification environment**:
+Most auto-generated tests are simple directed tests. PacGate generates a **complete verification environment**:
 
 ```
                          YAML Spec
@@ -69,9 +69,9 @@ Most auto-generated tests are simple directed tests. Flippy generates a **comple
 
 ### Pillar 3: Python-Ecosystem Verification
 
-By using cocotb (Python) instead of SystemVerilog UVM, Flippy gains access to:
+By using cocotb (Python) instead of SystemVerilog UVM, PacGate gains access to:
 
-| Python Library | Use in Flippy |
+| Python Library | Use in PacGate |
 |---------------|--------------|
 | `hypothesis` | Property-based test generation |
 | `scapy` | Realistic packet crafting |
@@ -84,7 +84,7 @@ By using cocotb (Python) instead of SystemVerilog UVM, Flippy gains access to:
 
 ### Pillar 4: Rule-Change Impact Analysis
 
-When a rule changes, Flippy can compute the **verification delta**:
+When a rule changes, PacGate can compute the **verification delta**:
 
 ```
 Rule Change: ethertype 0x0806 → 0x0800
@@ -105,7 +105,7 @@ Impact Analysis:
 
 ### Cost per Filter Configuration
 
-| Activity | Traditional Hours | Traditional Cost | Flippy Hours | Flippy Cost |
+| Activity | Traditional Hours | Traditional Cost | PacGate Hours | PacGate Cost |
 |----------|:-:|:-:|:-:|:-:|
 | Spec writing | 8 | $680 | 2 | $170 |
 | RTL coding | 40 | $3,400 | 0 | $0 |
@@ -119,7 +119,7 @@ Impact Analysis:
 
 ### Annual Savings (10 filter configs/year)
 
-| Metric | Traditional | Flippy | Savings |
+| Metric | Traditional | PacGate | Savings |
 |--------|:-:|:-:|:-:|
 | Engineer hours | 2,040 | 40 | 2,000 hours |
 | Cost | $165,600 | $3,300 | $162,300 |

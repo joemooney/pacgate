@@ -1,11 +1,11 @@
 [package]
-name = "flippy"
-version = "0.1.0"
+name = "pacgate"
+version = "0.2.0"
 edition = "2021"
-description = "FPGA Layer 2 Packet Filter Switch — YAML rules to Verilog + cocotb"
+description = "FPGA Layer 2 Packet Filter Gate — YAML rules to Verilog RTL + cocotb verification"
 
 [[bin]]
-name = "flippy"
+name = "pacgate"
 path = "src/main.rs"
 
 [dependencies]

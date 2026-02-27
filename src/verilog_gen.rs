@@ -48,7 +48,7 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
     std::fs::create_dir_all(&rtl_dir)?;
 
     // Sort rules by priority (highest first)
-    let mut rules = config.flippy.rules.clone();
+    let mut rules = config.pacgate.rules.clone();
     rules.sort_by(|a, b| b.priority.cmp(&a.priority));
 
     // Separate stateless and stateful rules (both get indices in priority order)
@@ -66,7 +66,7 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
     {
         let mut ctx = tera::Context::new();
         ctx.insert("num_rules", &rules.len());
-        let default_pass = config.flippy.defaults.action == Action::Pass;
+        let default_pass = config.pacgate.defaults.action == Action::Pass;
         ctx.insert("default_pass", &default_pass);
 
         let rule_info: Vec<_> = rules.iter().enumerate().map(|(idx, rule)| {

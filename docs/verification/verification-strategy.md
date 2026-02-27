@@ -1,6 +1,6 @@
-# Flippy Verification Strategy
+# PacGate Verification Strategy
 
-**Document ID**: FLIP-VS-001
+**Document ID**: PG-VS-001
 **Version**: 2.0
 **Date**: 2026-02-26
 **Status**: Approved
@@ -9,7 +9,7 @@
 
 ## 1. Verification Philosophy
 
-Flippy employs a **multi-layered verification strategy** inspired by industry UVM methodology but implemented in Python/cocotb for accessibility and auto-generation:
+PacGate employs a **multi-layered verification strategy** inspired by industry UVM methodology but implemented in Python/cocotb for accessibility and auto-generation:
 
 ```
     Layer 4: System-Level (Integration with real network stacks)
@@ -240,8 +240,8 @@ on: [push, pull_request]
 jobs:
   verify:
     steps:
-      - cargo build              # Compile flippy
-      - flippy compile rules.yaml # Generate RTL + tests
+      - cargo build              # Compile pacgate
+      - pacgate compile rules.yaml # Generate RTL + tests
       - iverilog lint             # Static analysis
       - make sim                  # Run cocotb
       - coverage report           # Check coverage targets

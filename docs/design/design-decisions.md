@@ -1,6 +1,6 @@
 # Design Decisions Record
 
-**Document ID**: FLIP-DDR-001
+**Document ID**: PG-DDR-001
 **Version**: 2.0
 **Date**: 2026-02-26
 
@@ -190,7 +190,7 @@ end
 - **Change propagation**: Modifying a rule automatically updates both RTL and tests
 - **Audit trail**: YAML diff shows exactly what changed in both hardware and verification
 
-**This is the core innovation of Flippy** and the primary differentiator from traditional FPGA development workflows.
+**This is the core innovation of PacGate** and the primary differentiator from traditional FPGA development workflows.
 
 ---
 
@@ -210,7 +210,7 @@ end
 - Brings industry-standard verification methodology to open-source tooling
 - Constrained random finds bugs that directed tests miss
 - Coverage metrics provide confidence in verification completeness
-- Auto-generated from YAML spec (unique to Flippy)
+- Auto-generated from YAML spec (unique to PacGate)
 
 ---
 

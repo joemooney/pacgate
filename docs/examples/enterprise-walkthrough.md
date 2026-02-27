@@ -1,6 +1,6 @@
 # Enterprise Rule Set Walkthrough
 
-**Document ID**: FLIP-EX-001
+**Document ID**: PG-EX-001
 **Date**: 2026-02-26
 
 ---
@@ -20,7 +20,7 @@ A network switch needs to enforce the following policy:
 ## The YAML
 
 ```yaml
-flippy:
+pacgate:
   version: "1.0"
   defaults:
     action: drop              # ← Whitelist: only explicitly allowed traffic passes
@@ -78,7 +78,7 @@ flippy:
 ## Compilation
 
 ```bash
-$ flippy compile rules/examples/enterprise.yaml
+$ pacgate compile rules/examples/enterprise.yaml
 
 Loaded 7 rules from rules/examples/enterprise.yaml
 Generated Verilog RTL in gen/rtl/

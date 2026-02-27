@@ -1,4 +1,4 @@
-# Flippy: Executive Summary
+# PacGate: Executive Summary
 
 **Prepared for**: Engineering Leadership
 **Date**: 2026-02-26
@@ -16,12 +16,12 @@ Traditional FPGA packet filter development suffers from three critical inefficie
 
 3. **Configuration Rigidity** — Changing a packet filter rule requires a hardware engineer to modify Verilog, a test engineer to update tests, and a full re-verification cycle. This can take **days to weeks**.
 
-## The Solution: Flippy
+## The Solution: PacGate
 
-Flippy is a **specification-driven FPGA development tool** that compiles human-readable YAML rules into both synthesizable hardware AND verification tests from a single source of truth.
+PacGate is a **specification-driven FPGA development tool** that compiles human-readable YAML rules into both synthesizable hardware AND verification tests from a single source of truth.
 
 ```
-    YAML Rule Spec ──── Flippy Compiler ────┬──── Verilog (Hardware)
+    YAML Rule Spec ──── PacGate Compiler ────┬──── Verilog (Hardware)
          │                                   │
     (single source                           └──── cocotb Tests (Verification)
      of truth)                                     ├── Directed tests
@@ -34,7 +34,7 @@ Flippy is a **specification-driven FPGA development tool** that compiles human-r
 
 The **killer feature** is not the hardware generation — it's the test harness:
 
-| Capability | Traditional | Flippy |
+| Capability | Traditional | PacGate |
 |------------|-------------|--------|
 | Test creation | Manual (days) | Auto-generated (seconds) |
 | Spec-test alignment | Manual review | Guaranteed by construction |
@@ -47,7 +47,7 @@ The **killer feature** is not the hardware generation — it's the test harness:
 
 ### Time Savings
 
-| Activity | Traditional | Flippy | Savings |
+| Activity | Traditional | PacGate | Savings |
 |----------|------------|--------|---------|
 | Write filter rules | 2-4 hours | 15 minutes | 87% |
 | Write directed tests | 2-5 days | 0 (auto-generated) | 100% |
@@ -75,7 +75,7 @@ The **killer feature** is not the hardware generation — it's the test harness:
 ┌─────────────────────────────────────────────────────────────────┐
 │                    Innovation Landscape                          │
 │                                                                 │
-│  Flippy combines THREE capabilities that no existing tool has:  │
+│  PacGate combines THREE capabilities that no existing tool has:  │
 │                                                                 │
 │  1. ┌─────────────────┐                                         │
 │     │ Spec-Driven HDL │  P4, Chisel, Clash generate hardware    │
@@ -92,7 +92,7 @@ The **killer feature** is not the hardware generation — it's the test harness:
 │     │ Dual-Output     │  AND tests from one spec                │
 │     └─────────────────┘                                         │
 │                                                                 │
-│        Flippy = 1 + 2 + 3 (unique combination)                 │
+│        PacGate = 1 + 2 + 3 (unique combination)                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -112,7 +112,7 @@ The **killer feature** is not the hardware generation — it's the test harness:
 cat rules/examples/enterprise.yaml
 
 # 2. Compile (< 1 second)
-flippy compile rules/examples/enterprise.yaml
+pacgate compile rules/examples/enterprise.yaml
 
 # 3. Simulate with full verification (< 30 seconds)
 make sim RULES=rules/examples/enterprise.yaml
@@ -122,7 +122,7 @@ make sim RULES=rules/examples/enterprise.yaml
 
 ## Recommendation
 
-Adopt Flippy as the standard tool for Layer 2 FPGA packet filter development. The auto-generated verification approach:
+Adopt PacGate as the standard tool for Layer 2 FPGA packet filter development. The auto-generated verification approach:
 - Eliminates the #1 source of FPGA bugs (spec-test mismatch)
 - Reduces verification time by >90%
 - Enables rapid prototyping and rule iteration

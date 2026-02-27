@@ -1,6 +1,6 @@
-# Flippy Test Harness Architecture
+# PacGate Test Harness Architecture
 
-**Document ID**: FLIP-THA-001
+**Document ID**: PG-THA-001
 **Version**: 2.0
 **Date**: 2026-02-26
 **Status**: Approved
@@ -9,11 +9,11 @@
 
 ## 1. Overview
 
-The Flippy test harness is **auto-generated from the same YAML specification** as the hardware. It implements a UVM-inspired verification architecture in Python/cocotb with five major subsystems:
+The PacGate test harness is **auto-generated from the same YAML specification** as the hardware. It implements a UVM-inspired verification architecture in Python/cocotb with five major subsystems:
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│                     Flippy Verification Environment                   │
+│                     PacGate Verification Environment                   │
 │                                                                      │
 │  ┌─────────────────────────────────────────────────────────────────┐ │
 │  │                      Test Layer                                  │ │

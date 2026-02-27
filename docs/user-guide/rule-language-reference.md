@@ -1,6 +1,6 @@
-# Flippy Rule Language Reference
+# PacGate Rule Language Reference
 
-**Document ID**: FLIP-UG-002
+**Document ID**: PG-UG-002
 **Version**: 2.0
 **Date**: 2026-02-26
 
@@ -8,10 +8,10 @@
 
 ## 1. File Format
 
-Flippy rules are defined in YAML format. Every rule file must have the following top-level structure:
+PacGate rules are defined in YAML format. Every rule file must have the following top-level structure:
 
 ```yaml
-flippy:
+pacgate:
   version: "1.0"          # Required: schema version
   defaults:                # Required: default behavior
     action: drop           # Required: "pass" or "drop"
@@ -28,9 +28,9 @@ flippy:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `flippy.version` | String | Yes | Schema version, must be `"1.0"` |
-| `flippy.defaults.action` | String | Yes | `"pass"` or `"drop"` — action when no rule matches |
-| `flippy.rules` | List | Yes | List of rule objects (minimum 1) |
+| `pacgate.version` | String | Yes | Schema version, must be `"1.0"` |
+| `pacgate.defaults.action` | String | Yes | `"pass"` or `"drop"` — action when no rule matches |
+| `pacgate.rules` | List | Yes | List of rule objects (minimum 1) |
 
 ## 3. Rule Object
 

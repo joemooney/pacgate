@@ -1,4 +1,4 @@
-# Flippy Verification Framework -- Research Report
+# PacGate Verification Framework -- Research Report
 
 **Date**: 2026-02-26
 **Purpose**: Research findings for building an innovative FPGA packet filter verification framework using cocotb
@@ -16,7 +16,7 @@
 6. [Test Harness Generation from Specifications](#6-test-harness-generation-from-specifications)
 7. [Formal Verification Integration](#7-formal-verification-integration)
 8. [Regression and CI for FPGA Projects](#8-regression-and-ci-for-fpga-projects)
-9. [Recommendations for Flippy](#9-recommendations-for-flippy)
+9. [Recommendations for PacGate](#9-recommendations-for-pacgate)
 
 ---
 
@@ -56,7 +56,7 @@ The ecosystem of bus functional models and protocol VIPs has matured significant
 | **cocotbext-spi** | SPI bus | PyPI |
 | **cocotbext-i2c** | I2C interface | PyPI |
 
-**Relevance to Flippy**: When we move to Phase 4 (AXI-Stream store-and-forward), `cocotbext-axi` provides production-quality AXI4-Stream source/sink/monitor models. For Ethernet-specific verification, `cocotbext-eth` provides PHY-level models we could use for more realistic stimulus generation.
+**Relevance to PacGate**: When we move to Phase 4 (AXI-Stream store-and-forward), `cocotbext-axi` provides production-quality AXI4-Stream source/sink/monitor models. For Ethernet-specific verification, `cocotbext-eth` provides PHY-level models we could use for more realistic stimulus generation.
 
 ### Sources
 
@@ -112,7 +112,7 @@ An alternative library providing SystemVerilog-style constraints and coverage. B
 
 **Key advantage over cocotb-coverage**: SMT-based constraint solving handles more complex interdependent constraints. PyVSC is used alongside PyUVM.
 
-#### Coverage Categories for Flippy
+#### Coverage Categories for PacGate
 
 For our packet filter, we should track:
 
@@ -146,9 +146,9 @@ Property-based testing (PBT), popularized by QuickCheck (Haskell) and Hypothesis
 
 ### Hypothesis + cocotb: An Unexplored Frontier
 
-There is no established integration between Hypothesis and cocotb. This represents a genuine innovation opportunity for Flippy. The challenge is that Hypothesis expects synchronous functions while cocotb tests are async coroutines interacting with a simulator. However, this can be bridged.
+There is no established integration between Hypothesis and cocotb. This represents a genuine innovation opportunity for PacGate. The challenge is that Hypothesis expects synchronous functions while cocotb tests are async coroutines interacting with a simulator. However, this can be bridged.
 
-**Proposed architecture for Flippy:**
+**Proposed architecture for PacGate:**
 
 ```python
 from hypothesis import given, strategies as st, settings
@@ -220,7 +220,7 @@ MCY (from YosysHQ) is the key open-source tool for hardware mutation testing. It
 
 **This is a standout feature because** MCY combines simulation-based mutation testing with formal methods to produce a much more meaningful coverage metric than pure code coverage. It answers the question: "Does my testbench actually check the outputs, or does it just exercise the code paths?"
 
-**Application to Flippy:**
+**Application to PacGate:**
 
 We could integrate MCY into our verification flow to measure test harness quality:
 - Generate the packet_filter_top from YAML
@@ -279,12 +279,12 @@ Recent research (2025) demonstrates using Machine Learning with PyUVM/cocotb to 
 - The trained model predicts which constraint configurations will hit uncovered bins
 - This produces ML-optimized regressions that reach coverage closure faster than random exploration
 
-### Application to Flippy
+### Application to PacGate
 
 For Phase 2+, we could adopt a lightweight PyUVM structure:
 
 ```
-FlippyEnv (uvm_env)
+PacGateEnv (uvm_env)
   +-- PktAgent (uvm_agent)
   |     +-- PktDriver     -- sends frames via pkt_data/pkt_valid/pkt_sof/pkt_eof
   |     +-- PktMonitor    -- reconstructs frames from bus, publishes via TLM port
@@ -312,7 +312,7 @@ FlippyEnv (uvm_env)
 
 #### Commercial Tools
 
-**Agnisys IDS-Verify** is the closest commercial analog to Flippy's approach. It takes register specifications (IP-XACT, SystemRDL, or proprietary format) and generates:
+**Agnisys IDS-Verify** is the closest commercial analog to PacGate's approach. It takes register specifications (IP-XACT, SystemRDL, or proprietary format) and generates:
 - Complete UVM testbenches (bus agents, drivers, adaptors, sequencers, sequences)
 - Register tests with 100% functional coverage of cover groups
 - Positive and negative test types (read-only protection, indirect access, lock/unlock)
@@ -331,9 +331,9 @@ Active research is using Large Language Models for testbench generation:
 
 Current state-of-the-art LLMs achieve only ~34% pass@1 on hardware verification benchmarks, indicating this space is still immature.
 
-### How Flippy Compares and What Makes It Innovative
+### How PacGate Compares and What Makes It Innovative
 
-| Aspect | Agnisys IDS-Verify | LLM-Based | Flippy |
+| Aspect | Agnisys IDS-Verify | LLM-Based | PacGate |
 |--------|-------------------|-----------|--------|
 | Input format | IP-XACT, SystemRDL | Natural language / RTL | YAML rule definitions |
 | Output | UVM (SystemVerilog) | Mixed | Verilog RTL + cocotb Python |
@@ -342,7 +342,7 @@ Current state-of-the-art LLMs achieve only ~34% pass@1 on hardware verification 
 | Cost | Commercial ($$$) | API costs | Open source |
 | **Unique angle** | Generates tests from register spec | Generates from LLM inference | **Generates BOTH the hardware AND its tests from the same spec** |
 
-**Flippy's key innovation**: No other tool generates both the implementation (Verilog) and the verification (cocotb) from a single specification. Agnisys generates tests from register specs but assumes the RTL exists. LLMs generate one or the other. Flippy generates both, ensuring perfect alignment between specification, implementation, and verification.
+**PacGate's key innovation**: No other tool generates both the implementation (Verilog) and the verification (cocotb) from a single specification. Agnisys generates tests from register specs but assumes the RTL exists. LLMs generate one or the other. PacGate generates both, ensuring perfect alignment between specification, implementation, and verification.
 
 **Additional differentiators we should build:**
 1. **Negative test generation**: Automatically generate frames that should NOT match any rule, verifying the default action
@@ -389,12 +389,12 @@ There is no direct integration between cocotb and SymbiYosys. They serve complem
 | Stimuli | Generated by testbench | Generated by solver |
 | Best for | Protocol sequences, data-path testing | Control logic, FSM correctness, corner cases |
 
-### Integration Architecture for Flippy
+### Integration Architecture for PacGate
 
 We can generate formal properties alongside simulation tests from the same YAML:
 
 ```
-rules.yaml --> flippy --> Verilog RTL (gen/rtl/)
+rules.yaml --> pacgate --> Verilog RTL (gen/rtl/)
                       --> cocotb tests (gen/tb/)
                       --> SVA assertions (gen/formal/)   <-- NEW
                       --> sby task file (gen/formal/)     <-- NEW
@@ -439,13 +439,13 @@ assert property (p_arp_pass);
 
 cocotb's test runner produces results in **JUnit XML format** by default (`results.xml`), which is understood by Jenkins, GitHub Actions, Azure Pipelines, and GitLab CI. The `cocotb-test` package provides a pytest integration layer with the `--cocotbxml` option to combine cocotb and pytest XML reports.
 
-### GitHub Actions Pipeline for Flippy
+### GitHub Actions Pipeline for PacGate
 
 A practical CI pipeline:
 
 ```yaml
 # .github/workflows/verify.yml
-name: Flippy Verification
+name: PacGate Verification
 on: [push, pull_request]
 jobs:
   verify:
@@ -506,7 +506,7 @@ jobs:
 
 ---
 
-## 9. Recommendations for Flippy
+## 9. Recommendations for PacGate
 
 ### What Would Make This Project Stand Out to Management
 
@@ -543,7 +543,7 @@ Based on this research, here are the features ranked by impact and feasibility:
 
 ### The Elevator Pitch
 
-> "Flippy is a specification-driven FPGA verification framework that generates both hardware and tests from YAML rules. Unlike commercial tools that generate only tests from specs (Agnisys, $100K+/seat), and unlike LLM approaches that are non-deterministic (34% accuracy), Flippy deterministically generates matched RTL and verification from a single source of truth. It then measures its own test quality through mutation testing, and can formally prove properties with SymbiYosys -- all using open-source tools. This is a novel combination that does not exist in any other open-source project."
+> "PacGate is a specification-driven FPGA verification framework that generates both hardware and tests from YAML rules. Unlike commercial tools that generate only tests from specs (Agnisys, $100K+/seat), and unlike LLM approaches that are non-deterministic (34% accuracy), PacGate deterministically generates matched RTL and verification from a single source of truth. It then measures its own test quality through mutation testing, and can formally prove properties with SymbiYosys -- all using open-source tools. This is a novel combination that does not exist in any other open-source project."
 
 ### Recommended Implementation Order
 

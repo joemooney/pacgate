@@ -1,6 +1,6 @@
-# Flippy Functional Coverage Model
+# PacGate Functional Coverage Model
 
-**Document ID**: FLIP-COV-001
+**Document ID**: PG-COV-001
 **Version**: 2.0
 **Date**: 2026-02-26
 **Status**: Approved
@@ -9,7 +9,7 @@
 
 ## 1. Overview
 
-This document defines the functional coverage model for the Flippy packet filter. Coverage is collected automatically during cocotb simulation and reported in both human-readable and machine-parseable formats.
+This document defines the functional coverage model for the PacGate packet filter. Coverage is collected automatically during cocotb simulation and reported in both human-readable and machine-parseable formats.
 
 **Philosophy**: "If it's not covered, it's not verified."
 
@@ -143,7 +143,7 @@ def sample_packet(ethertype, dst_mac, decision):
 ## 6. Coverage Report Format
 
 ```
-=== Flippy Coverage Report ===
+=== PacGate Coverage Report ===
 Generated: 2026-02-26 22:30:00
 Rules file: rules/examples/enterprise.yaml
 Rules count: 12

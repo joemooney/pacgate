@@ -1,8 +1,8 @@
-# JSON Schema for Flippy rule files (expressed in YAML)
+# JSON Schema for PacGate rule files (expressed in YAML)
 type: object
-required: [flippy]
+required: [pacgate]
 properties:
-  flippy:
+  pacgate:
     type: object
     required: [version, defaults, rules]
     properties:

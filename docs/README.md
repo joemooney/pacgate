@@ -1,4 +1,4 @@
-# Flippy Documentation Index
+# PacGate Documentation Index
 
 ## Design Documents
 

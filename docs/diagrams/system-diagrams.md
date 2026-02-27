@@ -1,6 +1,6 @@
-# Flippy System Diagrams
+# PacGate System Diagrams
 
-**Document ID**: FLIP-DIA-001
+**Document ID**: PG-DIA-001
 **Date**: 2026-02-26
 
 ---
@@ -21,7 +21,7 @@
          │                      └────────┬────────┘                  │
          │                               │                           │
          │                      ┌────────▼────────┐                  │
-         │                      │  flippy compile │                  │
+         │                      │  pacgate compile │                  │
          │                      │  (Rust CLI)     │                  │
          │                      └───┬─────────┬───┘                  │
          │                          │         │                      │

@@ -1,6 +1,6 @@
-# Flippy Product Roadmap
+# PacGate Product Roadmap
 
-**Document ID**: FLIP-RM-001
+**Document ID**: PG-RM-001
 **Date**: 2026-02-26
 
 ---

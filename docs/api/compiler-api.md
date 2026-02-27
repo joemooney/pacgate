@@ -1,6 +1,6 @@
-# Flippy Compiler API Reference
+# PacGate Compiler API Reference
 
-**Document ID**: FLIP-API-001
+**Document ID**: PG-API-001
 **Version**: 2.0
 **Date**: 2026-02-26
 
@@ -8,7 +8,7 @@
 
 ## CLI Interface
 
-### `flippy compile <rules>`
+### `pacgate compile <rules>`
 
 Compiles YAML rules into Verilog RTL and cocotb test harness.
 
@@ -41,7 +41,7 @@ Compiles YAML rules into Verilog RTL and cocotb test harness.
 | 1 | Validation error (duplicate priority, bad MAC, etc.) |
 | 1 | Template rendering error |
 
-### `flippy validate <rules>`
+### `pacgate validate <rules>`
 
 Validates YAML rules without generating output.
 
@@ -59,8 +59,8 @@ Validates YAML rules without generating output.
 **Key types**:
 | Type | Description |
 |------|-------------|
-| `FilterConfig` | Top-level: `{ flippy: FlippyConfig }` |
-| `FlippyConfig` | `{ version, defaults, rules }` |
+| `FilterConfig` | Top-level: `{ pacgate: PacGateConfig }` |
+| `PacGateConfig` | `{ version, defaults, rules }` |
 | `Defaults` | `{ action: Action }` |
 | `StatelessRule` | `{ name, priority, match_criteria, action, rule_type, fsm }` |
 | `MatchCriteria` | `{ dst_mac, src_mac, ethertype, vlan_id, vlan_pcp }` |

@@ -1,6 +1,6 @@
-# Flippy Architecture Document
+# PacGate Architecture Document
 
-**Document ID**: FLIP-ARCH-001
+**Document ID**: PG-ARCH-001
 **Version**: 2.0
 **Date**: 2026-02-26
 **Status**: Approved
@@ -9,18 +9,18 @@
 
 ## 1. Executive Summary
 
-Flippy is a **specification-driven FPGA packet filter** that compiles human-readable YAML rules into two orthogonal artifacts from a single source of truth:
+PacGate is a **specification-driven FPGA packet filter** that compiles human-readable YAML rules into two orthogonal artifacts from a single source of truth:
 
 1. **Synthesizable Verilog RTL** — the hardware filter
 2. **cocotb verification harness** — the proof it works
 
-This "single-spec, dual-output" architecture is the core innovation. Unlike traditional FPGA development where RTL and testbenches are written independently (creating specification drift), Flippy guarantees that **the test always matches the design** because both derive from the same specification.
+This "single-spec, dual-output" architecture is the core innovation. Unlike traditional FPGA development where RTL and testbenches are written independently (creating specification drift), PacGate guarantees that **the test always matches the design** because both derive from the same specification.
 
 ## 2. System Context
 
 ```
                     ┌─────────────────────────────────────────────┐
-                    │              Flippy Ecosystem                │
+                    │              PacGate Ecosystem                │
                     │                                             │
   ┌──────────┐     │  ┌──────────┐    ┌──────────────────────┐   │
   │  Network  │────▶│  │  FPGA    │    │  Verification        │   │
@@ -32,7 +32,7 @@ This "single-spec, dual-output" architecture is the core innovation. Unlike trad
                     │       └────────┬───────────┘                │
                     │                │                             │
                     │         ┌──────┴──────┐                     │
-                    │         │   Flippy    │                     │
+                    │         │   PacGate    │                     │
                     │         │  Compiler   │                     │
                     │         │   (Rust)    │                     │
                     │         └──────┬──────┘                     │
@@ -54,7 +54,7 @@ This "single-spec, dual-output" architecture is the core innovation. Unlike trad
                          └────────┬────────┘
                                   │
                          ┌────────┴────────┐
-                         │  Flippy Compiler │
+                         │  PacGate Compiler │
                          │     (Rust)       │
                          │                  │
                          │  ┌────────────┐  │
@@ -95,7 +95,7 @@ This "single-spec, dual-output" architecture is the core innovation. Unlike trad
 - **Incomplete coverage** — humans miss edge cases
 - **Maintenance burden** — spec changes require manual test updates
 
-Flippy eliminates all three by generating both artifacts from the same source.
+PacGate eliminates all three by generating both artifacts from the same source.
 
 ## 4. Verilog Module Hierarchy
 

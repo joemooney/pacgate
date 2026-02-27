@@ -1,4 +1,4 @@
-flippy:
+pacgate:
   version: "1.0"
   defaults:
     action: drop

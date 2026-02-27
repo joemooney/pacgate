@@ -1,6 +1,6 @@
-# Getting Started with Flippy
+# Getting Started with PacGate
 
-**Document ID**: FLIP-UG-001
+**Document ID**: PG-UG-001
 **Version**: 2.0
 **Date**: 2026-02-26
 
@@ -10,7 +10,7 @@
 
 | Tool | Version | Purpose |
 |------|---------|---------|
-| Rust | 1.75+ | Flippy compiler |
+| Rust | 1.75+ | PacGate compiler |
 | Python | 3.10+ | cocotb test framework |
 | Icarus Verilog | 12.0+ | Verilog simulation |
 | cocotb | 2.0+ | Python-to-Verilog test bridge |
@@ -34,7 +34,7 @@ source .venv/bin/activate
 pip install cocotb
 ```
 
-### Step 2: Build Flippy
+### Step 2: Build PacGate
 
 ```bash
 cargo build --release
@@ -45,7 +45,7 @@ cargo build --release
 Create `my_rules.yaml`:
 
 ```yaml
-flippy:
+pacgate:
   version: "1.0"
   defaults:
     action: drop              # Whitelist mode: drop everything by default
@@ -93,14 +93,14 @@ gtkwave gen/tb/sim_build/dump.fst &
 
 ## Command Reference
 
-### `flippy compile <rules.yaml>`
+### `pacgate compile <rules.yaml>`
 
 Compiles YAML rules into Verilog RTL and cocotb test bench.
 
 ```bash
-flippy compile rules.yaml                    # Default output to gen/
-flippy compile rules.yaml -o build/          # Custom output directory
-flippy compile rules.yaml -t my_templates/   # Custom templates
+pacgate compile rules.yaml                    # Default output to gen/
+pacgate compile rules.yaml -o build/          # Custom output directory
+pacgate compile rules.yaml -t my_templates/   # Custom templates
 ```
 
 **Options**:
@@ -109,12 +109,12 @@ flippy compile rules.yaml -t my_templates/   # Custom templates
 | `-o, --output` | `gen` | Output directory |
 | `-t, --templates` | `templates` | Templates directory |
 
-### `flippy validate <rules.yaml>`
+### `pacgate validate <rules.yaml>`
 
 Validates YAML rules without generating output. Useful for CI.
 
 ```bash
-flippy validate rules.yaml
+pacgate validate rules.yaml
 # Output: "Valid: 5 rules loaded from rules.yaml"
 ```
 
@@ -132,7 +132,7 @@ flippy validate rules.yaml
 ### Rule Structure
 
 ```yaml
-flippy:
+pacgate:
   version: "1.0"
   defaults:
     action: drop          # or "pass" — applies when no rule matches
@@ -199,7 +199,7 @@ rules:
 ## Example: Enterprise Firewall
 
 ```yaml
-flippy:
+pacgate:
   version: "1.0"
   defaults:
     action: drop
@@ -253,8 +253,8 @@ source .venv/bin/activate  # Activate the Python virtual environment
 - Verify `pkt_valid` is high for all frame bytes
 
 ### "No rules defined"
-- Ensure your YAML has at least one rule under `flippy.rules`
-- Run `flippy validate` first to check YAML syntax
+- Ensure your YAML has at least one rule under `pacgate.rules`
+- Run `pacgate validate` first to check YAML syntax
 
 ### "Duplicate priority"
 - Each rule must have a unique priority value

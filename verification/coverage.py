@@ -1,5 +1,5 @@
 """
-Flippy Coverage Collector — Functional coverage for packet filter verification.
+PacGate Coverage Collector — Functional coverage for packet filter verification.
 
 Tracks coverage across multiple dimensions:
 - Protocol/EtherType distribution
@@ -201,7 +201,7 @@ class FilterCoverage:
         """Generate a formatted coverage report."""
         lines = [
             "=" * 70,
-            "FLIPPY COVERAGE REPORT",
+            "PACGATE COVERAGE REPORT",
             "=" * 70,
             f"Total samples: {self._sample_count}",
             "",
