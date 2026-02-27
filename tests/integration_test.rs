@@ -1057,6 +1057,123 @@ fn compile_rate_limit_generates_tb() {
     assert!(test_py.contains("test_token_refill"), "should contain token refill test");
 }
 
+// ── Template Library Integration Tests ─────────────────────
+
+#[test]
+fn template_list() {
+    let output = pacgate_bin()
+        .args(["template", "list"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "template list failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("allow_management"), "should list allow_management template");
+    assert!(stdout.contains("block_bogons"), "should list block_bogons template");
+    assert!(stdout.contains("web_server"), "should list web_server template");
+}
+
+#[test]
+fn template_list_json() {
+    let output = pacgate_bin()
+        .args(["template", "list", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "template list --json failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    assert!(json.is_array());
+    assert!(json.as_array().unwrap().len() >= 7, "should have at least 7 templates");
+}
+
+#[test]
+fn template_show() {
+    let output = pacgate_bin()
+        .args(["template", "show", "allow_management"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "template show failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("mgmt_subnet"), "should show mgmt_subnet variable");
+    assert!(stdout.contains("SSH"), "should show description");
+}
+
+#[test]
+fn template_show_nonexistent() {
+    let output = pacgate_bin()
+        .args(["template", "show", "nonexistent_template"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "should fail for nonexistent template");
+}
+
+#[test]
+fn template_apply() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output_path = tmp.path().join("rules.yaml");
+    let output = pacgate_bin()
+        .args(["template", "apply", "web_server", "-o", output_path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "template apply failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let yaml = std::fs::read_to_string(&output_path).unwrap();
+    assert!(yaml.contains("pacgate:"), "should generate valid PacGate YAML");
+    assert!(yaml.contains("allow_http"), "should contain allow_http rule");
+    assert!(yaml.contains("allow_https"), "should contain allow_https rule");
+}
+
+#[test]
+fn template_apply_with_vars() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output_path = tmp.path().join("rules.yaml");
+    let output = pacgate_bin()
+        .args(["template", "apply", "allow_management", "-o", output_path.to_str().unwrap(),
+               "--set", "mgmt_subnet=192.168.1.0/24", "--set", "priority=800"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "template apply with vars failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let yaml = std::fs::read_to_string(&output_path).unwrap();
+    assert!(yaml.contains("192.168.1.0/24"), "should use custom subnet");
+    assert!(yaml.contains("priority: 800"), "should use custom priority");
+}
+
+// ── Documentation Generation Integration Tests ───────────
+
+#[test]
+fn doc_generates_html() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output_path = tmp.path().join("docs.html");
+    let output = pacgate_bin()
+        .args(["doc", "rules/examples/allow_arp.yaml", "-o", output_path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "doc failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let html = std::fs::read_to_string(&output_path).unwrap();
+    assert!(html.contains("<!DOCTYPE html>"), "should generate valid HTML");
+    assert!(html.contains("PacGate Rule Documentation"), "should have title");
+    assert!(html.contains("allow_arp"), "should contain rule name");
+}
+
+#[test]
+fn doc_enterprise_rules() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output_path = tmp.path().join("docs.html");
+    let output = pacgate_bin()
+        .args(["doc", "rules/examples/enterprise.yaml", "-o", output_path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "doc enterprise failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let html = std::fs::read_to_string(&output_path).unwrap();
+    assert!(html.contains("Rule Summary"), "should have summary table");
+    assert!(html.contains("Rule Details"), "should have detail sections");
+}
+
 // ── Simulator IPv6 Integration Tests ───────────────────────
 
 #[test]

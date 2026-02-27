@@ -9,6 +9,7 @@ mod simulator;
 mod pcap_analyze;
 mod synth_gen;
 mod mutation;
+mod templates_lib;
 
 use std::path::{Path, PathBuf};
 use clap::{CommandFactory, Parser, Subcommand};
@@ -293,6 +294,56 @@ enum Commands {
         /// Output JSON report instead of human-readable text
         #[arg(long)]
         json: bool,
+    },
+    /// Manage rule templates (list, show, apply)
+    Template {
+        #[command(subcommand)]
+        action: TemplateAction,
+    },
+    /// Generate HTML documentation for a rule set
+    Doc {
+        /// Path to the YAML rules file
+        rules: PathBuf,
+
+        /// Output HTML file path
+        #[arg(short, long, default_value = "gen/rule_documentation.html")]
+        output: PathBuf,
+
+        /// Templates directory
+        #[arg(short, long, default_value = "templates")]
+        templates: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+enum TemplateAction {
+    /// List available rule templates
+    List {
+        /// Filter by category
+        #[arg(short, long)]
+        category: Option<String>,
+
+        /// Output JSON instead of table
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show details of a specific template
+    Show {
+        /// Template name
+        name: String,
+    },
+    /// Apply a template to generate a rules YAML file
+    Apply {
+        /// Template name
+        name: String,
+
+        /// Output YAML file path
+        #[arg(short, long, default_value = "rules.yaml")]
+        output: PathBuf,
+
+        /// Set template variables (key=value)
+        #[arg(long = "set", value_name = "KEY=VALUE")]
+        set: Vec<String>,
     },
 }
 
@@ -780,8 +831,176 @@ fn main() -> Result<()> {
                 println!("  Each mutant should fail at least one test. Surviving mutants indicate test gaps.");
             }
         }
+        Commands::Template { action } => {
+            match action {
+                TemplateAction::List { category, json } => {
+                    let templates = templates_lib::builtin_templates();
+                    let filtered: Vec<_> = if let Some(ref cat) = category {
+                        templates.iter().filter(|t| t.category == *cat).collect()
+                    } else {
+                        templates.iter().collect()
+                    };
+
+                    if json {
+                        let json_val: Vec<serde_json::Value> = filtered.iter().map(|t| {
+                            serde_json::json!({
+                                "name": t.name,
+                                "category": t.category,
+                                "description": t.description,
+                                "variables": t.variables.iter().map(|v| {
+                                    serde_json::json!({ "name": v.name, "default": v.default, "type": v.var_type })
+                                }).collect::<Vec<_>>(),
+                            })
+                        }).collect();
+                        println!("{}", serde_json::to_string_pretty(&json_val)?);
+                    } else {
+                        println!();
+                        println!("  Available Rule Templates:");
+                        println!("  {:<22} {:<18} {}", "NAME", "CATEGORY", "DESCRIPTION");
+                        println!("  {}", "-".repeat(70));
+                        for t in &filtered {
+                            println!("  {:<22} {:<18} {}", t.name, t.category, t.description);
+                        }
+                        println!();
+                        println!("  Use 'pacgate template show <name>' for details");
+                        println!("  Use 'pacgate template apply <name> -o rules.yaml' to generate rules");
+                        println!();
+                    }
+                }
+                TemplateAction::Show { name } => {
+                    let t = templates_lib::find_template(&name)
+                        .ok_or_else(|| anyhow::anyhow!("Template '{}' not found. Use 'pacgate template list' to see available templates.", name))?;
+
+                    println!();
+                    println!("  Template: {}", t.name);
+                    println!("  Category: {}", t.category);
+                    println!("  Description: {}", t.description);
+                    println!();
+                    println!("  Variables:");
+                    for v in &t.variables {
+                        println!("    ${{{}}}: {} (default: {}, type: {})", v.name, v.description, v.default, v.var_type);
+                    }
+                    println!();
+                    println!("  YAML Preview (with defaults):");
+                    if let Ok(body) = templates_lib::apply_template(&t, &[]) {
+                        for line in body.lines() {
+                            println!("    {}", line);
+                        }
+                    }
+                    println!();
+                }
+                TemplateAction::Apply { name, output, set } => {
+                    let t = templates_lib::find_template(&name)
+                        .ok_or_else(|| anyhow::anyhow!("Template '{}' not found", name))?;
+
+                    let vars: Vec<(String, String)> = set.iter().map(|s| {
+                        let parts: Vec<&str> = s.splitn(2, '=').collect();
+                        if parts.len() == 2 {
+                            (parts[0].to_string(), parts[1].to_string())
+                        } else {
+                            (s.clone(), String::new())
+                        }
+                    }).collect();
+
+                    let yaml = templates_lib::apply_template_to_yaml(&t, &vars, "drop")?;
+                    std::fs::write(&output, &yaml)?;
+                    println!("  Applied template '{}' -> {}", name, output.display());
+                }
+            }
+        }
+        Commands::Doc { rules, output, templates } => {
+            let (config, warnings) = loader::load_rules_with_warnings(&rules)?;
+            generate_rule_documentation(&config, &warnings, &rules, &templates, &output)?;
+            println!("  Generated rule documentation: {}", output.display());
+        }
     }
 
+    Ok(())
+}
+
+fn generate_rule_documentation(
+    config: &model::FilterConfig,
+    warnings: &[String],
+    rules_path: &Path,
+    templates_dir: &Path,
+    output_path: &Path,
+) -> Result<()> {
+    let glob = format!("{}/**/*.tera", templates_dir.display());
+    let tera = tera::Tera::new(&glob)
+        .with_context(|| format!("Failed to load templates from {}", templates_dir.display()))?;
+
+    let rules = &config.pacgate.rules;
+    let default_action = match config.pacgate.defaults.action {
+        model::Action::Pass => "pass",
+        model::Action::Drop => "drop",
+    };
+
+    // Build rule info for template
+    let mut rule_info: Vec<serde_json::Value> = Vec::new();
+    for rule in rules {
+        let mut match_fields: Vec<String> = Vec::new();
+        if let Some(ref et) = rule.match_criteria.ethertype { match_fields.push(format!("ethertype: {}", et)); }
+        if let Some(ref mac) = rule.match_criteria.dst_mac { match_fields.push(format!("dst_mac: {}", mac)); }
+        if let Some(ref mac) = rule.match_criteria.src_mac { match_fields.push(format!("src_mac: {}", mac)); }
+        if let Some(vid) = rule.match_criteria.vlan_id { match_fields.push(format!("vlan_id: {}", vid)); }
+        if let Some(pcp) = rule.match_criteria.vlan_pcp { match_fields.push(format!("vlan_pcp: {}", pcp)); }
+        if let Some(ref ip) = rule.match_criteria.src_ip { match_fields.push(format!("src_ip: {}", ip)); }
+        if let Some(ref ip) = rule.match_criteria.dst_ip { match_fields.push(format!("dst_ip: {}", ip)); }
+        if let Some(proto) = rule.match_criteria.ip_protocol { match_fields.push(format!("ip_protocol: {}", proto)); }
+        if let Some(ref pm) = rule.match_criteria.src_port { match_fields.push(format!("src_port: {:?}", pm)); }
+        if let Some(ref pm) = rule.match_criteria.dst_port { match_fields.push(format!("dst_port: {:?}", pm)); }
+        if let Some(ref ipv6) = rule.match_criteria.src_ipv6 { match_fields.push(format!("src_ipv6: {}", ipv6)); }
+        if let Some(ref ipv6) = rule.match_criteria.dst_ipv6 { match_fields.push(format!("dst_ipv6: {}", ipv6)); }
+        if let Some(nh) = rule.match_criteria.ipv6_next_header { match_fields.push(format!("ipv6_next_header: {}", nh)); }
+
+        let key_match = if match_fields.is_empty() { "any".to_string() } else { match_fields.join(", ") };
+        let action = if rule.action() == model::Action::Pass { "pass" } else { "drop" };
+
+        let mut info = serde_json::json!({
+            "name": rule.name,
+            "priority": rule.priority,
+            "action": action,
+            "is_stateful": rule.is_stateful(),
+            "key_match": key_match,
+            "match_fields": match_fields,
+        });
+
+        if rule.is_stateful() {
+            if let Some(ref fsm) = rule.fsm {
+                info["initial_state"] = serde_json::json!(fsm.initial_state);
+                info["num_states"] = serde_json::json!(fsm.states.len());
+            }
+        }
+
+        if let Some(ref rl) = rule.rate_limit {
+            info["rate_limit"] = serde_json::json!(format!("{} pps, burst {}", rl.pps, rl.burst));
+        }
+
+        rule_info.push(info);
+    }
+
+    let num_stateless = rules.iter().filter(|r| !r.is_stateful()).count();
+    let num_pass = rules.iter().filter(|r| matches!(r.action(), model::Action::Pass)).count();
+    let num_drop = rules.iter().filter(|r| matches!(r.action(), model::Action::Drop)).count();
+
+    let mut ctx = tera::Context::new();
+    ctx.insert("rules_file", &rules_path.display().to_string());
+    ctx.insert("generated_at", "auto-generated by pacgate");
+    ctx.insert("total_rules", &rules.len());
+    ctx.insert("num_stateless", &num_stateless);
+    ctx.insert("num_stateful", &(rules.len() - num_stateless));
+    ctx.insert("num_pass", &num_pass);
+    ctx.insert("num_drop", &num_drop);
+    ctx.insert("default_action", default_action);
+    ctx.insert("rules", &rule_info);
+    ctx.insert("warnings", warnings);
+
+    let rendered = tera.render("rule_documentation.html.tera", &ctx)?;
+
+    if let Some(parent) = output_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(output_path, &rendered)?;
     Ok(())
 }
 

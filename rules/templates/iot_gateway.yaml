@@ -1,0 +1,32 @@
+# IoT Gateway — Sensor/actuator network isolation
+# Variables: ${iot_subnet} (CIDR, default 10.99.0.0/16), ${mqtt_port} (default 1883), ${priority} (default 500)
+- name: allow_mqtt
+  priority: ${priority}
+  match:
+    ethertype: "0x0800"
+    src_ip: "${iot_subnet}"
+    ip_protocol: 6
+    dst_port: ${mqtt_port}
+  action: pass
+
+- name: allow_coap
+  priority: ${priority}
+  match:
+    ethertype: "0x0800"
+    src_ip: "${iot_subnet}"
+    ip_protocol: 17
+    dst_port: 5683
+  action: pass
+
+- name: allow_arp
+  priority: 200
+  match:
+    ethertype: "0x0806"
+  action: pass
+
+- name: block_iot_internet
+  priority: 100
+  match:
+    ethertype: "0x0800"
+    src_ip: "${iot_subnet}"
+  action: drop

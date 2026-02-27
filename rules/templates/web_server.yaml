@@ -1,0 +1,25 @@
+# Web Server — Standard HTTP/HTTPS server rules
+# Variables: ${server_subnet} (CIDR, default 0.0.0.0/0), ${priority} (default 400)
+- name: allow_http
+  priority: ${priority}
+  match:
+    ethertype: "0x0800"
+    dst_ip: "${server_subnet}"
+    ip_protocol: 6
+    dst_port: 80
+  action: pass
+
+- name: allow_https
+  priority: ${priority}
+  match:
+    ethertype: "0x0800"
+    dst_ip: "${server_subnet}"
+    ip_protocol: 6
+    dst_port: 443
+  action: pass
+
+- name: allow_arp
+  priority: 200
+  match:
+    ethertype: "0x0806"
+  action: pass

@@ -1,0 +1,19 @@
+# Allow Management — SSH/HTTPS from trusted subnet
+# Variables: ${mgmt_subnet} (CIDR, default 10.0.0.0/8), ${priority} (default 500)
+- name: allow_ssh
+  priority: ${priority}
+  match:
+    ethertype: "0x0800"
+    src_ip: "${mgmt_subnet}"
+    ip_protocol: 6
+    dst_port: 22
+  action: pass
+
+- name: allow_https_mgmt
+  priority: ${priority}
+  match:
+    ethertype: "0x0800"
+    src_ip: "${mgmt_subnet}"
+    ip_protocol: 6
+    dst_port: 443
+  action: pass

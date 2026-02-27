@@ -1,0 +1,13 @@
+# VLAN Isolation — Segment traffic by VLAN ID
+# Variables: ${allowed_vlan} (VLAN ID, default 100), ${priority} (default 600)
+- name: allow_vlan_${allowed_vlan}
+  priority: ${priority}
+  match:
+    vlan_id: ${allowed_vlan}
+  action: pass
+
+- name: drop_other_vlans
+  priority: 10
+  match:
+    ethertype: "0x8100"
+  action: drop

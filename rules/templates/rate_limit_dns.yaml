@@ -1,0 +1,23 @@
+# Rate Limit DNS — Token-bucket rate limiting for DNS traffic
+# Variables: ${pps} (packets/sec, default 1000), ${burst} (default 64), ${priority} (default 400)
+- name: rate_limit_dns_udp
+  priority: ${priority}
+  match:
+    ethertype: "0x0800"
+    ip_protocol: 17
+    dst_port: 53
+  action: pass
+  rate_limit:
+    pps: ${pps}
+    burst: ${burst}
+
+- name: rate_limit_dns_tcp
+  priority: ${priority}
+  match:
+    ethertype: "0x0800"
+    ip_protocol: 6
+    dst_port: 53
+  action: pass
+  rate_limit:
+    pps: ${pps}
+    burst: ${burst}

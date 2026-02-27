@@ -1,0 +1,15 @@
+# Allow ICMP — Permit ICMP and ICMPv6 diagnostics
+# Variables: ${priority} (default 300)
+- name: allow_icmpv4
+  priority: ${priority}
+  match:
+    ethertype: "0x0800"
+    ip_protocol: 1
+  action: pass
+
+- name: allow_icmpv6
+  priority: ${priority}
+  match:
+    ethertype: "0x86DD"
+    ipv6_next_header: 58
+  action: pass

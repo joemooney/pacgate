@@ -1,0 +1,22 @@
+# Block Bogons — Drop RFC 1918 and reserved address ranges
+# Variables: ${priority} (default 900)
+- name: block_rfc1918_10
+  priority: ${priority}
+  match:
+    ethertype: "0x0800"
+    src_ip: "10.0.0.0/8"
+  action: drop
+
+- name: block_rfc1918_172
+  priority: ${priority}
+  match:
+    ethertype: "0x0800"
+    src_ip: "172.16.0.0/12"
+  action: drop
+
+- name: block_rfc1918_192
+  priority: ${priority}
+  match:
+    ethertype: "0x0800"
+    src_ip: "192.168.0.0/16"
+  action: drop

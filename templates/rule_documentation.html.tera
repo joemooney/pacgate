@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PacGate Rule Documentation — {{ rules_file }}</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+               color: #1a1a2e; background: #f8f9fa; line-height: 1.6; }
+        .container { max-width: 960px; margin: 0 auto; padding: 2rem; }
+        h1 { font-size: 1.8rem; margin-bottom: 0.5rem; color: #16213e; }
+        h2 { font-size: 1.3rem; margin: 1.5rem 0 0.75rem; color: #0f3460;
+             border-bottom: 2px solid #e2e8f0; padding-bottom: 0.3rem; }
+        h3 { font-size: 1.1rem; margin: 1rem 0 0.5rem; color: #1a1a2e; }
+        .meta { color: #64748b; font-size: 0.9rem; margin-bottom: 1.5rem; }
+        .summary-box { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px;
+                       padding: 1rem 1.5rem; margin-bottom: 1.5rem; }
+        .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+                        gap: 1rem; }
+        .stat { text-align: center; }
+        .stat-value { font-size: 2rem; font-weight: 700; color: #0f3460; }
+        .stat-label { font-size: 0.8rem; color: #64748b; text-transform: uppercase; }
+        table { width: 100%; border-collapse: collapse; margin: 0.75rem 0; background: #fff;
+                border-radius: 8px; overflow: hidden; border: 1px solid #e2e8f0; }
+        th { background: #0f3460; color: #fff; padding: 0.6rem 1rem; text-align: left;
+             font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+        td { padding: 0.5rem 1rem; border-bottom: 1px solid #f1f5f9; font-size: 0.9rem; }
+        tr:last-child td { border-bottom: none; }
+        tr:hover td { background: #f8fafc; }
+        .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px;
+                 font-size: 0.75rem; font-weight: 600; text-transform: uppercase; }
+        .badge-pass { background: #dcfce7; color: #166534; }
+        .badge-drop { background: #fee2e2; color: #991b1b; }
+        .badge-stateless { background: #dbeafe; color: #1e40af; }
+        .badge-stateful { background: #fef3c7; color: #92400e; }
+        .rule-detail { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px;
+                       padding: 1rem 1.5rem; margin-bottom: 1rem; }
+        .rule-header { display: flex; justify-content: space-between; align-items: center; }
+        .match-list { list-style: none; padding: 0; margin: 0.5rem 0; }
+        .match-list li { padding: 0.2rem 0; font-family: 'SF Mono', 'Consolas', monospace;
+                         font-size: 0.85rem; color: #334155; }
+        .match-list li::before { content: "\2022"; color: #0f3460; margin-right: 0.5rem; }
+        .warning { background: #fff7ed; border-left: 4px solid #f97316; padding: 0.75rem 1rem;
+                   margin: 0.5rem 0; border-radius: 0 4px 4px 0; font-size: 0.9rem; }
+        .arch-diagram { background: #1a1a2e; color: #a3e635; padding: 1rem; border-radius: 8px;
+                        font-family: 'SF Mono', 'Consolas', monospace; font-size: 0.8rem;
+                        white-space: pre; overflow-x: auto; margin: 0.75rem 0; }
+        footer { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #e2e8f0;
+                 color: #94a3b8; font-size: 0.8rem; text-align: center; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>PacGate Rule Documentation</h1>
+    <p class="meta">Source: {{ rules_file }} &mdash; Generated {{ generated_at }}</p>
+
+    <div class="summary-box">
+        <div class="summary-grid">
+            <div class="stat">
+                <div class="stat-value">{{ total_rules }}</div>
+                <div class="stat-label">Total Rules</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value">{{ num_stateless }}</div>
+                <div class="stat-label">Stateless</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value">{{ num_stateful }}</div>
+                <div class="stat-label">Stateful</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value">{{ num_pass }}</div>
+                <div class="stat-label">Pass</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value">{{ num_drop }}</div>
+                <div class="stat-label">Drop</div>
+            </div>
+        </div>
+        <p style="margin-top: 0.75rem; font-size: 0.9rem;">
+            Default action: <span class="badge {% if default_action == "pass" %}badge-pass{% else %}badge-drop{% endif %}">{{ default_action }}</span>
+        </p>
+    </div>
+
+    <h2>Rule Summary</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Name</th>
+                <th>Priority</th>
+                <th>Type</th>
+                <th>Action</th>
+                <th>Key Match</th>
+            </tr>
+        </thead>
+        <tbody>
+{% for rule in rules %}
+            <tr>
+                <td>{{ loop.index }}</td>
+                <td><a href="#rule-{{ rule.name }}">{{ rule.name }}</a></td>
+                <td>{{ rule.priority }}</td>
+                <td><span class="badge {% if rule.is_stateful %}badge-stateful{% else %}badge-stateless{% endif %}">{% if rule.is_stateful %}stateful{% else %}stateless{% endif %}</span></td>
+                <td><span class="badge {% if rule.action == "pass" %}badge-pass{% else %}badge-drop{% endif %}">{{ rule.action }}</span></td>
+                <td style="font-family: monospace; font-size: 0.85rem;">{{ rule.key_match }}</td>
+            </tr>
+{% endfor %}
+        </tbody>
+    </table>
+
+    <h2>Rule Details</h2>
+{% for rule in rules %}
+    <div class="rule-detail" id="rule-{{ rule.name }}">
+        <div class="rule-header">
+            <h3>{{ rule.name }}</h3>
+            <div>
+                <span class="badge {% if rule.action == "pass" %}badge-pass{% else %}badge-drop{% endif %}">{{ rule.action }}</span>
+                <span class="badge {% if rule.is_stateful %}badge-stateful{% else %}badge-stateless{% endif %}">{% if rule.is_stateful %}stateful{% else %}stateless{% endif %}</span>
+            </div>
+        </div>
+        <p style="font-size: 0.9rem; color: #64748b;">Priority: {{ rule.priority }}</p>
+{% if rule.match_fields | length > 0 %}
+        <h4 style="font-size: 0.9rem; margin-top: 0.5rem;">Match Criteria:</h4>
+        <ul class="match-list">
+{% for field in rule.match_fields %}
+            <li>{{ field }}</li>
+{% endfor %}
+        </ul>
+{% endif %}
+{% if rule.is_stateful %}
+        <h4 style="font-size: 0.9rem; margin-top: 0.5rem;">FSM:</h4>
+        <p style="font-size: 0.85rem; font-family: monospace;">Initial state: {{ rule.initial_state | default(value="N/A") }}, States: {{ rule.num_states | default(value="0") }}</p>
+{% endif %}
+{% if rule.rate_limit is defined %}
+        <p style="font-size: 0.85rem; margin-top: 0.3rem;">Rate limit: {{ rule.rate_limit }}</p>
+{% endif %}
+    </div>
+{% endfor %}
+
+    <h2>Architecture</h2>
+    <div class="arch-diagram">
+pkt_data ──> [ frame_parser ] ──> [ rule_match_0..N ] ──> [ decision_logic ] ──> decision_pass
+                                     │                          │
+                                     └── rule_fsm_0..M ────────┘
+                                     │
+                                     └── rate_limiter (if enabled)
+    </div>
+
+{% if warnings | length > 0 %}
+    <h2>Warnings</h2>
+{% for w in warnings %}
+    <div class="warning">{{ w }}</div>
+{% endfor %}
+{% endif %}
+
+    <footer>
+        Generated by PacGate &mdash; FPGA Layer 2/3/4 Packet Filter Gate
+    </footer>
+</div>
+</body>
+</html>
