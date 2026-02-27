@@ -1390,3 +1390,65 @@ fn properties_has_l3l4_determinism_test() {
     assert!(props_py.contains("l3l4_determinism"), "properties file missing l3l4_determinism test");
     assert!(props_py.contains("l3l4_ethernet_frames"), "properties file missing l3l4_ethernet_frames import");
 }
+
+#[test]
+fn formal_ipv6_assertions() {
+    let tmp = tempfile::tempdir().unwrap();
+    // First compile to generate RTL
+    let compile_out = pacgate_bin()
+        .args(["compile", "rules/examples/ipv6_firewall.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(compile_out.status.success());
+
+    let output = pacgate_bin()
+        .args(["formal", "rules/examples/ipv6_firewall.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "formal failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let assertions = std::fs::read_to_string(tmp.path().join("formal/assertions.sv")).unwrap();
+    assert!(assertions.contains("ipv6_cidr_stable"), "formal missing IPv6 CIDR assertion");
+}
+
+#[test]
+fn formal_port_range_assertions() {
+    let tmp = tempfile::tempdir().unwrap();
+    let compile_out = pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(compile_out.status.success());
+
+    let output = pacgate_bin()
+        .args(["formal", "rules/examples/l3l4_firewall.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "formal failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let assertions = std::fs::read_to_string(tmp.path().join("formal/assertions.sv")).unwrap();
+    // l3l4_firewall has port range rules
+    assert!(assertions.contains("port_range_decision_stable") || assertions.contains("p_port_range"),
+        "formal missing port range assertion");
+}
+
+#[test]
+fn conntrack_generates_test_files() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/hsm_conntrack.yaml", "-o", tmp.path().to_str().unwrap(), "--conntrack"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    assert!(tmp.path().join("tb-conntrack").exists(), "tb-conntrack directory missing");
+    assert!(tmp.path().join("tb-conntrack/test_conntrack.py").exists(), "conntrack test missing");
+    assert!(tmp.path().join("tb-conntrack/Makefile").exists(), "conntrack Makefile missing");
+
+    let test_py = std::fs::read_to_string(tmp.path().join("tb-conntrack/test_conntrack.py")).unwrap();
+    assert!(test_py.contains("test_conntrack_new_flow"), "missing new_flow test");
+    assert!(test_py.contains("test_conntrack_return_traffic"), "missing return_traffic test");
+    assert!(test_py.contains("test_conntrack_timeout"), "missing timeout test");
+    assert!(test_py.contains("test_conntrack_hash_collision"), "missing hash_collision test");
+    assert!(test_py.contains("test_conntrack_table_full"), "missing table_full test");
+}

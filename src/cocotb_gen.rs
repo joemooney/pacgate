@@ -329,6 +329,34 @@ fn generate_matching_ipv6(cidr: &str) -> String {
     }
 }
 
+/// Generate connection tracking cocotb testbench files
+pub fn generate_conntrack_tests(templates_dir: &Path, output_dir: &Path) -> Result<()> {
+    let glob = format!("{}/**/*.tera", templates_dir.display());
+    let tera = Tera::new(&glob)
+        .with_context(|| format!("Failed to load templates from {}", templates_dir.display()))?;
+
+    let tb_ct_dir = output_dir.join("tb-conntrack");
+    std::fs::create_dir_all(&tb_ct_dir)?;
+
+    // Render conntrack test
+    {
+        let ctx = tera::Context::new();
+        let rendered = tera.render("test_conntrack.py.tera", &ctx)?;
+        std::fs::write(tb_ct_dir.join("test_conntrack.py"), &rendered)?;
+        log::info!("Generated test_conntrack.py");
+    }
+
+    // Render conntrack Makefile
+    {
+        let ctx = tera::Context::new();
+        let rendered = tera.render("test_conntrack_makefile.tera", &ctx)?;
+        std::fs::write(tb_ct_dir.join("Makefile"), &rendered)?;
+        log::info!("Generated tb-conntrack/Makefile");
+    }
+
+    Ok(())
+}
+
 /// Generate rate limiter cocotb testbench files
 pub fn generate_rate_limiter_tests(templates_dir: &Path, output_dir: &Path) -> Result<()> {
     let glob = format!("{}/**/*.tera", templates_dir.display());

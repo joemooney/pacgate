@@ -398,6 +398,11 @@ fn main() -> Result<()> {
                 cocotb_gen::generate_rate_limiter_tests(&templates, &output)?;
             }
 
+            // Generate connection tracking testbench if --conntrack
+            if conntrack {
+                cocotb_gen::generate_conntrack_tests(&templates, &output)?;
+            }
+
             if json {
                 let summary = serde_json::json!({
                     "status": "ok",

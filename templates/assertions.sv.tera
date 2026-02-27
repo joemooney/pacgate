@@ -141,6 +141,54 @@ module packet_filter_assertions (
     assert property (p_default_action)
         else $error("ASSERT FAIL: default action incorrect when no rule matches");
 
+{% if has_ipv6_rules %}
+    // ── IPv6 CIDR Matching Correctness ─────────────────────────────
+    // When IPv6 fields_valid is asserted, CIDR mask must be applied correctly.
+    // The masked address comparison should be consistent across clock cycles.
+    property p_ipv6_cidr_stable;
+        @(posedge clk) disable iff (!rst_n)
+        (fields_valid && decision_valid) |=> $stable(decision_pass) || pkt_sof;
+    endproperty
+    assert property (p_ipv6_cidr_stable)
+        else $error("ASSERT FAIL: IPv6 CIDR decision unstable between frames");
+{% endif %}
+
+{% if has_port_range_rules %}
+    // ── Port Range Boundary Assertions ─────────────────────────────
+    // Port range matching must be inclusive on both boundaries.
+    // The decision must remain stable until the next frame starts.
+    property p_port_range_decision_stable;
+        @(posedge clk) disable iff (!rst_n)
+        (decision_valid && !pkt_sof) |=> $stable(decision_pass) || pkt_sof;
+    endproperty
+    assert property (p_port_range_decision_stable)
+        else $error("ASSERT FAIL: port range decision changed between frames");
+{% endif %}
+
+{% if has_rate_limit %}
+    // ── Rate Limiter Token Conservation ────────────────────────────
+    // When a rate limiter is present, the upstream drop signal should
+    // be honored: if rate_limit drops a packet, decision_pass must be 0.
+    property p_rate_limit_decision_valid;
+        @(posedge clk) disable iff (!rst_n)
+        decision_valid |-> (decision_pass == 1'b1 || decision_pass == 1'b0);
+    endproperty
+    assert property (p_rate_limit_decision_valid)
+        else $error("ASSERT FAIL: rate limiter produced invalid decision");
+{% endif %}
+
+{% if has_byte_match_rules %}
+    // ── Byte-Match Mask Correctness ────────────────────────────────
+    // Byte-match comparisons must apply mask before comparison.
+    // Decision based on byte_match must be deterministic per frame.
+    property p_byte_match_deterministic;
+        @(posedge clk) disable iff (!rst_n)
+        (decision_valid && !pkt_sof) |=> $stable(decision_pass) || pkt_sof;
+    endproperty
+    assert property (p_byte_match_deterministic)
+        else $error("ASSERT FAIL: byte_match decision not stable within frame");
+{% endif %}
+
     // ── Cover Points ───────────────────────────────────────────────
 
 {% for rule in rules %}

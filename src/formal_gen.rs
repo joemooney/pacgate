@@ -47,12 +47,25 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
     let default_pass = config.pacgate.defaults.action == Action::Pass;
     let max_decision_latency = 4; // cycles from fields_valid to decision_valid
 
+    // Compute feature flags for conditional assertions
+    let has_ipv6_rules = rules.iter().any(|r| r.match_criteria.uses_ipv6());
+    let has_port_range_rules = rules.iter().any(|r| {
+        matches!(&r.match_criteria.src_port, Some(crate::model::PortMatch::Range { .. }))
+        || matches!(&r.match_criteria.dst_port, Some(crate::model::PortMatch::Range { .. }))
+    });
+    let has_byte_match_rules = rules.iter().any(|r| r.match_criteria.uses_byte_match());
+    let has_rate_limit = rules.iter().any(|r| r.rate_limit.is_some());
+
     // Render SVA assertions
     {
         let mut ctx = tera::Context::new();
         ctx.insert("rules", &rule_info);
         ctx.insert("default_pass", &default_pass);
         ctx.insert("max_decision_latency", &max_decision_latency);
+        ctx.insert("has_ipv6_rules", &has_ipv6_rules);
+        ctx.insert("has_port_range_rules", &has_port_range_rules);
+        ctx.insert("has_byte_match_rules", &has_byte_match_rules);
+        ctx.insert("has_rate_limit", &has_rate_limit);
 
         let rendered = tera.render("assertions.sv.tera", &ctx)?;
         std::fs::write(formal_dir.join("assertions.sv"), &rendered)?;
