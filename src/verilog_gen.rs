@@ -298,6 +298,20 @@ pub fn copy_counter_rtl(output_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Copy hand-written connection tracking RTL to the output directory.
+pub fn copy_conntrack_rtl(output_dir: &Path) -> Result<()> {
+    let rtl_dir = output_dir.join("rtl");
+    std::fs::create_dir_all(&rtl_dir)?;
+
+    let src = Path::new("rtl").join("conntrack_table.v");
+    let dst = rtl_dir.join("conntrack_table.v");
+    std::fs::copy(&src, &dst)
+        .with_context(|| "Failed to copy conntrack_table.v to output")?;
+    log::info!("Copied conntrack_table.v to {}", dst.display());
+
+    Ok(())
+}
+
 /// Collect all unique (offset, byte_length) pairs across all rules
 pub fn collect_byte_match_offsets(config: &FilterConfig) -> Vec<(u16, usize)> {
     let mut offsets: std::collections::BTreeMap<u16, usize> = std::collections::BTreeMap::new();

@@ -178,6 +178,16 @@ fn validate(config: &FilterConfig) -> Result<()> {
         }
     }
 
+    // Validate conntrack config if present
+    if let Some(ref ct) = config.pacgate.conntrack {
+        if ct.table_size == 0 || (ct.table_size & (ct.table_size - 1)) != 0 {
+            anyhow::bail!("conntrack table_size must be a power of 2, got {}", ct.table_size);
+        }
+        if ct.timeout_cycles == 0 {
+            anyhow::bail!("conntrack timeout_cycles must be > 0");
+        }
+    }
+
     // Check for duplicate rule names
     let mut names: Vec<&str> = config.pacgate.rules.iter().map(|r| r.name.as_str()).collect();
     names.sort();

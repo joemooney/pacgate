@@ -508,6 +508,25 @@ fn pcap_import() {
     assert!(stimulus.contains("PCAP_FRAMES"), "missing PCAP_FRAMES");
 }
 
+// ── Connection Tracking Integration Tests ──────────────────────────────────
+
+#[test]
+fn compile_with_conntrack() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/allow_arp.yaml", "--conntrack",
+               "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile --conntrack failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // Conntrack RTL should be copied
+    assert!(tmp.path().join("rtl/conntrack_table.v").exists(), "conntrack_table.v missing");
+    let ct = std::fs::read_to_string(tmp.path().join("rtl/conntrack_table.v")).unwrap();
+    assert!(ct.contains("module conntrack_table"), "conntrack module missing");
+    assert!(ct.contains("table_valid"), "table_valid missing");
+}
+
 // ── Multi-Port Integration Tests ──────────────────────────────────
 
 #[test]

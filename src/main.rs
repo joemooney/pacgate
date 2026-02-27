@@ -47,6 +47,10 @@ enum Commands {
         /// Generate multi-port wrapper with N independent filter instances
         #[arg(long, default_value = "1")]
         ports: u16,
+
+        /// Include connection tracking table RTL
+        #[arg(long)]
+        conntrack: bool,
     },
     /// Validate YAML rules without generating output
     Validate {
@@ -184,7 +188,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Compile { rules, output, templates, json, axi, counters, ports } => {
+        Commands::Compile { rules, output, templates, json, axi, counters, ports, conntrack } => {
             log::info!("Compiling rules from {}", rules.display());
             let (config, warnings) = loader::load_rules_with_warnings(&rules)?;
 
@@ -194,6 +198,11 @@ fn main() -> Result<()> {
             // Generate multi-port wrapper if --ports > 1
             if ports > 1 {
                 verilog_gen::generate_multiport(&config, &templates, &output, ports)?;
+            }
+
+            // Copy conntrack RTL if --conntrack
+            if conntrack {
+                verilog_gen::copy_conntrack_rtl(&output)?;
             }
 
             // Copy AXI-Stream wrapper RTL if --axi
@@ -224,6 +233,7 @@ fn main() -> Result<()> {
                     "axi_stream": axi,
                     "counters": counters,
                     "ports": ports,
+                    "conntrack": conntrack,
                     "generated": {
                         "verilog_dir": format!("{}/rtl", output.display()),
                         "cocotb_dir": format!("{}/tb", output.display()),
