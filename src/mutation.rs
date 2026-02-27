@@ -3,7 +3,7 @@
 //! Generates mutated rule sets to verify test quality — if a mutation
 //! is not caught by existing tests, the test suite has a gap.
 
-use crate::model::{Action, FilterConfig};
+use crate::model::{Action, FilterConfig, PortMatch};
 
 /// A single mutation applied to a rule set
 #[derive(Debug, Clone, serde::Serialize)]
@@ -91,6 +91,106 @@ pub fn generate_mutations(config: &FilterConfig) -> Vec<(Mutation, FilterConfig)
             mutations.push((Mutation {
                 name: format!("remove_ethertype_{}", rule.name),
                 description: format!("Remove ethertype match from rule '{}'", rule.name),
+                mutant_index: index,
+            }, mutated));
+            index += 1;
+        }
+    }
+
+    // Mutation 6: Widen src_ip CIDR prefix
+    for (i, rule) in config.pacgate.rules.iter().enumerate() {
+        if !rule.is_stateful() {
+            if let Some(ref ip) = rule.match_criteria.src_ip {
+                if let Some(slash_pos) = ip.find('/') {
+                    if let Ok(prefix_len) = ip[slash_pos + 1..].parse::<u8>() {
+                        if prefix_len > 8 {
+                            let mut mutated = config.clone();
+                            let addr_part = &ip[..slash_pos];
+                            mutated.pacgate.rules[i].match_criteria.src_ip =
+                                Some(format!("{}/{}", addr_part, prefix_len - 8));
+                            mutations.push((Mutation {
+                                name: format!("widen_src_ip_{}", rule.name),
+                                description: format!("Widen src_ip CIDR from /{} to /{} in rule '{}'",
+                                    prefix_len, prefix_len - 8, rule.name),
+                                mutant_index: index,
+                            }, mutated));
+                            index += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Mutation 7: Shift dst_port by +1
+    for (i, rule) in config.pacgate.rules.iter().enumerate() {
+        if !rule.is_stateful() {
+            if let Some(PortMatch::Exact(p)) = rule.match_criteria.dst_port {
+                if p < 65535 {
+                    let mut mutated = config.clone();
+                    mutated.pacgate.rules[i].match_criteria.dst_port = Some(PortMatch::Exact(p + 1));
+                    mutations.push((Mutation {
+                        name: format!("shift_dst_port_{}", rule.name),
+                        description: format!("Shift dst_port from {} to {} in rule '{}'",
+                            p, p + 1, rule.name),
+                        mutant_index: index,
+                    }, mutated));
+                    index += 1;
+                }
+            }
+        }
+    }
+
+    // Mutation 8: Remove gtp_teid
+    for (i, rule) in config.pacgate.rules.iter().enumerate() {
+        if !rule.is_stateful() && rule.match_criteria.gtp_teid.is_some() {
+            let mut mutated = config.clone();
+            mutated.pacgate.rules[i].match_criteria.gtp_teid = None;
+            mutations.push((Mutation {
+                name: format!("remove_gtp_teid_{}", rule.name),
+                description: format!("Remove gtp_teid match from rule '{}'", rule.name),
+                mutant_index: index,
+            }, mutated));
+            index += 1;
+        }
+    }
+
+    // Mutation 9: Remove mpls_label
+    for (i, rule) in config.pacgate.rules.iter().enumerate() {
+        if !rule.is_stateful() && rule.match_criteria.mpls_label.is_some() {
+            let mut mutated = config.clone();
+            mutated.pacgate.rules[i].match_criteria.mpls_label = None;
+            mutations.push((Mutation {
+                name: format!("remove_mpls_label_{}", rule.name),
+                description: format!("Remove mpls_label match from rule '{}'", rule.name),
+                mutant_index: index,
+            }, mutated));
+            index += 1;
+        }
+    }
+
+    // Mutation 10: Remove igmp_type
+    for (i, rule) in config.pacgate.rules.iter().enumerate() {
+        if !rule.is_stateful() && rule.match_criteria.igmp_type.is_some() {
+            let mut mutated = config.clone();
+            mutated.pacgate.rules[i].match_criteria.igmp_type = None;
+            mutations.push((Mutation {
+                name: format!("remove_igmp_type_{}", rule.name),
+                description: format!("Remove igmp_type match from rule '{}'", rule.name),
+                mutant_index: index,
+            }, mutated));
+            index += 1;
+        }
+    }
+
+    // Mutation 11: Remove vxlan_vni
+    for (i, rule) in config.pacgate.rules.iter().enumerate() {
+        if !rule.is_stateful() && rule.match_criteria.vxlan_vni.is_some() {
+            let mut mutated = config.clone();
+            mutated.pacgate.rules[i].match_criteria.vxlan_vni = None;
+            mutations.push((Mutation {
+                name: format!("remove_vxlan_vni_{}", rule.name),
+                description: format!("Remove vxlan_vni match from rule '{}'", rule.name),
                 mutant_index: index,
             }, mutated));
             index += 1;
@@ -363,5 +463,110 @@ mod tests {
             .unwrap();
         assert!(mutated_rule.match_criteria.ethertype.is_none() ||
                 rm_et.0.name.contains("allow_ipv4"));
+    }
+
+    #[test]
+    fn widen_src_ip_mutation() {
+        let config = FilterConfig {
+            pacgate: PacgateConfig {
+                version: "1.0".to_string(),
+                defaults: Defaults { action: Action::Drop },
+                rules: vec![
+                    StatelessRule {
+                        name: "subnet_rule".to_string(),
+                        priority: 100,
+                        match_criteria: MatchCriteria {
+                            src_ip: Some("10.0.0.0/24".to_string()),
+                            ..Default::default()
+                        },
+                        action: Some(Action::Pass),
+                        rule_type: None, fsm: None, ports: None, rate_limit: None,
+                    },
+                ],
+                conntrack: None,
+            },
+        };
+        let mutations = generate_mutations(&config);
+        let widen = mutations.iter().find(|(m, _)| m.name.starts_with("widen_src_ip_")).unwrap();
+        let mutated_ip = widen.1.pacgate.rules[0].match_criteria.src_ip.as_ref().unwrap();
+        assert!(mutated_ip.ends_with("/16"), "expected /16, got {}", mutated_ip);
+    }
+
+    #[test]
+    fn shift_dst_port_mutation() {
+        let config = FilterConfig {
+            pacgate: PacgateConfig {
+                version: "1.0".to_string(),
+                defaults: Defaults { action: Action::Drop },
+                rules: vec![
+                    StatelessRule {
+                        name: "web_rule".to_string(),
+                        priority: 100,
+                        match_criteria: MatchCriteria {
+                            dst_port: Some(PortMatch::Exact(80)),
+                            ..Default::default()
+                        },
+                        action: Some(Action::Pass),
+                        rule_type: None, fsm: None, ports: None, rate_limit: None,
+                    },
+                ],
+                conntrack: None,
+            },
+        };
+        let mutations = generate_mutations(&config);
+        let shift = mutations.iter().find(|(m, _)| m.name.starts_with("shift_dst_port_")).unwrap();
+        assert_eq!(shift.1.pacgate.rules[0].match_criteria.dst_port, Some(PortMatch::Exact(81)));
+    }
+
+    #[test]
+    fn remove_gtp_teid_mutation() {
+        let config = FilterConfig {
+            pacgate: PacgateConfig {
+                version: "1.0".to_string(),
+                defaults: Defaults { action: Action::Drop },
+                rules: vec![
+                    StatelessRule {
+                        name: "gtp_rule".to_string(),
+                        priority: 100,
+                        match_criteria: MatchCriteria {
+                            gtp_teid: Some(1000),
+                            ..Default::default()
+                        },
+                        action: Some(Action::Pass),
+                        rule_type: None, fsm: None, ports: None, rate_limit: None,
+                    },
+                ],
+                conntrack: None,
+            },
+        };
+        let mutations = generate_mutations(&config);
+        let rm = mutations.iter().find(|(m, _)| m.name.starts_with("remove_gtp_teid_")).unwrap();
+        assert!(rm.1.pacgate.rules[0].match_criteria.gtp_teid.is_none());
+    }
+
+    #[test]
+    fn remove_mpls_label_mutation() {
+        let config = FilterConfig {
+            pacgate: PacgateConfig {
+                version: "1.0".to_string(),
+                defaults: Defaults { action: Action::Drop },
+                rules: vec![
+                    StatelessRule {
+                        name: "mpls_rule".to_string(),
+                        priority: 100,
+                        match_criteria: MatchCriteria {
+                            mpls_label: Some(100),
+                            ..Default::default()
+                        },
+                        action: Some(Action::Pass),
+                        rule_type: None, fsm: None, ports: None, rate_limit: None,
+                    },
+                ],
+                conntrack: None,
+            },
+        };
+        let mutations = generate_mutations(&config);
+        let rm = mutations.iter().find(|(m, _)| m.name.starts_with("remove_mpls_label_")).unwrap();
+        assert!(rm.1.pacgate.rules[0].match_criteria.mpls_label.is_none());
     }
 }

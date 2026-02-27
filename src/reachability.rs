@@ -26,6 +26,7 @@ pub struct ReachabilityReport {
     pub pass_rules: usize,
     pub drop_rules: usize,
     pub queries: Vec<QueryResult>,
+    pub stateful_rules: Vec<String>,
 }
 
 /// Result of a specific reachability query
@@ -49,9 +50,11 @@ pub fn analyze(config: &FilterConfig) -> ReachabilityReport {
     let mut entries = Vec::new();
     let mut pass_count = 0;
     let mut drop_count = 0;
+    let mut stateful_rules = Vec::new();
 
     for rule in &rules {
         if rule.is_stateful() {
+            stateful_rules.push(rule.name.clone());
             continue;
         }
 
@@ -81,6 +84,30 @@ pub fn analyze(config: &FilterConfig) -> ReachabilityReport {
         if let Some(ref ipv6) = mc.dst_ipv6 {
             additional.push(format!("dst_ipv6={}", ipv6));
         }
+        if let Some(pcp) = mc.vlan_pcp {
+            additional.push(format!("vlan_pcp={}", pcp));
+        }
+        if let Some(nh) = mc.ipv6_next_header {
+            additional.push(format!("ipv6_next_header={}", nh));
+        }
+        if let Some(teid) = mc.gtp_teid {
+            additional.push(format!("gtp_teid={}", teid));
+        }
+        if let Some(label) = mc.mpls_label {
+            additional.push(format!("mpls_label={}", label));
+        }
+        if let Some(tc) = mc.mpls_tc {
+            additional.push(format!("mpls_tc={}", tc));
+        }
+        if let Some(bos) = mc.mpls_bos {
+            additional.push(format!("mpls_bos={}", bos));
+        }
+        if let Some(t) = mc.igmp_type {
+            additional.push(format!("igmp_type=0x{:02x}", t));
+        }
+        if let Some(t) = mc.mld_type {
+            additional.push(format!("mld_type={}", t));
+        }
         if mc.uses_byte_match() {
             additional.push("byte_match=yes".to_string());
         }
@@ -109,6 +136,7 @@ pub fn analyze(config: &FilterConfig) -> ReachabilityReport {
         pass_rules: pass_count,
         drop_rules: drop_count,
         queries,
+        stateful_rules,
     }
 }
 
@@ -212,6 +240,18 @@ fn query_by_action(
             if let Some(ref pm) = mc.dst_port {
                 desc.push_str(&format!(" dst_port={}", format_port(&Some(pm.clone()))));
             }
+            if let Some(teid) = mc.gtp_teid {
+                desc.push_str(&format!(" gtp_teid={}", teid));
+            }
+            if let Some(label) = mc.mpls_label {
+                desc.push_str(&format!(" mpls_label={}", label));
+            }
+            if let Some(t) = mc.igmp_type {
+                desc.push_str(&format!(" igmp_type=0x{:02x}", t));
+            }
+            if let Some(t) = mc.mld_type {
+                desc.push_str(&format!(" mld_type={}", t));
+            }
             desc
         })
         .collect();
@@ -277,6 +317,15 @@ pub fn format_report(report: &ReachabilityReport) -> String {
         }
     }
     lines.push(String::new());
+
+    // Stateful rules (not analyzed)
+    if !report.stateful_rules.is_empty() {
+        lines.push("── Stateful Rules (not analyzed) ─────────────────────────────".to_string());
+        for name in &report.stateful_rules {
+            lines.push(format!("  - {}", name));
+        }
+        lines.push(String::new());
+    }
 
     // Queries
     lines.push("── Reachability Queries ──────────────────────────────────────".to_string());
@@ -413,5 +462,111 @@ mod tests {
         let report = analyze(&config);
         let pass_query = report.queries.iter().find(|q| q.query.contains("passed")).unwrap();
         assert!(pass_query.matching_rules.iter().any(|r| r.contains("default")));
+    }
+
+    #[test]
+    fn reachability_gtp_teid_in_additional() {
+        let rules = vec![
+            StatelessRule {
+                name: "gtp_rule".to_string(),
+                priority: 100,
+                match_criteria: MatchCriteria {
+                    gtp_teid: Some(1000),
+                    ..Default::default()
+                },
+                action: Some(Action::Pass),
+                rule_type: None, fsm: None, ports: None, rate_limit: None,
+            },
+        ];
+        let config = make_config(rules, Action::Drop);
+        let report = analyze(&config);
+        assert!(report.entries[0].additional.contains(&"gtp_teid=1000".to_string()));
+    }
+
+    #[test]
+    fn reachability_mpls_fields_in_additional() {
+        let rules = vec![
+            StatelessRule {
+                name: "mpls_rule".to_string(),
+                priority: 100,
+                match_criteria: MatchCriteria {
+                    mpls_label: Some(200),
+                    mpls_tc: Some(5),
+                    mpls_bos: Some(true),
+                    ..Default::default()
+                },
+                action: Some(Action::Pass),
+                rule_type: None, fsm: None, ports: None, rate_limit: None,
+            },
+        ];
+        let config = make_config(rules, Action::Drop);
+        let report = analyze(&config);
+        let additional = &report.entries[0].additional;
+        assert!(additional.contains(&"mpls_label=200".to_string()));
+        assert!(additional.contains(&"mpls_tc=5".to_string()));
+        assert!(additional.contains(&"mpls_bos=true".to_string()));
+    }
+
+    #[test]
+    fn reachability_igmp_mld_in_additional() {
+        let rules = vec![
+            StatelessRule {
+                name: "igmp_rule".to_string(),
+                priority: 100,
+                match_criteria: MatchCriteria {
+                    igmp_type: Some(0x11),
+                    ..Default::default()
+                },
+                action: Some(Action::Pass),
+                rule_type: None, fsm: None, ports: None, rate_limit: None,
+            },
+            StatelessRule {
+                name: "mld_rule".to_string(),
+                priority: 90,
+                match_criteria: MatchCriteria {
+                    mld_type: Some(130),
+                    ..Default::default()
+                },
+                action: Some(Action::Pass),
+                rule_type: None, fsm: None, ports: None, rate_limit: None,
+            },
+        ];
+        let config = make_config(rules, Action::Drop);
+        let report = analyze(&config);
+        assert!(report.entries[0].additional.contains(&"igmp_type=0x11".to_string()));
+        assert!(report.entries[1].additional.contains(&"mld_type=130".to_string()));
+    }
+
+    #[test]
+    fn reachability_stateful_rules_reported() {
+        let rules = vec![
+            StatelessRule {
+                name: "stateful_seq".to_string(),
+                priority: 100,
+                match_criteria: MatchCriteria::default(),
+                action: Some(Action::Pass),
+                rule_type: Some("stateful".to_string()),
+                fsm: Some(FsmDefinition {
+                    initial_state: "idle".to_string(),
+                    states: std::collections::HashMap::new(),
+                    variables: None,
+                }),
+                ports: None,
+                rate_limit: None,
+            },
+            StatelessRule {
+                name: "stateless_rule".to_string(),
+                priority: 90,
+                match_criteria: MatchCriteria::default(),
+                action: Some(Action::Pass),
+                rule_type: None, fsm: None, ports: None, rate_limit: None,
+            },
+        ];
+        let config = make_config(rules, Action::Drop);
+        let report = analyze(&config);
+        assert!(report.stateful_rules.contains(&"stateful_seq".to_string()));
+        assert!(!report.entries.iter().any(|e| e.rule_name == "stateful_seq"),
+            "stateful rule should not be in entries");
+        assert!(report.entries.iter().any(|e| e.rule_name == "stateless_rule"));
     }
 }
