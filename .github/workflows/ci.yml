@@ -40,12 +40,34 @@ jobs:
             cargo run --release -- validate "$f"
           done
 
+  python-tests:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install cocotb pytest
+
+      - name: Run scoreboard unit tests
+        run: |
+          source .venv/bin/activate
+          python -m pytest verification/test_scoreboard.py -v
+
   simulate:
     runs-on: ubuntu-latest
     needs: build-and-test
     strategy:
       matrix:
-        example: [allow_arp, enterprise]
+        example: [allow_arp, enterprise, l3l4_firewall, ipv6_firewall]
     steps:
       - uses: actions/checkout@v4
 
@@ -102,6 +124,66 @@ jobs:
         with:
           name: waveforms-${{ matrix.example }}
           path: gen/tb/sim_build/*.fst
+
+  conntrack-compile:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+
+      - name: Install Icarus Verilog
+        run: sudo apt-get update && sudo apt-get install -y iverilog
+
+      - name: Build PacGate compiler
+        run: cargo build --release
+
+      - name: Compile with --conntrack
+        run: cargo run --release -- compile rules/examples/hsm_conntrack.yaml --conntrack
+
+      - name: Lint generated Verilog (conntrack)
+        run: iverilog -g2012 -o /dev/null gen/rtl/*.v rtl/*.v
+
+  multi-flag-compile:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+
+      - name: Install Icarus Verilog
+        run: sudo apt-get update && sudo apt-get install -y iverilog
+
+      - name: Build PacGate compiler
+        run: cargo build --release
+
+      - name: Compile with --rate-limit --counters --axi
+        run: cargo run --release -- compile rules/examples/rate_limited.yaml --rate-limit --counters --axi
+
+      - name: Lint generated Verilog (multi-flag)
+        run: iverilog -g2012 -o /dev/null gen/rtl/*.v rtl/*.v
 
   lint-stateful:
     runs-on: ubuntu-latest

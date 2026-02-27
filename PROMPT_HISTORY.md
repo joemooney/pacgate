@@ -1049,3 +1049,77 @@ Implement Phase 9 with five major feature areas: PCAP traffic analysis with rule
 
 ### Git Operations
 - 5 batch commits pushed to https://github.com/joemooney/pacgate.git
+
+---
+
+## Session 11: Phase 10 — Verification Completeness (2026-02-27)
+
+### Prompt
+"Implement Phase 10-12: Verification Completeness, Advanced Analysis, Protocol Extensions"
+
+### Phase 10 Actions (5 batches)
+
+#### Batch 1: Scoreboard L3/L4/IPv6/VXLAN Extension
+- Extended `verification/scoreboard.py` Rule dataclass with: src_ip, dst_ip, ip_protocol, src_port, dst_port, src_port_range, dst_port_range, vxlan_vni, src_ipv6, dst_ipv6, ipv6_next_header, byte_match
+- Added helper functions: ipv4_matches_cidr, ipv6_matches_cidr, port_matches, byte_match_matches (using Python ipaddress module)
+- Extended Rule.matches() to accept optional `extracted` dict for L3/L4 fields
+- Updated predict() and check() to pass `extracted` through
+- Updated `test_harness.py.tera` and `test_properties.py.tera` to emit all L3/L4/IPv6 fields
+- Fixed port range format in `cocotb_gen.rs`: "(1024, 65535)" instead of "1024-65535"
+- Added VXLAN VNI emission in scoreboard_rules
+- Created `verification/test_scoreboard.py` with 23 Python unit tests
+- 4 new Rust integration tests
+
+#### Batch 2: Test Harness L3/L4 Packet Construction
+- Added `has_l3` branch in directed tests constructing Ipv4Header + TCP/UDP headers
+- IPv6 directed tests construct proper IPv6 headers with L4 payloads
+- Built `extracted` dict alongside frames for scoreboard checking
+- Random test: 50% IPv4 frames get proper L3/L4 headers, 50% IPv6 frames get IPv6 headers
+- Added `import struct` to template header
+- 6 new Rust integration tests + all 18 examples compile test
+
+#### Batch 3: Byte-Match Simulation + Enhanced Properties
+- Added `raw_bytes: Option<Vec<u8>>` to SimPacket
+- Added `raw_bytes` key to parse_packet_spec() with parse_hex_bytes() helper
+- Added byte_match evaluation in match_criteria_against_packet()
+- Enhanced Hypothesis strategies: ipv4_addresses, ipv6_addresses, port_numbers, l3l4_ethernet_frames
+- New property functions: check_cidr_boundary, check_port_range_boundary, check_ipv6_cidr_match, check_l3l4_determinism
+- 7 new unit tests + 2 new integration tests
+
+#### Batch 4: Enhanced Formal Verification + Conntrack Tests
+- Added SVA assertions: IPv6 CIDR stability, port range boundary, rate limiter token conservation, byte-match mask correctness
+- formal_gen.rs computes has_ipv6_rules, has_port_range_rules, has_byte_match_rules, has_rate_limit
+- Created test_conntrack.py.tera (5 cocotb tests) and test_conntrack_makefile.tera
+- Added generate_conntrack_tests() to cocotb_gen.rs, wired into main.rs --conntrack
+- 3 new integration tests
+
+#### Batch 5: CI Pipeline + Documentation
+- CI: Added python-tests job (pytest scoreboard), conntrack-compile job, multi-flag-compile job
+- CI: Expanded simulate matrix to include l3l4_firewall, ipv6_firewall
+- Updated CLAUDE.md, OVERVIEW.md, REQUIREMENTS.md, PROMPT_HISTORY.md
+- 2 new integration tests (multi-flag compile, all-examples lint)
+
+### Files Modified/Created
+- `verification/scoreboard.py` — Full L2-L4/IPv6/VXLAN/byte-match matching
+- `verification/test_scoreboard.py` — 23 Python unit tests (NEW)
+- `verification/properties.py` — L3/L4 strategies and property functions
+- `src/cocotb_gen.rs` — Port range format fix, VXLAN VNI emission, conntrack test generation
+- `src/simulator.rs` — raw_bytes support, byte_match evaluation, parse_hex_bytes
+- `src/formal_gen.rs` — Feature flag computation for conditional assertions
+- `src/main.rs` — Wire generate_conntrack_tests()
+- `templates/test_harness.py.tera` — L3/L4 directed tests, random test L3/L4 headers
+- `templates/test_properties.py.tera` — L3/L4/IPv6 scoreboard fields, l3l4_determinism test
+- `templates/assertions.sv.tera` — IPv6/port-range/rate-limiter/byte-match assertions
+- `templates/test_conntrack.py.tera` — 5 conntrack cocotb tests (NEW)
+- `templates/test_conntrack_makefile.tera` — Conntrack test Makefile (NEW)
+- `.github/workflows/ci.yml` — Expanded CI pipeline
+- `tests/integration_test.rs` — 17 new integration tests
+
+### Test Results
+- 263 Rust tests pass (181 unit + 82 integration)
+- 23 Python scoreboard tests pass
+- All 18 YAML examples compile and lint clean
+- All existing tests pass unmodified (backward compatible)
+
+### Git Operations
+- 5 batch commits pushed to https://github.com/joemooney/pacgate.git

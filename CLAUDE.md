@@ -24,6 +24,11 @@
 - HTML coverage report generation (`report` subcommand)
 - **HTML rule documentation**: styled datasheet generation (`doc` subcommand)
 - Rule overlap and shadow detection with warnings
+- **Full-stack scoreboard**: Python reference model matches L2/L3/L4/IPv6/VXLAN/byte-match fields
+- **Directed L3/L4 tests**: generated tests construct proper IPv4/IPv6/TCP/UDP headers
+- **Byte-match simulation**: software simulator evaluates byte_match rules with raw_bytes
+- **Enhanced formal**: SVA assertions for IPv6 CIDR, port range, rate limiter, byte-match correctness
+- **Conntrack cocotb tests**: 5 tests (new flow, return traffic, timeout, collision, overflow)
 - `lint` subcommand for best-practice analysis and security checks (12 lint rules)
 - FPGA resource estimation (LUTs/FFs for Artix-7) + timing/pipeline analysis
 - `--json` flag on compile/validate/estimate/diff/formal/lint for CI/scripting integration
@@ -39,7 +44,7 @@
 - Coverage-directed test generation (verification/coverage_driven.py)
 - Enhanced overlap detection with CIDR containment and port range analysis
 - 18 real-world YAML examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited)
-- 174 Rust unit tests + 65 integration tests, 13+ cocotb simulation tests, 85%+ functional coverage
+- 181 Rust unit tests + 82 integration tests, 23 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
 
 ## Architecture
 ```
@@ -111,7 +116,8 @@ pacgate template list                  # List built-in rule templates
 pacgate template show allow_management # Show template details
 pacgate template apply web_server --set server_subnet=10.0.0.0/8 -o rules.yaml  # Apply template
 pacgate doc rules.yaml                 # Generate HTML rule documentation
-cargo test                             # 239 tests (174 unit + 65 integration)
+cargo test                             # 263 tests (181 unit + 82 integration)
+pytest verification/test_scoreboard.py # 23 Python scoreboard unit tests
 ```
 
 ## Key Files
@@ -137,7 +143,7 @@ cargo test                             # 239 tests (174 unit + 65 integration)
 - `rtl/conntrack_table.v` — Connection tracking hash table with CRC hash + timeout
 - `rtl/rate_limiter.v` — Token-bucket rate limiter (parameterized PPS, BURST)
 - `templates/*.tera` — 16 Tera templates (+ synth scripts, rate limiter TB, HTML docs)
-- `verification/` — Python verification framework (packet, scoreboard, coverage, driver, properties, coverage_driven)
+- `verification/` — Python verification framework (packet, scoreboard, coverage, driver, properties, coverage_driven, test_scoreboard)
 - `rules/examples/` — 18 YAML examples
 - `rules/templates/` — 7 rule template YAML snippets
 - `.github/workflows/ci.yml` — GitHub Actions CI pipeline
@@ -177,3 +183,4 @@ cargo test                             # 239 tests (174 unit + 65 integration)
 - **Phase 7**: Complete — Byte-offset matching, hierarchical state machines, Mermaid import/export, multi-port switch fabric, connection tracking
 - **Phase 8**: Complete — IPv6 support, packet simulation, rate limiting, enhanced lint (12 rules), CIDR/port overlap detection
 - **Phase 9**: Complete — PCAP analysis, synthesis project generation, advanced test gen (IPv6/rate-limiter/mutation/coverage-driven), rule templates, HTML documentation
+- **Phase 10**: Complete — Verification completeness: L3/L4/IPv6/VXLAN/byte-match scoreboard, directed L3/L4 packet construction, byte-match simulation, enhanced formal assertions (IPv6/port-range/rate-limiter/byte-match), conntrack cocotb tests, CI pipeline expansion

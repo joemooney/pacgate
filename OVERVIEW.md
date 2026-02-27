@@ -70,12 +70,13 @@ rules.yaml ──> Compiler (Rust) ──┬──> Verilog (DUT)
 
 ## Verification Framework
 UVM-inspired Python verification environment with:
-- **PacketFactory** — generates directed, random, boundary, and corner-case Ethernet frames
+- **PacketFactory** — generates directed, random, boundary, and corner-case Ethernet frames (with L3/L4/IPv6 headers)
 - **PacketDriver** (BFM) — drives frames into the DUT byte-by-byte
 - **DecisionMonitor** — captures pass/drop decisions from the DUT
-- **Scoreboard** — Python reference model that predicts correct behavior, checks against DUT
+- **Scoreboard** — Python reference model with full L2/L3/L4/IPv6/VXLAN/byte-match matching, checks against DUT
 - **Coverage** — functional coverage with cover points, bins, cross coverage, and XML export
-- **Properties** — Hypothesis-based property testing (determinism, priority, conservation, independence)
+- **Properties** — Hypothesis-based property testing (determinism, priority, conservation, independence, L3/L4 determinism)
+- **Conntrack Tests** — 5 cocotb tests for connection tracking (new flow, return traffic, timeout, collision, overflow)
 - Enterprise example: 7 rules, 13 tests, 500 random packets with 0 scoreboard mismatches
 
 ## CLI Commands
@@ -125,16 +126,18 @@ UVM-inspired Python verification environment with:
 - Rate-limited rules (HTTP/DNS/SSH token-bucket limiting)
 
 ## Quality
-- 174 Rust unit tests (model parsing, validation, CIDR/port overlap, IPv4/IPv6, PCAP, byte-match, HSM, Mermaid, simulation, PCAP analysis, synthesis, mutation, templates)
-- 65 Rust integration tests (full compile pipeline, AXI, formal, lint, L3/L4, IPv6, VXLAN, counters, PCAP, report, byte-match, HSM, Mermaid, multi-port, conntrack, rate-limit, simulate, pcap-analyze, synth, mutate, template, doc)
-- 13+ cocotb simulation tests (directed + 500-packet random + corner cases)
+- 181 Rust unit tests (model parsing, validation, CIDR/port overlap, IPv4/IPv6, PCAP, byte-match, HSM, Mermaid, simulation incl. byte-match, PCAP analysis, synthesis, mutation, templates)
+- 82 Rust integration tests (full compile pipeline, AXI, formal, lint, L3/L4, IPv6, VXLAN, counters, PCAP, report, byte-match, HSM, Mermaid, multi-port, conntrack, rate-limit, simulate, pcap-analyze, synth, mutate, template, doc, scoreboard field verification, multi-flag compile, all-examples lint)
+- 23 Python scoreboard unit tests (IPv4 CIDR, IPv6 CIDR, port matching, VXLAN VNI, byte-match, multi-field L3/L4)
+- 13+ cocotb simulation tests (directed with L3/L4 headers + 500-packet random + corner cases)
+- 5 conntrack cocotb tests (new flow, return traffic, timeout, hash collision, table overflow)
 - 85%+ functional coverage with varied frame sizes and VLAN-tagged traffic
 - Rule overlap and shadow detection with CIDR containment and port range analysis
 - Best-practice linting with 12 lint rules (LINT001-012)
 - Mutation testing: 5 mutation strategies with automatic mutant generation
 - Coverage-directed test generation with targeted gap-filling
-- Property-based testing with Hypothesis for invariant verification
-- SVA formal assertions for mathematical correctness proofs
+- Property-based testing with Hypothesis for invariant verification (incl. L3/L4 determinism)
+- SVA formal assertions with IPv6 CIDR, port range, rate limiter, byte-match correctness checks
 
 ## Development Status
 - **Phase 1** (complete): Single stateless rule (allow ARP), frame parser, 7 cocotb tests PASS
@@ -146,6 +149,7 @@ UVM-inspired Python verification environment with:
 - **Phase 7** (complete): Byte-offset matching, hierarchical state machines, Mermaid import/export, multi-port switch fabric, connection tracking
 - **Phase 8** (complete): IPv6 support, packet simulation, rate limiting, enhanced lint (12 rules), CIDR/port overlap detection
 - **Phase 9** (complete): PCAP analysis + rule suggestions, Yosys/Vivado synthesis projects, advanced test generation (IPv6 cocotb, rate-limiter TB, mutation testing, coverage-driven), rule templates (7 built-in), HTML documentation
+- **Phase 10** (complete): Verification completeness — L3/L4/IPv6/VXLAN/byte-match scoreboard, directed test L3/L4 packet construction, byte-match simulation, enhanced formal assertions, conntrack cocotb tests, CI pipeline expansion
 
 ## Documentation
 - `README.md` — Project showcase and quick start

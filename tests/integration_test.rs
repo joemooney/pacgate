@@ -1452,3 +1452,43 @@ fn conntrack_generates_test_files() {
     assert!(test_py.contains("test_conntrack_hash_collision"), "missing hash_collision test");
     assert!(test_py.contains("test_conntrack_table_full"), "missing table_full test");
 }
+
+#[test]
+fn multi_flag_compile() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/rate_limited.yaml",
+               "-o", tmp.path().to_str().unwrap(),
+               "--rate-limit", "--counters", "--axi"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "multi-flag compile failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // Verify all generated directories exist
+    assert!(tmp.path().join("rtl").exists(), "rtl/ missing");
+    assert!(tmp.path().join("tb").exists(), "tb/ missing");
+    assert!(tmp.path().join("tb-axi").exists(), "tb-axi/ missing");
+    assert!(tmp.path().join("tb-rate-limiter").exists(), "tb-rate-limiter/ missing");
+
+    // Verify key files
+    assert!(tmp.path().join("rtl/rate_limiter.v").exists(), "rate_limiter.v missing");
+    assert!(tmp.path().join("rtl/rule_counters.v").exists(), "rule_counters.v missing");
+    assert!(tmp.path().join("rtl/axi_stream_adapter.v").exists(), "axi_stream_adapter.v missing");
+}
+
+#[test]
+fn all_examples_lint() {
+    let examples = std::fs::read_dir("rules/examples").unwrap();
+    for entry in examples {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        if path.extension().map(|e| e == "yaml").unwrap_or(false) {
+            let output = pacgate_bin()
+                .args(["lint", path.to_str().unwrap()])
+                .output()
+                .unwrap();
+            assert!(output.status.success(),
+                "lint failed for {}: {}", path.display(), String::from_utf8_lossy(&output.stderr));
+        }
+    }
+}
