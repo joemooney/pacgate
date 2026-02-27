@@ -841,3 +841,132 @@ Implement Phase 7: byte-offset matching, hierarchical state machines, Mermaid im
 - 5 batch commits: byte-match (3f0d1e0), HSM (073c145), Mermaid (7fd26c9), multi-port (b434cfe), conntrack (33d4c2f)
 - Documentation commit for Batch 6
 - All pushed to https://github.com/joemooney/pacgate.git
+
+## Session 10 — 2026-02-27: Phase 8 — IPv6, Packet Simulation, Rate Limiting, Enhanced Analysis
+
+### Goal
+Implement Phase 8: packet simulation subcommand, full IPv6 support, per-rule rate limiting, enhanced lint rules (LINT008-012), improved CIDR/port overlap detection, and simulator IPv6 support.
+
+### Actions Taken
+
+#### Batch 1: Packet Simulation (`simulate` subcommand)
+
+1. **New module**: `src/simulator.rs` (~250 lines)
+   - `SimPacket` struct with all match-field values as Options
+   - `SimResult` struct: matched rule name, action, is_default, per-field breakdown
+   - `FieldMatch` struct: field name, rule/packet values, match bool
+   - `parse_packet_spec()` — parse "ethertype=0x0800,dst_port=80" format
+   - `simulate()` — evaluate rules in priority order, first-match-wins
+   - `match_criteria_against_packet()` — per-field evaluation with breakdown
+   - Helpers: `ipv4_matches_cidr()`, `mac_matches_pattern()`, `port_matches()`
+   - 15 unit tests
+
+2. **CLI** (`src/main.rs`) — Added `Simulate { rules, packet, json }` command
+   - JSON output: status, matched_rule, action, is_default, fields breakdown
+   - Human-readable: formatted table with result summary
+
+3. **3 integration tests**: simulate_basic, simulate_default_action, simulate_json_output
+
+#### Batch 2: IPv6 Support
+
+4. **Model** (`src/model.rs`)
+   - `Ipv6Prefix` struct with `parse()`, `parse_ipv6_addr()`, `to_verilog_value()`, `to_verilog_mask()`
+   - Handles `::` abbreviation expansion, CIDR notation, compressed forms
+   - Added to MatchCriteria: `src_ipv6`, `dst_ipv6`, `ipv6_next_header`
+   - `uses_ipv6()` helper, updated `uses_l3l4()` to include IPv6
+   - 12 unit tests
+
+5. **Frame parser** (`rtl/frame_parser.v`)
+   - Added `S_IPV6_HDR = 4'd10` state for 40-byte IPv6 header
+   - Widened `byte_cnt` from 5-bit to 6-bit (counts to 39)
+   - New outputs: `src_ipv6[127:0]`, `dst_ipv6[127:0]`, `ipv6_next_header[7:0]`, `ipv6_valid`
+   - Detects ethertype 0x86DD in S_ETYPE and S_ETYPE2 states
+
+6. **Templates** — Updated rule_match.v.tera, rule_fsm.v.tera, packet_filter_top.v.tera with IPv6 ports
+
+7. **Verilog generation** — IPv6 CIDR conditions in `build_condition_expr()`
+
+8. **Validation** — IPv6 field validation, shadow/overlap detection, catch-all detection
+
+9. **Example**: `rules/examples/ipv6_firewall.yaml` (6 rules: ICMPv6, HTTP, HTTPS, link-local, ARP, DNS)
+
+10. **2 integration tests**: compile_ipv6_firewall, validate_ipv6
+
+#### Batch 3: Rate Limiting
+
+11. **Model** — `RateLimit { pps, burst }` struct (added in Batch 1 for compilation)
+
+12. **RTL**: `rtl/rate_limiter.v` — Token-bucket rate limiter
+    - Parameterized CLOCK_FREQ, PPS, BURST
+    - 16-bit token counter, 32-bit refill counter
+    - Starts full (tokens = BURST), adds 1 token per CLOCK_FREQ/PPS cycles
+
+13. **CLI** — `--rate-limit` flag on compile, `copy_rate_limiter_rtl()` in verilog_gen
+
+14. **Estimate** — +50 LUTs, +64 FFs per rate-limited rule (both compute and print functions)
+
+15. **Example**: `rules/examples/rate_limited.yaml` (HTTP/DNS/SSH with rate limits)
+
+16. **2 integration tests**: compile_rate_limited, compile_rate_limited_json
+
+#### Batch 4: Enhanced Lint Rules + Overlap Detection
+
+17. **5 new lint rules**
+    - LINT008 (error): Dead rule — fully shadowed by higher-priority rule with same action
+    - LINT009 (warning): Unused FSM variable — declared but never referenced
+    - LINT010 (warning): Unreachable FSM state — BFS from initial finds no path
+    - LINT011 (info): L3/L4 rules in whitelist mode without generic IPv4 allow
+    - LINT012 (info): byte_match offset > 64 — beyond typical header region
+
+18. **Enhanced overlap detection** (`src/loader.rs`)
+    - `cidr_contains()` — CIDR prefix containment (10.0.0.0/8 contains 10.1.0.0/16)
+    - `cidr_overlaps()` — CIDR prefix intersection
+    - `port_contains()` — port range containment
+    - `port_ranges_overlap()` — port range intersection
+    - Updated `criteria_shadows()` and `criteria_overlaps()` to use proper containment/overlap
+    - 8 new unit tests for CIDR/port helpers
+
+#### Batch 5: Simulator IPv6 + Polish
+
+19. **Simulator IPv6** (`src/simulator.rs`)
+    - SimPacket += src_ipv6, dst_ipv6, ipv6_next_header
+    - parse_packet_spec() handles IPv6 fields
+    - match_criteria_against_packet() evaluates IPv6 CIDR matching
+    - `ipv6_matches_cidr()` helper for 128-bit prefix comparison
+    - 5 new unit tests
+
+20. **DOT graph** — Updated `print_dot_graph()` with all L3/L4/IPv6 criteria
+
+21. **Init template** — Added commented IPv6 CIDR and rate_limit examples
+
+22. **2 integration tests**: simulate_ipv6, simulate_all_fields
+
+#### Batch 6: Documentation
+
+23. Updated CLAUDE.md, OVERVIEW.md, REQUIREMENTS.md, PROMPT_HISTORY.md
+
+### New Files Created
+- `src/simulator.rs`
+- `rtl/rate_limiter.v`
+- `rules/examples/ipv6_firewall.yaml`
+- `rules/examples/rate_limited.yaml`
+
+### Modified Files
+- `src/model.rs` — Ipv6Prefix, RateLimit, IPv6 match fields
+- `src/loader.rs` — IPv6 validation, rate_limit validation, CIDR/port overlap helpers
+- `src/verilog_gen.rs` — IPv6 conditions, rate limiter RTL copy
+- `src/main.rs` — simulate cmd, lint 008-012, estimate/stats, --rate-limit, init template, dot graph
+- `src/cocotb_gen.rs` — (minor: rate_limit field in constructors)
+- `src/mermaid.rs` — rate_limit: None in StatelessRule constructor
+- `rtl/frame_parser.v` — S_IPV6_HDR state, 128-bit outputs, 6-bit byte_cnt
+- `templates/rule_match.v.tera` — IPv6 input ports
+- `templates/rule_fsm.v.tera` — IPv6 input ports
+- `templates/packet_filter_top.v.tera` — IPv6 wiring
+- `tests/integration_test.rs` — 12 new integration tests
+
+### Test Results
+- 170 Rust tests pass (125 unit + 45 integration)
+- All 18 YAML examples validate clean
+
+### Git Operations
+- 6 batch commits pushed to https://github.com/joemooney/pacgate.git

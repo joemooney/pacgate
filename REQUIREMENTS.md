@@ -247,3 +247,54 @@
 - REQ-261: 36 Rust integration tests (all features through Phase 7) [IMPLEMENTED]
 - REQ-262: Byte-match YAML example (byte_match.yaml) [IMPLEMENTED]
 - REQ-263: Hierarchical FSM YAML example (hsm_conntrack.yaml) [IMPLEMENTED]
+
+## Phase 8 Requirements — IPv6, Simulation, Rate Limiting, Enhanced Analysis [IMPLEMENTED]
+
+### Packet Simulation
+- REQ-270: `simulate` subcommand for software dry-run packet evaluation [IMPLEMENTED]
+- REQ-271: SimPacket struct with all match fields (L2/L3/L4/IPv6/VXLAN) as Options [IMPLEMENTED]
+- REQ-272: Parse packet spec string (key=value,key=value format) [IMPLEMENTED]
+- REQ-273: Evaluate rules in priority order (first-match-wins), return matched rule + action [IMPLEMENTED]
+- REQ-274: Per-field match breakdown in simulation results [IMPLEMENTED]
+- REQ-275: `--json` output for simulate command [IMPLEMENTED]
+
+### IPv6 Support
+- REQ-280: Match on IPv6 source address with CIDR prefix (e.g., "2001:db8::/32") [IMPLEMENTED]
+- REQ-281: Match on IPv6 destination address with CIDR prefix [IMPLEMENTED]
+- REQ-282: Match on IPv6 next header field (e.g., 58 for ICMPv6) [IMPLEMENTED]
+- REQ-283: Ipv6Prefix struct with `::` abbreviation expansion and CIDR parsing [IMPLEMENTED]
+- REQ-284: IPv6 CIDR matching in hardware: 128-bit `(ip & mask) == (prefix & mask)` [IMPLEMENTED]
+- REQ-285: Frame parser S_IPV6_HDR state (40-byte IPv6 header, 6-bit byte counter) [IMPLEMENTED]
+- REQ-286: IPv6 parser outputs: src_ipv6[127:0], dst_ipv6[127:0], ipv6_next_header[7:0], ipv6_valid [IMPLEMENTED]
+- REQ-287: IPv6 wiring through all templates (rule_match, rule_fsm, packet_filter_top) [IMPLEMENTED]
+- REQ-288: IPv6 YAML example (ipv6_firewall.yaml, 6 rules) [IMPLEMENTED]
+
+### Rate Limiting
+- REQ-290: RateLimit model with pps and burst fields [IMPLEMENTED]
+- REQ-291: Per-rule rate_limit in YAML (optional) [IMPLEMENTED]
+- REQ-292: Token-bucket rate limiter RTL (rtl/rate_limiter.v) [IMPLEMENTED]
+- REQ-293: Parameterized CLOCK_FREQ, PPS, BURST in rate limiter [IMPLEMENTED]
+- REQ-294: `--rate-limit` flag on compile command [IMPLEMENTED]
+- REQ-295: Rate limiter resource estimate (+50 LUTs, +64 FFs per limiter) [IMPLEMENTED]
+- REQ-296: Rate-limited YAML example (rate_limited.yaml, 4 rules) [IMPLEMENTED]
+
+### Enhanced Lint Rules
+- REQ-300: LINT008 (error): Dead rule — fully shadowed by higher-priority rule with same action [IMPLEMENTED]
+- REQ-301: LINT009 (warning): Unused FSM variable — declared but never referenced [IMPLEMENTED]
+- REQ-302: LINT010 (warning): Unreachable FSM state — BFS from initial finds no path [IMPLEMENTED]
+- REQ-303: LINT011 (info): L3/L4 rules in whitelist mode without generic IPv4 allow [IMPLEMENTED]
+- REQ-304: LINT012 (info): byte_match offset > 64 — beyond typical header region [IMPLEMENTED]
+
+### Enhanced Overlap Detection
+- REQ-310: CIDR prefix containment check (10.0.0.0/8 contains 10.1.0.0/16) [IMPLEMENTED]
+- REQ-311: CIDR prefix overlap check (any common addresses) [IMPLEMENTED]
+- REQ-312: Port range containment check (1-1024 contains 80) [IMPLEMENTED]
+- REQ-313: Port range overlap check (range intersection) [IMPLEMENTED]
+- REQ-314: criteria_shadows() uses CIDR containment + port containment [IMPLEMENTED]
+- REQ-315: criteria_overlaps() uses CIDR overlap + port range overlap [IMPLEMENTED]
+
+### Testing
+- REQ-320: 125 Rust unit tests (through Phase 8) [IMPLEMENTED]
+- REQ-321: 45 Rust integration tests (through Phase 8) [IMPLEMENTED]
+- REQ-322: IPv6 simulation tests (CIDR matching, next_header, all-fields) [IMPLEMENTED]
+- REQ-323: Rate-limited compile/JSON integration tests [IMPLEMENTED]

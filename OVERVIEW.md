@@ -4,7 +4,7 @@
 PacGate is an FPGA-based packet filtering switch where YAML-defined rules compile into both synthesizable Verilog (the filter hardware) and a cocotb test harness (the validator). The two outputs are generated from the same specification but serve orthogonal purposes: the filter enforces rules in hardware, the harness proves they work correctly in simulation.
 
 ## What It Does
-1. You define packet filter rules in YAML (match on MAC, IP, ports, VLAN, VXLAN VNI, etc.)
+1. You define packet filter rules in YAML (match on MAC, IPv4/IPv6, ports, VLAN, VXLAN VNI, etc.)
 2. The `pacgate` compiler (written in Rust) reads the YAML and generates:
    - **Verilog RTL** — synthesizable hardware description for an FPGA
    - **cocotb test bench** — Python tests that verify the hardware via simulation
@@ -63,6 +63,9 @@ rules.yaml ──> Compiler (Rust) ──┬──> Verilog (DUT)
 | L4 | src_port | Exact or range | `80` or `{range: [1024, 65535]}` |
 | L4 | dst_port | Exact or range | `443` |
 | Tunnel | vxlan_vni | 24-bit (0-16M) | `1000` |
+| L3 | src_ipv6 | IPv6 / CIDR | `"2001:db8::/32"` |
+| L3 | dst_ipv6 | IPv6 / CIDR | `"fe80::/10"` |
+| L3 | ipv6_next_header | 8-bit | `58` (ICMPv6) |
 | Raw | byte_match | Offset+value+mask | `{offset: 14, value: "45", mask: "F0"}` |
 
 ## Verification Framework
@@ -81,6 +84,7 @@ UVM-inspired Python verification environment with:
 - `pacgate compile rules.yaml --counters` — Include per-rule counters + AXI-Lite CSR
 - `pacgate compile rules.yaml --ports 4` — Generate multi-port switch fabric (4 parallel filters)
 - `pacgate compile rules.yaml --conntrack` — Include connection tracking hash table RTL
+- `pacgate compile rules.yaml --rate-limit` — Include rate limiter RTL for rules with rate_limit
 - `pacgate validate rules.yaml` — Validate YAML only
 - `pacgate init` — Create a well-commented starter rules file
 - `pacgate estimate rules.yaml` — FPGA resource estimation (LUTs/FFs) + timing analysis
@@ -93,10 +97,11 @@ UVM-inspired Python verification environment with:
 - `pacgate pcap capture.pcap` — Import PCAP for cocotb test stimulus
 - `pacgate from-mermaid fsm.md --name rule --priority 100` — Import Mermaid stateDiagram to YAML
 - `pacgate to-mermaid rules.yaml` — Export YAML FSM rules to Mermaid stateDiagram-v2
+- `pacgate simulate rules.yaml --packet "ethertype=0x0800,dst_port=80"` — Software dry-run simulation
 - All commands except `init`, `graph`, `report` support `--json` for machine-readable output
 
 ## Examples
-16 production-quality YAML examples covering real-world deployments:
+18 production-quality YAML examples covering real-world deployments:
 - Enterprise campus, data center multi-tenant, blacklist mode
 - Industrial OT boundary (EtherCAT, PROFINET, PTP, GOOSE)
 - Automotive Ethernet gateway (AVB/TSN, ADAS)
@@ -107,14 +112,16 @@ UVM-inspired Python verification environment with:
 - Stateful: SYN flood detection, ARP spoofing detection
 - Byte-offset matching (IPv4 version nibble, TCP SYN flag)
 - Hierarchical state machine (TCP flow tracker with nested burst detection)
+- IPv6 firewall (ICMPv6, CIDR prefix, link-local blocking)
+- Rate-limited rules (HTTP/DNS/SSH token-bucket limiting)
 
 ## Quality
-- 89 Rust unit tests (model parsing, validation, overlap detection, IP/port/VNI, PCAP, byte-match, HSM, Mermaid)
-- 36 Rust integration tests (full compile pipeline, AXI, formal, lint, L3/L4, VXLAN, counters, PCAP, report, byte-match, HSM, Mermaid, multi-port, conntrack)
+- 125 Rust unit tests (model parsing, validation, CIDR/port overlap, IPv4/IPv6, PCAP, byte-match, HSM, Mermaid, simulation)
+- 45 Rust integration tests (full compile pipeline, AXI, formal, lint, L3/L4, IPv6, VXLAN, counters, PCAP, report, byte-match, HSM, Mermaid, multi-port, conntrack, rate-limit, simulate)
 - 13+ cocotb simulation tests (directed + 500-packet random + corner cases)
 - 85%+ functional coverage with varied frame sizes and VLAN-tagged traffic
-- Rule overlap and shadow detection with compile-time warnings
-- Best-practice linting with 7 lint rules
+- Rule overlap and shadow detection with CIDR containment and port range analysis
+- Best-practice linting with 12 lint rules (LINT001-012)
 - Property-based testing with Hypothesis for invariant verification
 - SVA formal assertions for mathematical correctness proofs
 
@@ -126,6 +133,7 @@ UVM-inspired Python verification environment with:
 - **Phase 5** (complete): 12 examples, lint command, comprehensive docs, proprietary license
 - **Phase 6** (complete): L3/L4 matching, per-rule counters, PCAP import, HTML reports, VXLAN tunnel parsing
 - **Phase 7** (complete): Byte-offset matching, hierarchical state machines, Mermaid import/export, multi-port switch fabric, connection tracking
+- **Phase 8** (complete): IPv6 support, packet simulation, rate limiting, enhanced lint (12 rules), CIDR/port overlap detection
 
 ## Documentation
 - `README.md` — Project showcase and quick start
