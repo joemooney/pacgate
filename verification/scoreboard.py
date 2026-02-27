@@ -90,6 +90,15 @@ class Rule:
     ipv6_next_header: Optional[int] = None
     # Byte-offset matching
     byte_match: Optional[list] = None
+    # GTP-U tunnel
+    gtp_teid: Optional[int] = None
+    # MPLS label stack
+    mpls_label: Optional[int] = None
+    mpls_tc: Optional[int] = None
+    mpls_bos: Optional[int] = None
+    # IGMP/MLD multicast
+    igmp_type: Optional[int] = None
+    mld_type: Optional[int] = None
 
     def matches(self, frame: EthernetFrame, extracted: Optional[dict] = None) -> bool:
         """Check if this rule matches the given frame.
@@ -176,6 +185,36 @@ class Rule:
         if self.byte_match is not None:
             raw = extracted.get("raw_bytes", frame.payload)
             if not byte_match_matches(raw, self.byte_match):
+                return False
+
+        # GTP-U tunnel matching
+        if self.gtp_teid is not None:
+            pkt_teid = extracted.get("gtp_teid")
+            if pkt_teid is None or pkt_teid != self.gtp_teid:
+                return False
+
+        # MPLS label stack matching
+        if self.mpls_label is not None:
+            pkt_label = extracted.get("mpls_label")
+            if pkt_label is None or pkt_label != self.mpls_label:
+                return False
+        if self.mpls_tc is not None:
+            pkt_tc = extracted.get("mpls_tc")
+            if pkt_tc is None or pkt_tc != self.mpls_tc:
+                return False
+        if self.mpls_bos is not None:
+            pkt_bos = extracted.get("mpls_bos")
+            if pkt_bos is None or pkt_bos != self.mpls_bos:
+                return False
+
+        # IGMP/MLD multicast matching
+        if self.igmp_type is not None:
+            pkt_igmp = extracted.get("igmp_type")
+            if pkt_igmp is None or pkt_igmp != self.igmp_type:
+                return False
+        if self.mld_type is not None:
+            pkt_mld = extracted.get("mld_type")
+            if pkt_mld is None or pkt_mld != self.mld_type:
                 return False
 
         return True

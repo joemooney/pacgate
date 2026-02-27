@@ -358,6 +358,107 @@ class PacketFactory:
         )
 
     @staticmethod
+    def gtp_u(
+        teid: int = 1000,
+        src_ip="10.0.0.1", dst_ip="10.0.0.2",
+        dst_mac="de:ad:be:ef:00:01", src_mac="02:00:00:00:00:01",
+    ) -> EthernetFrame:
+        """GTP-U frame: Ethernet + IPv4(UDP:2152) + GTP header with TEID."""
+        # GTP header (8 bytes): flags=0x30 (v1, PT=1), type=0xFF (T-PDU), length, TEID
+        inner_payload = bytes(20)
+        gtp_hdr = struct.pack(">BBHI",
+            0x30,       # flags: version=1, PT=1
+            0xFF,       # message type: T-PDU
+            len(inner_payload),  # length
+            teid,       # TEID (32-bit)
+        ) + inner_payload
+        # UDP header: src=random, dst=2152
+        udp_hdr = struct.pack(">HHHH", 12345, 2152, 8 + len(gtp_hdr), 0)
+        # IPv4 header
+        ip_hdr = Ipv4Header(
+            src_addr=src_ip, dst_addr=dst_ip,
+            protocol=17, total_length=20 + len(udp_hdr) + len(gtp_hdr),
+        )
+        payload = ip_hdr.to_bytes() + udp_hdr + gtp_hdr
+        return EthernetFrame(
+            dst_mac=mac_to_bytes(dst_mac),
+            src_mac=mac_to_bytes(src_mac),
+            ethertype=0x0800,
+            payload=payload,
+        )
+
+    @staticmethod
+    def mpls(
+        label: int = 100,
+        tc: int = 0,
+        bos: int = 1,
+        dst_mac="de:ad:be:ef:00:01", src_mac="02:00:00:00:00:01",
+    ) -> EthernetFrame:
+        """MPLS frame: Ethernet(0x8847) + MPLS label entry + inner payload."""
+        # MPLS header (4 bytes): label(20) + TC(3) + BOS(1) + TTL(8)
+        mpls_word = (label << 12) | (tc << 9) | (bos << 8) | 64  # TTL=64
+        mpls_hdr = struct.pack(">I", mpls_word)
+        inner_payload = bytes(46)
+        payload = mpls_hdr + inner_payload
+        return EthernetFrame(
+            dst_mac=mac_to_bytes(dst_mac),
+            src_mac=mac_to_bytes(src_mac),
+            ethertype=0x8847,
+            payload=payload,
+        )
+
+    @staticmethod
+    def igmp(
+        igmp_type: int = 0x11,
+        src_ip="10.0.0.1", dst_ip="224.0.0.1",
+        dst_mac="01:00:5e:00:00:01", src_mac="02:00:00:00:00:01",
+    ) -> EthernetFrame:
+        """IGMP frame: Ethernet + IPv4(proto=2) + IGMP message."""
+        # IGMP message (8 bytes): type + max_resp + checksum + group_addr
+        igmp_msg = struct.pack(">BBH4s",
+            igmp_type,
+            0,          # max response time
+            0,          # checksum (simplified)
+            ipv4_addr_to_bytes("0.0.0.0"),  # group address
+        )
+        ip_hdr = Ipv4Header(
+            src_addr=src_ip, dst_addr=dst_ip,
+            protocol=2, total_length=20 + len(igmp_msg),
+        )
+        payload = ip_hdr.to_bytes() + igmp_msg
+        return EthernetFrame(
+            dst_mac=mac_to_bytes(dst_mac),
+            src_mac=mac_to_bytes(src_mac),
+            ethertype=0x0800,
+            payload=payload,
+        )
+
+    @staticmethod
+    def mld(
+        mld_type: int = 130,
+        src_ip="fe80::1", dst_ip="ff02::1",
+        dst_mac="33:33:00:00:00:01", src_mac="02:00:00:00:00:01",
+    ) -> EthernetFrame:
+        """MLD frame: Ethernet + IPv6(next_header=58) + ICMPv6 MLD message."""
+        # MLD message (24 bytes): type + code + checksum + max_resp + reserved + mcast_addr
+        mld_msg = struct.pack(">BBH",
+            mld_type,   # ICMPv6 type (130=query, 131=report, 132=done)
+            0,          # code
+            0,          # checksum (simplified)
+        ) + struct.pack(">HH", 0, 0) + bytes(16)  # max_resp + reserved + multicast_addr
+        ip6_hdr = Ipv6Header(
+            src_addr=src_ip, dst_addr=dst_ip,
+            next_header=58, payload_length=len(mld_msg),
+        )
+        payload = ip6_hdr.to_bytes() + mld_msg
+        return EthernetFrame(
+            dst_mac=mac_to_bytes(dst_mac),
+            src_mac=mac_to_bytes(src_mac),
+            ethertype=0x86DD,
+            payload=payload,
+        )
+
+    @staticmethod
     def runt_frame() -> EthernetFrame:
         """Frame shorter than minimum Ethernet size (corner case)."""
         return EthernetFrame(

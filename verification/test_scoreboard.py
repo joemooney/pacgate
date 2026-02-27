@@ -185,6 +185,79 @@ class TestScoreboardWithExtracted:
         assert action == "pass"
 
 
+class TestGtpTeidMatch:
+    def test_gtp_teid_exact_match(self):
+        rule = Rule(name="gtp_tunnel", priority=100, action="pass", gtp_teid=1000)
+        frame = _make_frame()
+        assert rule.matches(frame, extracted={"gtp_teid": 1000})
+
+    def test_gtp_teid_no_match(self):
+        rule = Rule(name="gtp_tunnel", priority=100, action="pass", gtp_teid=1000)
+        frame = _make_frame()
+        assert not rule.matches(frame, extracted={"gtp_teid": 2000})
+
+    def test_gtp_teid_none_rule_matches_any(self):
+        rule = Rule(name="any_rule", priority=100, action="pass")
+        frame = _make_frame()
+        assert rule.matches(frame, extracted={"gtp_teid": 5000})
+
+    def test_gtp_teid_missing_extracted(self):
+        rule = Rule(name="gtp_tunnel", priority=100, action="pass", gtp_teid=1000)
+        frame = _make_frame()
+        assert not rule.matches(frame, extracted={})
+
+
+class TestMplsMatch:
+    def test_mpls_label_match(self):
+        rule = Rule(name="mpls_vpn", priority=100, action="pass", mpls_label=100)
+        frame = _make_frame(ethertype=0x8847)
+        assert rule.matches(frame, extracted={"mpls_label": 100})
+
+    def test_mpls_label_no_match(self):
+        rule = Rule(name="mpls_vpn", priority=100, action="pass", mpls_label=100)
+        frame = _make_frame(ethertype=0x8847)
+        assert not rule.matches(frame, extracted={"mpls_label": 200})
+
+    def test_mpls_tc_match(self):
+        rule = Rule(name="mpls_prio", priority=100, action="pass", mpls_tc=7)
+        frame = _make_frame(ethertype=0x8847)
+        assert rule.matches(frame, extracted={"mpls_tc": 7})
+
+    def test_mpls_bos_match(self):
+        rule = Rule(name="mpls_bos", priority=100, action="pass", mpls_bos=1)
+        frame = _make_frame(ethertype=0x8847)
+        assert rule.matches(frame, extracted={"mpls_bos": 1})
+
+    def test_mpls_multi_field_match(self):
+        rule = Rule(name="mpls_full", priority=100, action="pass",
+                    mpls_label=200, mpls_tc=3, mpls_bos=1)
+        frame = _make_frame(ethertype=0x8847)
+        assert rule.matches(frame, extracted={"mpls_label": 200, "mpls_tc": 3, "mpls_bos": 1})
+        assert not rule.matches(frame, extracted={"mpls_label": 200, "mpls_tc": 3, "mpls_bos": 0})
+
+
+class TestIgmpMldMatch:
+    def test_igmp_type_match(self):
+        rule = Rule(name="igmp_query", priority=100, action="pass", igmp_type=0x11)
+        frame = _make_frame()
+        assert rule.matches(frame, extracted={"igmp_type": 0x11})
+
+    def test_igmp_type_no_match(self):
+        rule = Rule(name="igmp_query", priority=100, action="pass", igmp_type=0x11)
+        frame = _make_frame()
+        assert not rule.matches(frame, extracted={"igmp_type": 0x22})
+
+    def test_mld_type_match(self):
+        rule = Rule(name="mld_query", priority=100, action="pass", mld_type=130)
+        frame = _make_frame(ethertype=0x86DD)
+        assert rule.matches(frame, extracted={"mld_type": 130})
+
+    def test_mld_type_no_match(self):
+        rule = Rule(name="mld_query", priority=100, action="pass", mld_type=130)
+        frame = _make_frame(ethertype=0x86DD)
+        assert not rule.matches(frame, extracted={"mld_type": 131})
+
+
 if __name__ == "__main__":
     import pytest
     pytest.main([__file__, "-v"])
