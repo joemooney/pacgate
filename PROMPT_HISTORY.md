@@ -537,3 +537,148 @@ Create comprehensive documentation, real-world examples, management materials, a
 ### Git Operations
 - Changed remote to https://github.com/joemooney/pacgate.git
 - Multiple commits pushed throughout session
+
+## Session 8 — 2026-02-27: Phase 6 — L3/L4 Matching, Counters, PCAP, VXLAN, Reports
+
+### Goal
+Implement commercially-viable features identified through market research: L3/L4 matching (IPv4/TCP/UDP), per-rule hardware counters, PCAP import, VXLAN tunnel parsing, and HTML coverage reports.
+
+### Actions Taken
+
+#### Task #15: L3/L4 Matching (IPv4, TCP/UDP ports)
+
+1. **Data model extensions** (`src/model.rs`)
+   - Added `PortMatch` enum (Exact(u16) / Range { range: [u16; 2] }) with serde untagged deserialization
+   - Added `Ipv4Prefix` struct with `parse()`, `to_verilog_value()`, `to_verilog_mask()` methods
+   - Extended `MatchCriteria` with: src_ip, dst_ip, ip_protocol, src_port, dst_port
+   - Added `uses_l3l4()` helper method
+   - 12 new unit tests for IPv4 prefix parsing and port matching
+
+2. **Frame parser extension** (`rtl/frame_parser.v`)
+   - Expanded from 148 to ~230 lines; state width 3→4 bits, byte_cnt 4→5 bits
+   - Added S_IP_HDR (4'd6): parses 20-byte IPv4 header — protocol @byte9, src_ip @12-15, dst_ip @16-19
+   - Added S_L4_HDR (4'd7): extracts TCP/UDP src_port and dst_port (4 bytes)
+   - Added S_VXLAN_HDR (4'd8): detects UDP dst port 4789, parses 8-byte VXLAN header for VNI
+   - New output signals: src_ip[31:0], dst_ip[31:0], ip_protocol[7:0], src_port[15:0], dst_port[15:0], l3_valid, l4_valid
+
+3. **Template updates** (rule_match.v.tera, rule_fsm.v.tera, packet_filter_top.v.tera)
+   - Added L3/L4 input ports to all matcher/FSM modules
+   - Wired parser outputs through top-level to all rule instances
+
+4. **Verilog generation** (`src/verilog_gen.rs`)
+   - Extended `build_condition_expr()` for: IP CIDR prefix matching, protocol, port exact, port range
+   - Hardware patterns: `(src_ip & mask) == (prefix & mask)`, `(port >= low && port <= high)`
+
+5. **Validation** (`src/loader.rs`)
+   - Extracted `validate_match_criteria()` function
+   - Added validation for IP addresses (via Ipv4Prefix::parse), port ranges, protocol values
+   - Updated overlap detection for L3/L4 fields
+   - 10 new validation tests
+
+6. **cocotb generation** (`src/cocotb_gen.rs`)
+   - Added L3/L4 fields to directed test cases and scoreboard rules
+   - Added `generate_matching_ip()` and `generate_matching_port()` helpers
+
+7. **New example**: `rules/examples/l3l4_firewall.yaml` — 8-rule firewall (SSH/HTTP/DNS/ICMP/port ranges)
+
+8. **Updated estimate + stats** in main.rs for L3/L4 parser overhead and field costs
+
+9. **3 integration tests**: compile_l3l4_firewall, compile_l3l4_json_output, validate_l3l4_firewall
+
+#### Task #16: Per-Rule Hardware Counters
+
+10. **`rtl/rule_counters.v`** — Per-rule 64-bit packet/byte counters
+    - Parameterized NUM_RULES, global counters (total_pkt, total_pass, total_drop, total_bytes)
+    - counter_clear input for reset
+
+11. **`rtl/axi_lite_csr.v`** — AXI4-Lite slave register interface
+    - 15 register addresses (0x000-0x038) for global/per-rule counter readout
+    - Rule selector register + clear-on-write
+
+12. **Updated decision_logic.v.tera** with decision_rule_idx and decision_default outputs
+
+13. **CLI `--counters` flag** on compile command
+    - `src/verilog_gen.rs`: Added `copy_counter_rtl()`, idx_bits calculation
+    - `src/main.rs`: Added --counters flag
+
+14. **2 integration tests**: compile_with_counters, compile_counters_json
+
+#### Task #17: PCAP Import
+
+15. **`src/pcap.rs`** — PCAP file reader module
+    - `read_pcap()`: parses libpcap format (LE/BE, microsecond/nanosecond variants)
+    - `generate_stimulus()`: produces Python PCAP_FRAMES list for cocotb
+    - `print_summary()`: human-readable frame table
+    - 5 unit tests (single/multi frame, reject small, reject bad magic, stimulus output)
+
+16. **CLI `pcap` subcommand** with --json output
+
+17. **1 integration test**: pcap_import (creates test PCAP in-memory)
+
+#### Task #18: HTML Coverage Report
+
+18. **`templates/coverage_report.html.tera`** — Self-contained HTML report
+    - Inline CSS with gradient headers, stat cards, progress bars, badges
+    - Field coverage analysis (L2/L3/L4/Tunnel layers)
+    - Per-rule detail table with match field tags, warnings section
+
+19. **CLI `report` subcommand** (`src/main.rs`)
+    - `generate_coverage_report()` function with `chrono_lite_now()` for timestamps
+
+20. **1 integration test**: report_generates_html
+
+#### Task #19: VXLAN Tunnel Parsing
+
+21. **Data model** — Added `vxlan_vni: Option<u32>` to MatchCriteria
+
+22. **Frame parser** — S_VXLAN_HDR state: detects UDP dst port == 4789 (0x12B5), parses 8-byte VXLAN header, extracts 24-bit VNI. New outputs: vxlan_vni[23:0], vxlan_valid
+
+23. **Templates** — All templates updated with vxlan_vni signal wiring
+
+24. **Verilog generation** — VNI condition: `(vxlan_vni == 24'd<value>)`
+
+25. **Validation** — VNI range check (0-16777215) in loader.rs
+
+26. **New example**: `rules/examples/vxlan_datacenter.yaml` — 6-rule multi-tenant VNI isolation
+
+27. **Updated stats, estimate, report** functions for VXLAN field
+
+28. **2 unit tests + 1 integration test**
+
+#### Task #20: Documentation Updates
+
+29. **CLAUDE.md** — Updated for Phase 6 (L2/3/4 title, new CLI commands, module hierarchy, 99 tests)
+30. **OVERVIEW.md** — Updated match fields table, examples list, verification counts, Phase 6 status
+31. **REQUIREMENTS.md** — Added Phase 6 requirements (REQ-150 through REQ-203)
+32. **PROMPT_HISTORY.md** — This session (Session 8)
+
+### New Files Created
+- `src/pcap.rs`
+- `rtl/rule_counters.v`
+- `rtl/axi_lite_csr.v`
+- `templates/coverage_report.html.tera`
+- `rules/examples/l3l4_firewall.yaml`
+- `rules/examples/vxlan_datacenter.yaml`
+
+### Modified Files
+- `src/model.rs` — L3/L4/VXLAN fields, PortMatch, Ipv4Prefix
+- `src/loader.rs` — L3/L4/VXLAN validation and overlap detection
+- `src/verilog_gen.rs` — L3/L4/VXLAN condition generation, counter/idx support
+- `src/cocotb_gen.rs` — L3/L4 test case and scoreboard generation
+- `src/main.rs` — --counters, pcap, report, lint subcommands; estimate/stats updates
+- `rtl/frame_parser.v` — IPv4/TCP/UDP/VXLAN parser states
+- `templates/rule_match.v.tera` — L3/L4/VXLAN ports
+- `templates/rule_fsm.v.tera` — L3/L4/VXLAN ports
+- `templates/packet_filter_top.v.tera` — L3/L4/VXLAN wiring
+- `templates/decision_logic.v.tera` — rule index + default outputs
+- `verification/coverage.py` — (no changes this session)
+- `tests/integration_test.rs` — 8 new integration tests
+
+### Test Results
+- 99 Rust tests pass (70 unit + 29 integration)
+- All 14 YAML examples validate clean
+- All Verilog lints pass
+
+### Git Operations
+- 5 feature commits: L3/L4 (316240f), counters (e979f32), PCAP (33d6390), HTML report (5fdf19d), VXLAN (aa88919)
+- All pushed to https://github.com/joemooney/pacgate.git

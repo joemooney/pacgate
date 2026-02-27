@@ -1,30 +1,34 @@
-# PacGate — FPGA Layer 2 Packet Filter Switch
+# PacGate — FPGA Layer 2/3/4 Packet Filter Switch
 
 ## Vision
 PacGate is an FPGA-based packet filtering switch where YAML-defined rules compile into both synthesizable Verilog (the filter hardware) and a cocotb test harness (the validator). The two outputs are generated from the same specification but serve orthogonal purposes: the filter enforces rules in hardware, the harness proves they work correctly in simulation.
 
 ## What It Does
-1. You define packet filter rules in YAML (match on MAC addresses, EtherType, VLAN tags, etc.)
+1. You define packet filter rules in YAML (match on MAC, IP, ports, VLAN, VXLAN VNI, etc.)
 2. The `pacgate` compiler (written in Rust) reads the YAML and generates:
    - **Verilog RTL** — synthesizable hardware description for an FPGA
    - **cocotb test bench** — Python tests that verify the hardware via simulation
    - **SVA assertions** — formal properties for bounded model checking
    - **Property tests** — Hypothesis-based invariant testing
+   - **HTML coverage report** — visual coverage analysis
 3. Run simulation with Icarus Verilog + cocotb to verify correctness
 4. Synthesize for Xilinx Artix-7 FPGA using Yosys (open-source) or Vivado
 5. Run formal verification with SymbiYosys for mathematical proof of correctness
+6. Import PCAP captures for real-traffic test stimulus
 
 ## Innovation / Unique Value
 PacGate is unique in that no other tool generates both the hardware implementation (Verilog) and the verification environment (cocotb) from a single specification. Commercial tools like Agnisys IDS-Verify generate tests from register specs but assume the RTL already exists. LLM-based approaches generate one or the other non-deterministically. PacGate generates both, ensuring perfect alignment between specification, implementation, and verification.
 
 ## Architecture
-The generated hardware has a simple streaming interface (byte-at-a-time Ethernet frames). A hand-written frame parser extracts header fields, generated per-rule matchers evaluate in parallel (combinational), and a priority encoder selects the first matching rule's action (pass or drop).
+The generated hardware has a simple streaming interface (byte-at-a-time Ethernet frames). A hand-written frame parser extracts L2/L3/L4/VXLAN header fields, generated per-rule matchers evaluate in parallel (combinational), and a priority encoder selects the first matching rule's action (pass or drop).
 
 ```
 rules.yaml ──> Compiler (Rust) ──┬──> Verilog (DUT)
                                  ├──> cocotb tests (Python)
                                  ├──> SVA assertions (formal)
-                                 └──> Property tests (Hypothesis)
+                                 ├──> Property tests (Hypothesis)
+                                 ├──> HTML coverage report
+                                 └──> PCAP stimulus import
                                         │
              Icarus Verilog + cocotb <──┘
 ```
@@ -33,11 +37,28 @@ rules.yaml ──> Compiler (Rust) ──┬──> Verilog (DUT)
 - `packet_filter_axi_top` — AXI-Stream top-level (hand-written)
   - `axi_stream_adapter` — AXI-Stream to pkt_* interface bridge
   - `packet_filter_top` — generated top-level, wires everything
-    - `frame_parser` — hand-written, extracts dst/src MAC, EtherType, VLAN, raw bytes
+    - `frame_parser` — hand-written, extracts L2/L3/L4/VXLAN fields
     - `rule_match_N` — generated per stateless rule, combinational field matching
     - `rule_fsm_N` — generated per stateful rule, registered FSM with timeout
-    - `decision_logic` — generated priority encoder, first-match wins
+    - `decision_logic` — generated priority encoder, first-match wins, outputs rule index
   - `store_forward_fifo` — buffers frames, forwards/discards based on filter decision
+  - `rule_counters` — per-rule 64-bit packet/byte counters (optional, --counters)
+  - `axi_lite_csr` — AXI4-Lite register interface for counter readout
+
+## Match Fields
+| Layer | Field | Type | Example |
+|-------|-------|------|---------|
+| L2 | dst_mac | MAC with wildcards | `"00:1a:2b:*:*:*"` |
+| L2 | src_mac | MAC with wildcards | `"ff:ff:ff:ff:ff:ff"` |
+| L2 | ethertype | 16-bit hex | `"0x0800"` |
+| L2 | vlan_id | 12-bit (0-4095) | `100` |
+| L2 | vlan_pcp | 3-bit (0-7) | `5` |
+| L3 | src_ip | IPv4 / CIDR | `"10.0.0.0/8"` |
+| L3 | dst_ip | IPv4 / CIDR | `"192.168.1.1"` |
+| L3 | ip_protocol | 8-bit | `6` (TCP) |
+| L4 | src_port | Exact or range | `80` or `{range: [1024, 65535]}` |
+| L4 | dst_port | Exact or range | `443` |
+| Tunnel | vxlan_vni | 24-bit (0-16M) | `1000` |
 
 ## Verification Framework
 UVM-inspired Python verification environment with:
@@ -49,35 +70,10 @@ UVM-inspired Python verification environment with:
 - **Properties** — Hypothesis-based property testing (determinism, priority, conservation, independence)
 - Enterprise example: 7 rules, 13 tests, 500 random packets with 0 scoreboard mismatches
 
-## Formal Verification
-- SVA assertions generated from YAML rules (reset, completeness, latency, default action, per-rule)
-- SymbiYosys task files for BMC (bounded model checking) and cover mode
-- Run via: `pacgate formal rules.yaml` then `cd gen/formal && sby -f packet_filter.sby`
-
-## Project Structure
-- `rules/` — YAML rule definitions and schema
-- `src/` — Rust compiler source (clap CLI, serde YAML parser, Tera template renderer)
-- `templates/` — Tera templates for Verilog, cocotb, SVA, and property test generation
-- `rtl/` — Hand-written Verilog (frame parser, AXI adapter, FIFO, AXI top)
-- `gen/` — Generated output (rtl/, tb/, tb-axi/, formal/ subdirectories)
-- `verification/` — Python verification framework (packet, scoreboard, coverage, driver, properties)
-- `synth/` — Synthesis files (Artix-7 XDC constraints, Yosys synthesis script)
-- `docs/` — Comprehensive documentation (design, verification, user guide, API, management)
-
-## Technology Stack
-- **Compiler**: Rust (clap, serde_yaml, serde_json, tera, anyhow)
-- **HDL**: Verilog (IEEE 1364-2005 compatible, portable)
-- **Simulation**: Icarus Verilog + cocotb 2.x (Python)
-- **Verification**: UVM-inspired Python framework with scoreboard and coverage
-- **Formal**: SymbiYosys + SMT solvers (via generated SVA assertions)
-- **Property Testing**: Hypothesis (Python) for invariant verification
-- **Synthesis**: Yosys (open-source) targeting Xilinx 7-series
-- **CI**: GitHub Actions (build, lint, simulate, artifact upload)
-- **Target FPGA**: Xilinx 7-series (Artix-7)
-
 ## CLI Commands
 - `pacgate compile rules.yaml` — Generate Verilog + cocotb tests (with rule summary table)
 - `pacgate compile rules.yaml --axi` — Include AXI-Stream wrapper + FIFO + AXI tests
+- `pacgate compile rules.yaml --counters` — Include per-rule counters + AXI-Lite CSR
 - `pacgate validate rules.yaml` — Validate YAML only
 - `pacgate init` — Create a well-commented starter rules file
 - `pacgate estimate rules.yaml` — FPGA resource estimation (LUTs/FFs) + timing analysis
@@ -86,20 +82,24 @@ UVM-inspired Python verification environment with:
 - `pacgate stats rules.yaml` — Rule set analytics (field usage, priority spacing, action balance)
 - `pacgate formal rules.yaml` — Generate SVA assertions + SymbiYosys task files
 - `pacgate lint rules.yaml` — Best-practice analysis (security, performance, maintainability)
-- All commands except `init` and `graph` support `--json` for machine-readable output
+- `pacgate report rules.yaml` — Generate HTML coverage report
+- `pacgate pcap capture.pcap` — Import PCAP for cocotb test stimulus
+- All commands except `init`, `graph`, `report` support `--json` for machine-readable output
 
 ## Examples
-12 production-quality YAML examples covering real-world deployments:
+14 production-quality YAML examples covering real-world deployments:
 - Enterprise campus, data center multi-tenant, blacklist mode
 - Industrial OT boundary (EtherCAT, PROFINET, PTP, GOOSE)
 - Automotive Ethernet gateway (AVB/TSN, ADAS)
 - 5G fronthaul (eCPRI, PTP, Sync-E)
 - Campus access control, IoT edge gateway
+- L3/L4 firewall (SSH, HTTP/S, DNS, ICMP, port ranges)
+- VXLAN datacenter (multi-tenant VNI isolation)
 - Stateful: SYN flood detection, ARP spoofing detection
 
 ## Quality
-- 44 Rust unit tests (model parsing, validation, overlap detection)
-- 21 Rust integration tests (full compile pipeline, AXI, formal, lint, JSON output, diff, stats, graph)
+- 70 Rust unit tests (model parsing, validation, overlap detection, IP/port/VNI, PCAP)
+- 29 Rust integration tests (full compile pipeline, AXI, formal, lint, L3/L4, VXLAN, counters, PCAP, report)
 - 13+ cocotb simulation tests (directed + 500-packet random + corner cases)
 - 85%+ functional coverage with varied frame sizes and VLAN-tagged traffic
 - Rule overlap and shadow detection with compile-time warnings
@@ -109,17 +109,18 @@ UVM-inspired Python verification environment with:
 
 ## Development Status
 - **Phase 1** (complete): Single stateless rule (allow ARP), frame parser, 7 cocotb tests PASS
-- **Phase 2** (complete): 7-rule enterprise example, MAC wildcards, VLAN matching, advanced verification framework, 13 tests PASS, 500/500 scoreboard matches, 85% coverage
-- **Phase 3** (complete): Stateful FSM rules with timeout counters, sequence detection, FSM Verilog template
-- **Phase 4** (complete): AXI-Stream wrapper, store-and-forward FIFO, Yosys synthesis script, Artix-7 constraints, SVA assertions, SymbiYosys formal verification, property-based testing, coverage XML export
-- **Phase 5** (complete): 12 real-world examples, lint command, README, User's Guide, Test Guide, 8 Workshops, management slideshow, Why PacGate document, proprietary license
+- **Phase 2** (complete): 7-rule enterprise, MAC wildcards, VLAN matching, verification framework, 13 tests PASS, 85% coverage
+- **Phase 3** (complete): Stateful FSM rules with timeout counters, sequence detection
+- **Phase 4** (complete): AXI-Stream wrapper, store-and-forward FIFO, synthesis, formal verification, property testing
+- **Phase 5** (complete): 12 examples, lint command, comprehensive docs, proprietary license
+- **Phase 6** (complete): L3/L4 matching, per-rule counters, PCAP import, HTML reports, VXLAN tunnel parsing
 
 ## Documentation
 - `README.md` — Project showcase and quick start
 - `docs/user-guide/USERS_GUIDE.md` — Comprehensive user guide with 11+ examples
-- `docs/verification/TEST_GUIDE.md` — Test and verification guide (using PacGate to test other FPGA designs)
+- `docs/verification/TEST_GUIDE.md` — Test and verification guide
 - `docs/WORKSHOPS.md` — 8 hands-on workshops (beginner to advanced)
 - `docs/WHY_PACGATE.md` — Value proposition for skeptics and decision-makers
 - `docs/management/SLIDESHOW.md` — 13-slide management presentation
 - `docs/RESEARCH.md` — Verification framework research report
-- `docs/README.md` — Full documentation index (design, verification, API, management)
+- `docs/README.md` — Full documentation index

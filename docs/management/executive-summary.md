@@ -88,8 +88,8 @@ The **killer feature** is not the hardware generation — it's the test harness:
 │     └─────────────────┘                                         │
 │                                                                 │
 │  3. ┌─────────────────┐                                         │
-│     │ Single-Source    │  No tool generates BOTH hardware       │
-│     │ Dual-Output     │  AND tests from one spec                │
+│     │ Single-Source   │   No tool generates BOTH hardware       │
+│     │ Dual-Output     │   AND tests from one spec               │
 │     └─────────────────┘                                         │
 │                                                                 │
 │        PacGate = 1 + 2 + 3 (unique combination)                 │

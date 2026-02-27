@@ -138,6 +138,52 @@
 - REQ-141: `lint --json` output for CI/CD integration [IMPLEMENTED]
 - REQ-142: Proprietary license [IMPLEMENTED]
 
+## Phase 6 Requirements — L3/L4 + Commercial Features [IMPLEMENTED]
+
+### L3/L4 Matching
+- REQ-150: Match on IPv4 source address with CIDR prefix (e.g., "10.0.0.0/8") [IMPLEMENTED]
+- REQ-151: Match on IPv4 destination address with CIDR prefix [IMPLEMENTED]
+- REQ-152: Match on IP protocol number (TCP=6, UDP=17, ICMP=1, etc.) [IMPLEMENTED]
+- REQ-153: Match on TCP/UDP source port (exact value) [IMPLEMENTED]
+- REQ-154: Match on TCP/UDP destination port (exact value) [IMPLEMENTED]
+- REQ-155: Match on TCP/UDP port range (e.g., [1024, 65535]) [IMPLEMENTED]
+- REQ-156: Frame parser extended with S_IP_HDR (20-byte IPv4) and S_L4_HDR states [IMPLEMENTED]
+- REQ-157: IPv4 CIDR prefix matching in hardware: (ip & mask) == (prefix & mask) [IMPLEMENTED]
+- REQ-158: Port range matching in hardware: (port >= low && port <= high) [IMPLEMENTED]
+- REQ-159: L3/L4 fields wired through all templates (rule_match, rule_fsm, packet_filter_top) [IMPLEMENTED]
+
+### VXLAN Tunnel Parsing
+- REQ-160: Detect VXLAN encapsulation (UDP dst port 4789) [IMPLEMENTED]
+- REQ-161: Parse VXLAN header, extract 24-bit VNI [IMPLEMENTED]
+- REQ-162: Match on vxlan_vni field in YAML rules [IMPLEMENTED]
+- REQ-163: Frame parser S_VXLAN_HDR state (12 bytes: UDP remainder + VXLAN header) [IMPLEMENTED]
+
+### Per-Rule Counters
+- REQ-170: 64-bit packet counter per rule [IMPLEMENTED]
+- REQ-171: 64-bit byte counter per rule [IMPLEMENTED]
+- REQ-172: Global counters: total packets, total pass, total drop, total bytes [IMPLEMENTED]
+- REQ-173: AXI4-Lite slave register interface for counter readout [IMPLEMENTED]
+- REQ-174: Counter clear via AXI-Lite write [IMPLEMENTED]
+- REQ-175: `--counters` flag on compile command [IMPLEMENTED]
+
+### PCAP Import
+- REQ-180: Read standard PCAP files (libpcap format, Ethernet link type) [IMPLEMENTED]
+- REQ-181: Generate cocotb test stimulus (PCAP_FRAMES Python list) [IMPLEMENTED]
+- REQ-182: `pcap` subcommand with --json output [IMPLEMENTED]
+- REQ-183: Support big-endian and little-endian PCAP files [IMPLEMENTED]
+
+### HTML Coverage Report
+- REQ-190: Self-contained HTML coverage report with styled CSS [IMPLEMENTED]
+- REQ-191: Field coverage analysis (L2/L3/L4/Tunnel layers) [IMPLEMENTED]
+- REQ-192: Per-rule detail table with match field tags [IMPLEMENTED]
+- REQ-193: `report` subcommand [IMPLEMENTED]
+
+### Testing
+- REQ-200: 70 Rust unit tests (model, loader, pcap) [IMPLEMENTED]
+- REQ-201: 29 Rust integration tests (compile, validate, estimate, diff, stats, graph, init, lint, formal, axi, L3/L4, VXLAN, counters, pcap, report) [IMPLEMENTED]
+- REQ-202: L3/L4 YAML example (l3l4_firewall.yaml, 8 rules) [IMPLEMENTED]
+- REQ-203: VXLAN YAML example (vxlan_datacenter.yaml, 6 rules) [IMPLEMENTED]
+
 ### CI/Regression
 - REQ-105: GitHub Actions CI pipeline with automated build/compile/simulate
 - REQ-106: JUnit XML test result reporting (built into cocotb)
