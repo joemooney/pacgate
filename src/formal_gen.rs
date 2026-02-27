@@ -60,6 +60,20 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
     let has_igmp_rules = rules.iter().any(|r| r.match_criteria.igmp_type.is_some());
     let has_mld_rules = rules.iter().any(|r| r.match_criteria.mld_type.is_some());
 
+    // Build per-rule protocol index lists for conditional assertions
+    let gtp_rule_indices: Vec<usize> = rules.iter().enumerate()
+        .filter(|(_, r)| r.match_criteria.gtp_teid.is_some())
+        .map(|(i, _)| i).collect();
+    let mpls_rule_indices: Vec<usize> = rules.iter().enumerate()
+        .filter(|(_, r)| r.match_criteria.mpls_label.is_some() || r.match_criteria.mpls_tc.is_some() || r.match_criteria.mpls_bos.is_some())
+        .map(|(i, _)| i).collect();
+    let igmp_rule_indices: Vec<usize> = rules.iter().enumerate()
+        .filter(|(_, r)| r.match_criteria.igmp_type.is_some())
+        .map(|(i, _)| i).collect();
+    let mld_rule_indices: Vec<usize> = rules.iter().enumerate()
+        .filter(|(_, r)| r.match_criteria.mld_type.is_some())
+        .map(|(i, _)| i).collect();
+
     // Render SVA assertions
     {
         let mut ctx = tera::Context::new();
@@ -74,6 +88,10 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         ctx.insert("has_mpls_rules", &has_mpls_rules);
         ctx.insert("has_igmp_rules", &has_igmp_rules);
         ctx.insert("has_mld_rules", &has_mld_rules);
+        ctx.insert("gtp_rule_indices", &gtp_rule_indices);
+        ctx.insert("mpls_rule_indices", &mpls_rule_indices);
+        ctx.insert("igmp_rule_indices", &igmp_rule_indices);
+        ctx.insert("mld_rule_indices", &mld_rule_indices);
 
         let rendered = tera.render("assertions.sv.tera", &ctx)?;
         std::fs::write(formal_dir.join("assertions.sv"), &rendered)?;

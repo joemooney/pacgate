@@ -2458,6 +2458,64 @@ fn lint_detects_igmp_without_protocol() {
 }
 
 #[test]
+fn formal_gtp_prerequisite_assertion_generated() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/gtp_5g.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let output = pacgate_bin()
+        .args(["formal", "rules/examples/gtp_5g.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "formal failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let sva = std::fs::read_to_string(tmp.path().join("formal/assertions.sv")).unwrap();
+    assert!(sva.contains("parsed_ip_protocol == 8'd17"), "should assert UDP protocol for GTP rules");
+}
+
+#[test]
+fn formal_mpls_bounds_assertion_generated() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/mpls_network.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let output = pacgate_bin()
+        .args(["formal", "rules/examples/mpls_network.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "formal failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let sva = std::fs::read_to_string(tmp.path().join("formal/assertions.sv")).unwrap();
+    assert!(sva.contains("parsed_mpls_tc <= 3'd7"), "should assert MPLS TC bounds");
+}
+
+#[test]
+fn formal_cover_statements_generated() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/gtp_5g.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let output = pacgate_bin()
+        .args(["formal", "rules/examples/gtp_5g.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "formal failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let sva = std::fs::read_to_string(tmp.path().join("formal/assertions.sv")).unwrap();
+    assert!(sva.contains("cover property"), "should contain cover statements");
+    assert!(sva.contains("parsed_gtp_valid"), "should cover GTP valid signal");
+}
+
+#[test]
 fn simulate_stateful_flag_accepted() {
     let output = pacgate_bin()
         .args(["simulate", "rules/examples/rate_limited.yaml",

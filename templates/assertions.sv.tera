@@ -166,15 +166,16 @@ module packet_filter_assertions (
 {% endif %}
 
 {% if has_rate_limit %}
-    // ── Rate Limiter Token Conservation ────────────────────────────
-    // When a rate limiter is present, the upstream drop signal should
-    // be honored: if rate_limit drops a packet, decision_pass must be 0.
-    property p_rate_limit_decision_valid;
+    // ── Rate Limiter Enforcement ──────────────────────────────────
+    // When rate_limiter_drop is asserted, the packet must be dropped.
+    property p_rate_limit_drop_enforced;
         @(posedge clk) disable iff (!rst_n)
-        decision_valid |-> (decision_pass == 1'b1 || decision_pass == 1'b0);
+        (decision_valid && rate_limiter_drop) |-> !decision_pass;
     endproperty
-    assert property (p_rate_limit_decision_valid)
-        else $error("ASSERT FAIL: rate limiter produced invalid decision");
+    assert property (p_rate_limit_drop_enforced)
+        else $error("ASSERT FAIL: rate limiter drop not enforced — decision_pass should be 0");
+
+    cover property (@(posedge clk) disable iff (!rst_n) rate_limiter_drop);
 {% endif %}
 
 {% if has_byte_match_rules %}
@@ -192,49 +193,98 @@ module packet_filter_assertions (
 {% if has_gtp_rules %}
     // ── GTP-U TEID Assertions ──────────────────────────────────────
     // GTP-U detection should only fire when UDP dst port == 2152.
-    // When parser reports gtp_teid_valid, the TEID extraction is consistent.
     property p_gtp_decision_stable;
         @(posedge clk) disable iff (!rst_n)
         (decision_valid && !pkt_sof) |=> $stable(decision_pass) || pkt_sof;
     endproperty
     assert property (p_gtp_decision_stable)
         else $error("ASSERT FAIL: GTP-U TEID decision unstable between frames");
+
+    // GTP prerequisite: GTP rule match implies UDP protocol detected
+{% for idx in gtp_rule_indices %}
+    property p_gtp_prereq_rule_{{ idx }};
+        @(posedge clk) disable iff (!rst_n)
+        match_hit_{{ idx }} |-> (parsed_ip_protocol == 8'd17);
+    endproperty
+    assert property (p_gtp_prereq_rule_{{ idx }})
+        else $error("ASSERT FAIL: GTP rule {{ idx }} matched but ip_protocol != UDP(17)");
+{% endfor %}
+
+    cover property (@(posedge clk) disable iff (!rst_n) parsed_gtp_valid);
 {% endif %}
 
 {% if has_mpls_rules %}
     // ── MPLS Label Stack Assertions ────────────────────────────────
     // MPLS detection fires when ethertype == 0x8847 (unicast) or 0x8848 (multicast).
-    // Extracted label/TC/BOS must be consistent within a frame.
     property p_mpls_decision_stable;
         @(posedge clk) disable iff (!rst_n)
         (decision_valid && !pkt_sof) |=> $stable(decision_pass) || pkt_sof;
     endproperty
     assert property (p_mpls_decision_stable)
         else $error("ASSERT FAIL: MPLS decision unstable between frames");
+
+    // MPLS extraction bounds: TC must be 0-7, label must be 20-bit
+    property p_mpls_tc_bounds;
+        @(posedge clk) disable iff (!rst_n)
+        parsed_mpls_valid |-> (parsed_mpls_tc <= 3'd7);
+    endproperty
+    assert property (p_mpls_tc_bounds)
+        else $error("ASSERT FAIL: MPLS TC out of bounds (> 7)");
+
+    property p_mpls_label_bounds;
+        @(posedge clk) disable iff (!rst_n)
+        parsed_mpls_valid |-> (parsed_mpls_label <= 20'hFFFFF);
+    endproperty
+    assert property (p_mpls_label_bounds)
+        else $error("ASSERT FAIL: MPLS label out of 20-bit range");
+
+    cover property (@(posedge clk) disable iff (!rst_n) parsed_mpls_valid);
 {% endif %}
 
 {% if has_igmp_rules %}
     // ── IGMP Assertions ────────────────────────────────────────────
     // IGMP detection fires when IPv4 protocol == 2.
-    // Extracted igmp_type must be consistent within a frame.
     property p_igmp_decision_stable;
         @(posedge clk) disable iff (!rst_n)
         (decision_valid && !pkt_sof) |=> $stable(decision_pass) || pkt_sof;
     endproperty
     assert property (p_igmp_decision_stable)
         else $error("ASSERT FAIL: IGMP type decision unstable between frames");
+
+    // IGMP prerequisite: IGMP rule match implies IPv4 protocol == 2
+{% for idx in igmp_rule_indices %}
+    property p_igmp_prereq_rule_{{ idx }};
+        @(posedge clk) disable iff (!rst_n)
+        match_hit_{{ idx }} |-> (parsed_ip_protocol == 8'd2);
+    endproperty
+    assert property (p_igmp_prereq_rule_{{ idx }})
+        else $error("ASSERT FAIL: IGMP rule {{ idx }} matched but ip_protocol != 2");
+{% endfor %}
+
+    cover property (@(posedge clk) disable iff (!rst_n) parsed_igmp_valid);
 {% endif %}
 
 {% if has_mld_rules %}
     // ── MLD Assertions ─────────────────────────────────────────────
     // MLD detection fires when IPv6 next_header == 58 (ICMPv6) and type in {130,131,132}.
-    // Extracted mld_type must be consistent within a frame.
     property p_mld_decision_stable;
         @(posedge clk) disable iff (!rst_n)
         (decision_valid && !pkt_sof) |=> $stable(decision_pass) || pkt_sof;
     endproperty
     assert property (p_mld_decision_stable)
         else $error("ASSERT FAIL: MLD type decision unstable between frames");
+
+    // MLD prerequisite: MLD rule match implies ICMPv6 (next_header == 58)
+{% for idx in mld_rule_indices %}
+    property p_mld_prereq_rule_{{ idx }};
+        @(posedge clk) disable iff (!rst_n)
+        match_hit_{{ idx }} |-> (parsed_ipv6_next_header == 8'd58);
+    endproperty
+    assert property (p_mld_prereq_rule_{{ idx }})
+        else $error("ASSERT FAIL: MLD rule {{ idx }} matched but ipv6_next_header != 58");
+{% endfor %}
+
+    cover property (@(posedge clk) disable iff (!rst_n) parsed_mld_valid);
 {% endif %}
 
     // ── Cover Points ───────────────────────────────────────────────
