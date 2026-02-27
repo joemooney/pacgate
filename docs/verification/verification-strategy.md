@@ -29,13 +29,13 @@ PacGate employs a **multi-layered verification strategy** inspired by industry U
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│                    cocotb Test Environment                        │
+│                    cocotb Test Environment                       │
 │                                                                  │
-│  ┌────────────┐  ┌──────────────┐  ┌───────────────────────┐    │
-│  │  Test      │  │  Constrained │  │  Sequence             │    │
-│  │  Scenarios │  │  Random      │  │  Library              │    │
-│  │            │  │  Generator   │  │  (temporal patterns)  │    │
-│  └─────┬──────┘  └──────┬───────┘  └───────────┬───────────┘    │
+│  ┌────────────┐  ┌──────────────┐  ┌───────────────────────┐     │
+│  │  Test      │  │  Constrained │  │  Sequence             │     │
+│  │  Scenarios │  │  Random      │  │  Library              │     │
+│  │            │  │  Generator   │  │  (temporal patterns)  │     │
+│  └─────┬──────┘  └──────┬───────┘  └────────────┬──────────┘     │
 │        │                │                       │                │
 │        └────────────────┼───────────────────────┘                │
 │                         │                                        │
@@ -57,18 +57,18 @@ PacGate employs a **multi-layered verification strategy** inspired by industry U
 │                         │                                        │
 │                  ┌──────▼───────┐                                │
 │                  │   Monitor    │  Captures decision outputs     │
-│                  └──┬───────┬──┘                                │
+│                  └──┬───────┬───┘                                │
 │                     │       │                                    │
-│            ┌────────▼──┐ ┌──▼──────────┐                        │
-│            │Scoreboard │ │  Coverage   │                        │
-│            │(reference │ │  Collector  │                        │
-│            │ model)    │ │             │                        │
-│            └────────┬──┘ └──────┬──────┘                        │
+│            ┌────────▼──┐ ┌──▼──────────┐                         │
+│            │Scoreboard │ │  Coverage   │                         │
+│            │(reference │ │  Collector  │                         │
+│            │ model)    │ │             │                         │
+│            └────────┬──┘ └──────┬──────┘                         │
 │                     │           │                                │
-│              ┌──────▼───────────▼──────┐                        │
-│              │    Report Generator     │                        │
-│              │  (pass/fail + coverage) │                        │
-│              └─────────────────────────┘                        │
+│              ┌──────▼───────────▼──────┐                         │
+│              │    Report Generator     │                         │
+│              │  (pass/fail + coverage) │                         │
+│              └─────────────────────────┘                         │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -144,7 +144,7 @@ Coverage collection tracks **what has been verified**:
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│              Coverage Dashboard                      │
+│              Coverage Dashboard                     │
 │                                                     │
 │  Functional Coverage                                │
 │  ├── Rule hit coverage:       ████████████░░  85%   │

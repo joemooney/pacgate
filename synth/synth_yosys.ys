@@ -1,0 +1,31 @@
+# PacGate — Yosys synthesis script for Xilinx 7-series
+#
+# Usage:
+#   yosys synth_yosys.ys
+#
+# Reads all RTL (hand-written + generated), synthesizes for Xilinx 7-series,
+# and reports area/timing estimates.
+
+# Read hand-written RTL
+read_verilog -sv ../rtl/frame_parser.v
+read_verilog -sv ../rtl/axi_stream_adapter.v
+read_verilog -sv ../rtl/store_forward_fifo.v
+read_verilog -sv ../rtl/packet_filter_axi_top.v
+
+# Read generated RTL (run 'pacgate compile' first)
+read_verilog -sv ../gen/rtl/packet_filter_top.v
+read_verilog -sv ../gen/rtl/decision_logic.v
+read_verilog -sv ../gen/rtl/*.v
+
+# Synthesize for Xilinx 7-series
+synth_xilinx -top packet_filter_axi_top -family xc7
+
+# Report area utilization
+stat -tech xilinx
+
+# Write output
+write_json synth_output.json
+write_verilog synth_output.v
+
+# Print summary
+tee -o synth_report.txt stat

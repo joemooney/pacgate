@@ -73,9 +73,9 @@ The **killer feature** is not the hardware generation — it's the test harness:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Innovation Landscape                          │
+│                    Innovation Landscape                         │
 │                                                                 │
-│  PacGate combines THREE capabilities that no existing tool has:  │
+│  PacGate combines THREE capabilities that no existing tool has: │
 │                                                                 │
 │  1. ┌─────────────────┐                                         │
 │     │ Spec-Driven HDL │  P4, Chisel, Clash generate hardware    │
@@ -84,11 +84,11 @@ The **killer feature** is not the hardware generation — it's the test harness:
 │                                                                 │
 │  2. ┌─────────────────┐                                         │
 │     │ Auto-Generated  │  UVM-e, cocotb frameworks exist but     │
-│     │ Verification    │  require manual test writing             │
+│     │ Verification    │  require manual test writing            │
 │     └─────────────────┘                                         │
 │                                                                 │
 │  3. ┌─────────────────┐                                         │
-│     │ Single-Source    │  No tool generates BOTH hardware        │
+│     │ Single-Source    │  No tool generates BOTH hardware       │
 │     │ Dual-Output     │  AND tests from one spec                │
 │     └─────────────────┘                                         │
 │                                                                 │

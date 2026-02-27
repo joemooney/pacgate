@@ -121,15 +121,15 @@ This document defines the complete verification test plan for the PacGate packet
 ## 4. Regression Strategy
 
 ```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│  Quick Smoke     │────▶│  Full Regression │────▶│  Extended        │
-│  (< 30 sec)     │     │  (< 5 min)      │     │  (< 30 min)     │
-│                 │     │                  │     │                  │
-│  • Directed     │     │  • All directed  │     │  • 10K random    │
-│    tests only   │     │  • 1K random     │     │  • Coverage      │
-│  • 1 rule set   │     │  • Coverage      │     │    closure       │
-│                 │     │  • Scoreboard    │     │  • Stress tests  │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
+┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│  Quick Smoke    │────▶│  Full Regression │────▶│  Extended       │
+│  (< 30 sec)     │     │  (< 5 min)       │     │  (< 30 min)     │
+│                 │     │                  │     │                 │
+│  • Directed     │     │  • All directed  │     │  • 10K random   │
+│    tests only   │     │  • 1K random     │     │  • Coverage     │
+│  • 1 rule set   │     │  • Coverage      │     │    closure      │
+│                 │     │  • Scoreboard    │     │  • Stress tests │
+└─────────────────┘     └──────────────────┘     └─────────────────┘
      CI: every push          CI: every PR            Nightly
 ```
 

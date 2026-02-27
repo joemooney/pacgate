@@ -1,4 +1,3 @@
-use std::path::Path;
 use std::process::Command;
 
 fn pacgate_bin() -> Command {
@@ -205,4 +204,105 @@ fn compile_stateful_rules() {
     // Should generate FSM module
     let top_v = std::fs::read_to_string(tmp.path().join("rtl/packet_filter_top.v")).unwrap();
     assert!(top_v.contains("rule_fsm") || top_v.contains("rule_match"), "should have rule modules");
+}
+
+// ── Phase 4 Integration Tests ──────────────────────────────────
+
+#[test]
+fn compile_with_axi_flag() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/enterprise.yaml", "--axi", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile --axi failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // AXI RTL files should be copied to output
+    assert!(tmp.path().join("rtl/axi_stream_adapter.v").exists(), "axi_stream_adapter.v missing");
+    assert!(tmp.path().join("rtl/store_forward_fifo.v").exists(), "store_forward_fifo.v missing");
+    assert!(tmp.path().join("rtl/packet_filter_axi_top.v").exists(), "packet_filter_axi_top.v missing");
+
+    // AXI test bench should be generated
+    assert!(tmp.path().join("tb-axi").exists(), "tb-axi/ directory missing");
+    assert!(tmp.path().join("tb-axi/test_axi_packet_filter.py").exists(), "AXI test missing");
+    assert!(tmp.path().join("tb-axi/Makefile").exists(), "AXI Makefile missing");
+
+    // Verify AXI top module content
+    let axi_top = std::fs::read_to_string(tmp.path().join("rtl/packet_filter_axi_top.v")).unwrap();
+    assert!(axi_top.contains("module packet_filter_axi_top"), "AXI top module declaration missing");
+    assert!(axi_top.contains("s_axis_tdata"), "AXI-Stream input missing");
+    assert!(axi_top.contains("m_axis_tdata"), "AXI-Stream output missing");
+}
+
+#[test]
+fn compile_axi_json_output() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/allow_arp.yaml", "--axi", "--json", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    assert_eq!(json["status"], "ok");
+    assert_eq!(json["axi_stream"], true);
+}
+
+#[test]
+fn formal_generates_files() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["formal", "rules/examples/enterprise.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "formal failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // SVA assertions should exist
+    assert!(tmp.path().join("formal/assertions.sv").exists(), "assertions.sv missing");
+    let sva = std::fs::read_to_string(tmp.path().join("formal/assertions.sv")).unwrap();
+    assert!(sva.contains("module packet_filter_assertions"), "SVA module missing");
+    assert!(sva.contains("property p_reset_decision_valid"), "reset property missing");
+    assert!(sva.contains("property p_completeness"), "completeness property missing");
+    assert!(sva.contains("property p_default_action"), "default action property missing");
+
+    // SymbiYosys task file should exist
+    assert!(tmp.path().join("formal/packet_filter.sby").exists(), "SBY file missing");
+    let sby = std::fs::read_to_string(tmp.path().join("formal/packet_filter.sby")).unwrap();
+    assert!(sby.contains("[tasks]"), "SBY tasks section missing");
+    assert!(sby.contains("bmc"), "SBY BMC task missing");
+    assert!(sby.contains("cover"), "SBY cover task missing");
+}
+
+#[test]
+fn formal_json_output() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["formal", "rules/examples/allow_arp.yaml", "--json", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    assert_eq!(json["status"], "ok");
+    assert!(json["generated"]["assertions"].as_str().unwrap().contains("assertions.sv"));
+    assert!(json["generated"]["sby_task"].as_str().unwrap().contains("packet_filter.sby"));
+}
+
+#[test]
+fn compile_generates_property_tests() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/enterprise.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    // Property test file should be generated alongside main test
+    assert!(tmp.path().join("tb/test_properties.py").exists(), "property test file missing");
+    let props = std::fs::read_to_string(tmp.path().join("tb/test_properties.py")).unwrap();
+    assert!(props.contains("run_property_tests"), "property test runner missing");
+    assert!(props.contains("RULES"), "rule definitions missing");
+    assert!(props.contains("DEFAULT_ACTION"), "default action missing");
 }

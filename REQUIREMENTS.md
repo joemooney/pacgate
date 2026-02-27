@@ -28,7 +28,7 @@
 - REQ-026: `estimate` reports FPGA resource estimates (LUTs, FFs) + timing analysis for Artix-7 [IMPLEMENTED]
 - REQ-027: Rule overlap and shadow detection with compile-time warnings [IMPLEMENTED]
 - REQ-028: Duplicate rule name and priority validation [IMPLEMENTED]
-- REQ-029: 58 Rust tests (44 unit + 14 integration) covering model, loader, validation, and full CLI [IMPLEMENTED]
+- REQ-029: 63 Rust tests (44 unit + 19 integration) covering model, loader, validation, and full CLI [IMPLEMENTED]
 - REQ-030b: `--json` flag for machine-readable output on compile/validate/estimate/diff [IMPLEMENTED]
 - REQ-030c: `diff` subcommand compares two rule files (added/removed/modified rules) [IMPLEMENTED]
 - REQ-030d: Compile output includes formatted rule summary table [IMPLEMENTED]
@@ -78,12 +78,12 @@
 - REQ-063: FSM Verilog template (rule_fsm.v.tera) [IMPLEMENTED]
 - REQ-064: FSM validation (initial state exists, transitions reference valid states) [IMPLEMENTED]
 
-## Phase 4 Requirements — Synthesis (Future)
+## Phase 4 Requirements — Synthesis + Advanced Verification [IMPLEMENTED]
 
-- REQ-070: Vivado synthesis targeting Artix-7
-- REQ-071: XDC constraint files
-- REQ-072: AXI-Stream packet interface
-- REQ-073: Store-and-forward FIFO for full-frame buffering
+- REQ-070: Yosys synthesis targeting Artix-7 (open-source alternative to Vivado) [IMPLEMENTED]
+- REQ-071: XDC constraint files for Artix-7 (125 MHz, LVCMOS33, pin assignments) [IMPLEMENTED]
+- REQ-072: AXI-Stream packet interface with adapter module [IMPLEMENTED]
+- REQ-073: Store-and-forward FIFO for full-frame buffering with decision-based forwarding [IMPLEMENTED]
 
 ## Advanced Verification Requirements (Research-Identified)
 
@@ -91,7 +91,7 @@
 - REQ-080: Generate cocotb-coverage cover points from YAML rule specification [IMPLEMENTED]
 - REQ-081: Constrained random Ethernet frame generation [IMPLEMENTED]
 - REQ-082: Coverage-driven test generation with runtime-adaptive randomization
-- REQ-083: Coverage export to XML/YAML format with merge support across runs
+- REQ-083: Coverage export to XML/YAML format with merge support across runs [IMPLEMENTED]
 - REQ-084: Cross coverage for ethertype x decision and rule_index x action [IMPLEMENTED]
 
 ### Negative and Boundary Testing
@@ -104,13 +104,13 @@
 - REQ-092: Report mutation coverage score and identify test gaps
 
 ### Formal Verification
-- REQ-095: Generate SVA assertions from YAML rule specification
-- REQ-096: Generate SymbiYosys .sby task files for formal property checking
-- REQ-097: Formal verification of mutual exclusion, completeness, latency bounds, and reset correctness
+- REQ-095: Generate SVA assertions from YAML rule specification [IMPLEMENTED]
+- REQ-096: Generate SymbiYosys .sby task files for formal property checking [IMPLEMENTED]
+- REQ-097: Formal verification of mutual exclusion, completeness, latency bounds, and reset correctness [IMPLEMENTED]
 
 ### Property-Based Testing
-- REQ-100: Hypothesis-generated edge-case Ethernet frames for invariant testing
-- REQ-101: Properties: determinism, termination, priority correctness, conservation, independence
+- REQ-100: Hypothesis-generated edge-case Ethernet frames for invariant testing [IMPLEMENTED]
+- REQ-101: Properties: determinism, termination, priority correctness, conservation, independence [IMPLEMENTED]
 
 ### CI/Regression
 - REQ-105: GitHub Actions CI pipeline with automated build/compile/simulate

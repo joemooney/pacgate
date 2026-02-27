@@ -2,6 +2,7 @@ mod model;
 mod loader;
 mod verilog_gen;
 mod cocotb_gen;
+mod formal_gen;
 
 use std::path::PathBuf;
 use clap::{CommandFactory, Parser, Subcommand};
@@ -32,6 +33,10 @@ enum Commands {
         /// Output JSON summary instead of human-readable text
         #[arg(long)]
         json: bool,
+
+        /// Include AXI-Stream wrapper (adapter, FIFO, AXI top-level + tests)
+        #[arg(long)]
+        axi: bool,
     },
     /// Validate YAML rules without generating output
     Validate {
@@ -88,6 +93,23 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Generate SVA assertions and SymbiYosys formal verification files
+    Formal {
+        /// Path to the YAML rules file
+        rules: PathBuf,
+
+        /// Output directory for generated files
+        #[arg(short, long, default_value = "gen")]
+        output: PathBuf,
+
+        /// Templates directory
+        #[arg(short, long, default_value = "templates")]
+        templates: PathBuf,
+
+        /// Output JSON summary instead of human-readable text
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -95,15 +117,25 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Compile { rules, output, templates, json } => {
+        Commands::Compile { rules, output, templates, json, axi } => {
             log::info!("Compiling rules from {}", rules.display());
             let (config, warnings) = loader::load_rules_with_warnings(&rules)?;
 
             // Generate Verilog
             verilog_gen::generate(&config, &templates, &output)?;
 
+            // Copy AXI-Stream wrapper RTL if --axi
+            if axi {
+                verilog_gen::copy_axi_rtl(&output)?;
+            }
+
             // Generate cocotb tests
             cocotb_gen::generate(&config, &templates, &output)?;
+
+            // Generate AXI-Stream cocotb tests if --axi
+            if axi {
+                cocotb_gen::generate_axi_tests(&config, &templates, &output)?;
+            }
 
             if json {
                 let summary = serde_json::json!({
@@ -112,6 +144,7 @@ fn main() -> Result<()> {
                     "rules_count": config.pacgate.rules.len(),
                     "default_action": match config.pacgate.defaults.action { model::Action::Pass => "pass", model::Action::Drop => "drop" },
                     "output_dir": output.to_string_lossy(),
+                    "axi_stream": axi,
                     "generated": {
                         "verilog_dir": format!("{}/rtl", output.display()),
                         "cocotb_dir": format!("{}/tb", output.display()),
@@ -144,6 +177,10 @@ fn main() -> Result<()> {
                 println!("  Default action: {}", default_str);
                 println!("  Generated Verilog RTL in {}/rtl/", output.display());
                 println!("  Generated cocotb tests in {}/tb/", output.display());
+                if axi {
+                    println!("  Generated AXI-Stream wrapper in {}/rtl/", output.display());
+                    println!("  Generated AXI-Stream tests in {}/tb-axi/", output.display());
+                }
                 println!("  Compilation complete.");
             }
         }
@@ -212,6 +249,42 @@ fn main() -> Result<()> {
             let old_config = loader::load_rules_with_warnings(&old)?.0;
             let new_config = loader::load_rules_with_warnings(&new)?.0;
             diff_rules(&old_config, &new_config, json)?;
+        }
+        Commands::Formal { rules, output, templates, json } => {
+            log::info!("Generating formal verification files from {}", rules.display());
+            let (config, warnings) = loader::load_rules_with_warnings(&rules)?;
+
+            // First generate RTL (needed for formal)
+            verilog_gen::generate(&config, &templates, &output)?;
+
+            // Generate SVA assertions + SBY task file
+            formal_gen::generate(&config, &templates, &output)?;
+
+            if json {
+                let summary = serde_json::json!({
+                    "status": "ok",
+                    "rules_file": rules.to_string_lossy(),
+                    "rules_count": config.pacgate.rules.len(),
+                    "output_dir": output.to_string_lossy(),
+                    "generated": {
+                        "assertions": format!("{}/formal/assertions.sv", output.display()),
+                        "sby_task": format!("{}/formal/packet_filter.sby", output.display()),
+                        "verilog_dir": format!("{}/rtl", output.display()),
+                    },
+                    "warnings": warnings,
+                });
+                println!("{}", serde_json::to_string_pretty(&summary)?);
+            } else {
+                for w in &warnings {
+                    eprintln!("Warning: {}", w);
+                }
+                println!("Generated formal verification files from {} rules", config.pacgate.rules.len());
+                println!("  SVA assertions:  {}/formal/assertions.sv", output.display());
+                println!("  SymbiYosys task: {}/formal/packet_filter.sby", output.display());
+                println!();
+                println!("Run formal verification:");
+                println!("  cd {}/formal && sby -f packet_filter.sby", output.display());
+            }
         }
         Commands::Estimate { rules, json } => {
             let (config, warnings) = loader::load_rules_with_warnings(&rules)?;

@@ -197,6 +197,104 @@ class FilterCoverage:
             hit_bins += cp.hit_bins
         return 100.0 * hit_bins / max(total_bins, 1)
 
+    def merge_from(self, other: 'FilterCoverage'):
+        """Merge coverage data from another FilterCoverage instance."""
+        self._sample_count += other._sample_count
+        for cp_name, other_cp in other.coverpoints.items():
+            if cp_name not in self.coverpoints:
+                self.coverpoints[cp_name] = other_cp
+            else:
+                for bin_name, other_bin in other_cp.bins.items():
+                    if bin_name not in self.coverpoints[cp_name].bins:
+                        self.coverpoints[cp_name].add_bin(bin_name)
+                    our_bin = self.coverpoints[cp_name].bins[bin_name]
+                    our_bin.count += other_bin.count
+                    our_bin.hit = our_bin.hit or other_bin.hit
+        for cross_name, other_data in other.cross_coverage.items():
+            if cross_name not in self.cross_coverage:
+                self.cross_coverage[cross_name] = defaultdict(int)
+            for key, count in other_data.items():
+                self.cross_coverage[cross_name][key] += count
+
+    def to_xml(self) -> str:
+        """Export coverage data as XML string compatible with standard coverage tools."""
+        import xml.etree.ElementTree as ET
+        from xml.dom import minidom
+
+        root = ET.Element("coverage", {
+            "tool": "pacgate",
+            "version": "1.0",
+            "samples": str(self._sample_count),
+            "overall_pct": f"{self.overall_coverage:.1f}",
+        })
+
+        for cp_name, cp in self.coverpoints.items():
+            cp_elem = ET.SubElement(root, "coverpoint", {
+                "name": cp_name,
+                "coverage_pct": f"{cp.coverage_pct:.1f}",
+                "hit_bins": str(cp.hit_bins),
+                "total_bins": str(cp.total_bins),
+            })
+            for bin_name, cbin in cp.bins.items():
+                ET.SubElement(cp_elem, "bin", {
+                    "name": bin_name,
+                    "hit": str(cbin.hit).lower(),
+                    "count": str(cbin.count),
+                })
+
+        cross_elem = ET.SubElement(root, "cross_coverage")
+        for cross_name, data in self.cross_coverage.items():
+            cross_cp = ET.SubElement(cross_elem, "cross", {"name": cross_name})
+            for key, count in sorted(data.items()):
+                ET.SubElement(cross_cp, "entry", {
+                    "key": str(key),
+                    "count": str(count),
+                })
+
+        rough = ET.tostring(root, encoding="unicode")
+        parsed = minidom.parseString(rough)
+        return parsed.toprettyxml(indent="  ", encoding=None)
+
+    def save_xml(self, path: str):
+        """Save coverage data to an XML file."""
+        xml_str = self.to_xml()
+        with open(path, "w") as f:
+            f.write(xml_str)
+
+    @classmethod
+    def load_xml(cls, path: str) -> 'FilterCoverage':
+        """Load coverage data from an XML file for merging."""
+        import xml.etree.ElementTree as ET
+        tree = ET.parse(path)
+        root = tree.getroot()
+
+        cov = cls()
+        cov._sample_count = int(root.get("samples", "0"))
+
+        for cp_elem in root.findall("coverpoint"):
+            cp_name = cp_elem.get("name")
+            if cp_name not in cov.coverpoints:
+                cov.coverpoints[cp_name] = CoverPoint(cp_name)
+            for bin_elem in cp_elem.findall("bin"):
+                bin_name = bin_elem.get("name")
+                if bin_name not in cov.coverpoints[cp_name].bins:
+                    cov.coverpoints[cp_name].add_bin(bin_name)
+                cov.coverpoints[cp_name].bins[bin_name].hit = bin_elem.get("hit") == "true"
+                cov.coverpoints[cp_name].bins[bin_name].count = int(bin_elem.get("count", "0"))
+
+        cross_elem = root.find("cross_coverage")
+        if cross_elem is not None:
+            for cross in cross_elem.findall("cross"):
+                cross_name = cross.get("name")
+                if cross_name not in cov.cross_coverage:
+                    cov.cross_coverage[cross_name] = defaultdict(int)
+                for entry in cross.findall("entry"):
+                    key = entry.get("key")
+                    count = int(entry.get("count", "0"))
+                    cov.cross_coverage[cross_name][key] += count
+
+        return cov
+
     def report(self) -> str:
         """Generate a formatted coverage report."""
         lines = [

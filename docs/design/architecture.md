@@ -20,23 +20,23 @@ This "single-spec, dual-output" architecture is the core innovation. Unlike trad
 
 ```
                     ┌─────────────────────────────────────────────┐
-                    │              PacGate Ecosystem                │
+                    │              PacGate Ecosystem              │
                     │                                             │
-  ┌──────────┐     │  ┌──────────┐    ┌──────────────────────┐   │
-  │  Network  │────▶│  │  FPGA    │    │  Verification        │   │
-  │  Traffic  │     │  │  Filter  │    │  Environment         │   │
-  └──────────┘     │  │  (RTL)   │    │  (cocotb + Icarus)   │   │
+  ┌──────────┐      │  ┌──────────┐    ┌──────────────────────┐   │
+  │  Network │ ────▶│  │  FPGA    │    │  Verification        │   │
+  │  Traffic │      │  │  Filter  │    │  Environment         │   │
+  └──────────┘      │  │  (RTL)   │    │  (cocotb + Icarus)   │   │
                     │  └──────────┘    └──────────────────────┘   │
-                    │       ▲                    ▲                 │
-                    │       │                    │                 │
+                    │       ▲                    ▲                │
+                    │       │                    │                │
                     │       └────────┬───────────┘                │
-                    │                │                             │
+                    │                │                            │
                     │         ┌──────┴──────┐                     │
-                    │         │   PacGate    │                     │
+                    │         │   PacGate   │                     │
                     │         │  Compiler   │                     │
                     │         │   (Rust)    │                     │
                     │         └──────┬──────┘                     │
-                    │                │                             │
+                    │                │                            │
                     │         ┌──────┴──────┐                     │
                     │         │  YAML Rule  │                     │
                     │         │    Spec     │                     │
@@ -49,12 +49,12 @@ This "single-spec, dual-output" architecture is the core innovation. Unlike trad
 ```
                          ┌─────────────────┐
                          │   rules.yaml    │
-                         │  (Single Source  │
+                         │  (Single Source │
                          │   of Truth)     │
                          └────────┬────────┘
                                   │
-                         ┌────────┴────────┐
-                         │  PacGate Compiler │
+                         ┌────────┴─────────┐
+                         │ PacGate Compiler │
                          │     (Rust)       │
                          │                  │
                          │  ┌────────────┐  │
@@ -69,24 +69,24 @@ This "single-spec, dual-output" architecture is the core innovation. Unlike trad
                          │     │     │      │
                          └─────┼─────┼──────┘
                                │     │
-                    ┌──────────┘     └──────────┐
+                    ┌──────────┘     └───────────┐
                     ▼                            ▼
            ┌───────────────┐           ┌───────────────────┐
-           │  Verilog RTL  │           │  cocotb Testbench  │
-           │  Generator    │           │  Generator         │
-           │  (Tera)       │           │  (Tera)            │
+           │  Verilog RTL  │           │  cocotb Testbench │
+           │  Generator    │           │  Generator        │
+           │  (Tera)       │           │  (Tera)           │
            └───────┬───────┘           └─────────┬─────────┘
                    │                             │
                    ▼                             ▼
            ┌───────────────┐           ┌───────────────────┐
-           │ gen/rtl/      │           │ gen/tb/            │
-           │               │           │                    │
-           │ packet_       │           │ test_packet_       │
-           │  filter_top.v │◄─── DUT──▶│  filter.py         │
-           │ rule_match_N.v│           │ Makefile            │
-           │ decision_     │           │                    │
-           │  logic.v      │           │ + verification/    │
-           └───────────────┘           │   framework        │
+           │ gen/rtl/      │           │ gen/tb/           │
+           │               │           │                   │
+           │ packet_       │           │ test_packet_      │
+           │  filter_top.v │◄─── DUT──▶│  filter.py        │
+           │ rule_match_N.v│           │ Makefile          │
+           │ decision_     │           │                   │
+           │  logic.v      │           │ + verification/   │
+           └───────────────┘           │   framework       │
                                        └───────────────────┘
 ```
 
@@ -127,9 +127,9 @@ packet_filter_top
   pkt_valid ──────┤
   pkt_sof ────────┤     ┌──────────────┐
   pkt_eof ────────┴────▶│ frame_parser │
-                         └──────┬───────┘
+                        └───────┬──────┘
                                 │
-                    ┌───────────┼───────────────────┐
+                    ┌───────────┼────────────────────┐
                     │           │                    │
                     │    dst_mac[47:0]               │
                     │    src_mac[47:0]               │
@@ -138,10 +138,10 @@ packet_filter_top
                     │    vlan_pcp[2:0]               │
                     │    fields_valid                │
                     │           │                    │
-              ┌─────▼─────┐ ┌──▼──────────┐ ┌──────▼──────┐
+              ┌─────▼──────┐ ┌──▼──────────┐ ┌──────▼──────┐
               │rule_match_0│ │rule_match_1 │ │rule_match_N │  (parallel)
-              └─────┬──┬──┘ └──┬──┬───────┘ └──────┬──┬───┘
-                    │  │       │  │                 │  │
+              └─────┬──┬───┘ └──┬──┬───────┘ └──────┬──┬───┘
+                    │  │        │  │                │  │
                  hit action  hit action          hit action
                     │  │       │  │                 │  │
                     └──┴───────┴──┴─────────────────┴──┘
@@ -159,12 +159,12 @@ packet_filter_top
 
 ```
   clk      ─┐ ┌─┐ ┌─┐ ┌─┐ ┌─┐ ┌─┐ ┌─┐ ┌─┐ ┌─┐ ┌─┐ ┌─┐ ┌─┐ ┌─┐ ┌─┐ ┌─┐ ┌─┐ ┌─
-             └─┘ └─┘ └─┘ └─┘ └─┘ └─┘ └─┘ └─┘ └─┘ └─┘ └─┘ └─┘ └─┘ └─┘ └─┘ └─┘
+            └─┘ └─┘ └─┘ └─┘ └─┘ └─┘ └─┘ └─┘ └─┘ └─┘ └─┘ └─┘ └─┘ └─┘ └─┘ └─┘
 
   pkt_sof  ──┐                                                           ┌──
              └───────────────────────────────────────────────────────────┘
                 B0  B1  B2  B3  B4  B5  B6  B7  B8  B9 B10 B11 B12 B13
-  pkt_data   │DST MAC (6 bytes) │SRC MAC (6 bytes) │ET │  PAYLOAD...
+  pkt_data   │DST MAC (6 bytes)  │SRC MAC (6 bytes)  │ET │  PAYLOAD...
              ├───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───
 
   pkt_valid ──────────────────────────────────────────────────────┐
@@ -190,11 +190,11 @@ packet_filter_top
 ## 5. Frame Parser State Machine
 
 ```
-           ┌──────────┐
-    reset ─▶│  S_IDLE  │◄───── pkt_eof (from any state)
-           └────┬─────┘
-                │ pkt_sof && pkt_valid
-                ▼
+          ┌──────────┐
+  reset ─▶│  S_IDLE  │◄───── pkt_eof (from any state)
+          └────┬─────┘
+               │ pkt_sof && pkt_valid
+               ▼
          ┌────────────┐
          │ S_DST_MAC  │  6 bytes (byte_cnt 0→5)
          └─────┬──────┘
@@ -235,11 +235,11 @@ The decision logic implements a **first-match-wins priority encoder**:
 ```
 Priority:   100      90       80       50      (default)
             ┌──┐    ┌──┐    ┌──┐    ┌──┐    ┌────────┐
-            │R0│    │R1│    │R2│    │R3│    │ Default │
-            │  │    │  │    │  │    │  │    │ Action  │
+            │R0│    │R1│    │R2│    │R3│    │ Default│
+            │  │    │  │    │  │    │  │    │ Action │
             └┬─┘    └┬─┘    └┬─┘    └┬─┘    └────┬───┘
-             │       │       │       │            │
-             ▼       ▼       ▼       ▼            ▼
+             │       │       │       │           │
+             ▼       ▼       ▼       ▼           ▼
          ┌───────────────────────────────────────────┐
          │          if (hit_0) action = R0.action    │
          │     else if (hit_1) action = R1.action    │

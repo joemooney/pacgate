@@ -110,6 +110,28 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
     Ok(())
 }
 
+/// Copy hand-written AXI-Stream RTL modules to the output directory.
+pub fn copy_axi_rtl(output_dir: &Path) -> Result<()> {
+    let rtl_dir = output_dir.join("rtl");
+    std::fs::create_dir_all(&rtl_dir)?;
+
+    let axi_files = [
+        "axi_stream_adapter.v",
+        "store_forward_fifo.v",
+        "packet_filter_axi_top.v",
+    ];
+
+    for filename in &axi_files {
+        let src = Path::new("rtl").join(filename);
+        let dst = rtl_dir.join(filename);
+        std::fs::copy(&src, &dst)
+            .with_context(|| format!("Failed to copy {} to output", filename))?;
+        log::info!("Copied {} to {}", filename, dst.display());
+    }
+
+    Ok(())
+}
+
 fn generate_stateless_rule(
     tera: &Tera, rtl_dir: &Path, idx: usize, rule: &crate::model::StatelessRule,
 ) -> Result<()> {

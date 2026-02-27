@@ -1,8 +1,8 @@
-# PacGate Prompt History
+# PacGate
 
 ## Session 1 — 2026-02-26: Phase 1 Implementation
 
-### Prompt
+### Goal
 Implement Phase 1 of the PacGate FPGA Layer 2 Packet Filter Switch. Build the full end-to-end pipeline: YAML rules → Rust compiler → Verilog RTL + cocotb test harness → Icarus simulation.
 
 ### Actions Taken
@@ -57,7 +57,7 @@ Implement Phase 1 of the PacGate FPGA Layer 2 Packet Filter Switch. Build the fu
 
 ## Session 2 — 2026-02-26: Verification Framework Research
 
-### Prompt
+### Goal
 Research 8 topics for building an innovative FPGA packet filter verification framework using cocotb: cocotb 2.x features, coverage-driven verification, property-based testing for HDL, mutation testing for hardware, UVM methodology in Python, test harness generation from specs, formal verification integration, and CI/regression best practices.
 
 ### Actions Taken
@@ -94,9 +94,6 @@ Research 8 topics for building an innovative FPGA packet filter verification fra
 - Pushed to GitHub
 
 ## Session 3 — 2026-02-26: Phase 2 + Phase 3 Implementation & Comprehensive Documentation
-
-### Prompt
-"I want you to go wild on this tonight and be as creative as possible. I want thorough documentation, design diagrams, user guides, test documentation, etc. We need to stun upper management with a new and innovative approach that lends itself to flexible testing. The test harness is really the key selling point and those capabilities are what we want to be as capable as possible."
 
 ### Actions Taken
 
@@ -173,9 +170,6 @@ Research 8 topics for building an innovative FPGA packet filter verification fra
 
 ## Session 4 — 2026-02-26: Rename to PacGate + Product Hardening
 
-### Prompt
-"Please continue without prompting for as long as you can, keep thinking about additional requirements that we could add and churning until you have a really solid basis for a product. I think we should rename from flippy to pacgate."
-
 ### Actions Taken
 
 1. **Rename flippy -> pacgate** across entire codebase (43 files)
@@ -228,9 +222,6 @@ Research 8 topics for building an innovative FPGA packet filter verification fra
 - Pushed to GitHub
 
 ## Session 5 — 2026-02-26: CLI Enhancements & Machine-Readable Output
-
-### Prompt
-Continue from previous session (context window continuation). Complete pending --json implementation and add more product features.
 
 ### Actions Taken
 
@@ -297,4 +288,152 @@ Continue from previous session (context window continuation). Complete pending -
 
 ### Git Operations
 - Committed all CLI enhancements, integration tests, and shell completions
+- Pushed to GitHub
+
+## Session 6 — 2026-02-27: Phase 4 Synthesis + Advanced Verification
+
+### Goal
+Implement Phase 4 (Synthesis Targeting) and Advanced Verification features: AXI-Stream wrapper, store-and-forward FIFO, synthesis scripts, SVA assertions, formal verification, property-based testing, and coverage XML export.
+
+### Actions Taken
+
+#### Batch 1: AXI-Stream Adapter + FIFO (Hand-Written Verilog)
+
+1. **`rtl/axi_stream_adapter.v`** — AXI-Stream slave to simple pkt_* interface bridge
+   - Converts tdata/tvalid/tready/tlast to pkt_data/pkt_valid/pkt_sof/pkt_eof
+   - Tracks SOF from tlast transitions, always-ready (no backpressure to filter path)
+
+2. **`rtl/store_forward_fifo.v`** — Store-and-forward FIFO with decision-based forwarding
+   - Parameterized depth (default 2048 bytes) with inferred BRAM (portable)
+   - Buffers entire frame, waits for decision_valid
+   - decision_pass=1: commits frame to output; decision_pass=0: discards
+   - AXI-Stream master output with backpressure support
+   - Overflow detection
+
+3. **`rtl/packet_filter_axi_top.v`** — AXI-Stream top-level
+   - Integrates: AXI-Stream in → adapter → packet_filter_top → FIFO → AXI-Stream out
+   - Parameters: FIFO_DEPTH, MAX_FRAME_SIZE
+   - Exposes decision_valid, decision_pass, fifo_overflow, fifo_empty status signals
+
+4. **Verification**: iverilog -g2012 lint passes with all RTL files
+
+#### Batch 2: Synthesis Scripts + AXI-Stream Tests + CLI Integration
+
+5. **`synth/artix7.xdc`** — Artix-7 XDC constraints
+   - 125 MHz clock, LVCMOS33 I/O standard
+   - Pin assignments for AXI-Stream data, control, and status signals
+   - Input/output delay timing constraints
+   - FPGA configuration settings
+
+6. **`synth/synth_yosys.ys`** — Yosys synthesis script
+   - Reads all RTL (hand-written + generated)
+   - synth_xilinx targeting xc7 family
+   - Outputs: synth_output.json, synth_output.v, synth_report.txt
+
+7. **`templates/test_axi_harness.py.tera`** — AXI-Stream cocotb tests
+   - 5 tests: passthrough, frame drop, backpressure, burst traffic, reset recovery
+   - Tests generated to gen/tb-axi/ with separate Makefile
+
+8. **CLI `--axi` flag** on `compile` command
+   - `src/main.rs`: Added `--axi` flag to Compile variant
+   - `src/verilog_gen.rs`: Added `copy_axi_rtl()` to copy AXI modules to output
+   - `src/cocotb_gen.rs`: Added `generate_axi_tests()` for AXI test bench generation
+   - `Makefile`: Added `compile-axi`, `sim-axi`, `synth` targets
+
+#### Batch 3: SVA Assertions + Formal Verification
+
+9. **`templates/assertions.sv.tera`** — SVA property template
+   - Reset properties: outputs deasserted during reset
+   - Completeness: fields_valid implies eventual decision_valid
+   - Latency bound: decision within N cycles
+   - Decision cleared on new frame (pkt_sof)
+   - Mutual exclusion awareness (priority encoder)
+   - Per-rule action correctness assertions
+   - Default action property
+   - Cover points for all rules and decisions
+
+10. **`templates/formal.sby.tera`** — SymbiYosys task file template
+    - BMC (bounded model checking) and cover tasks
+    - Configurable depth (default: BMC=50, cover=30)
+    - References all generated Verilog + assertions
+
+11. **`src/formal_gen.rs`** — SVA/SBY generation module
+    - Generates rule info with action strings for SVA template
+    - Builds Verilog file list for SBY task
+    - Renders to gen/formal/assertions.sv and gen/formal/packet_filter.sby
+
+12. **CLI `formal` subcommand**
+    - `src/main.rs`: Added `Formal` command with rules, output, templates, json args
+    - First generates RTL (needed for formal), then SVA + SBY files
+    - JSON and human-readable output modes
+
+#### Batch 4: Coverage XML + Property-Based Testing
+
+13. **Coverage XML export** — `verification/coverage.py`
+    - `to_xml()`: Exports coverage as XML string (compatible with standard tools)
+    - `save_xml(path)`: Saves to file
+    - `load_xml(path)`: Class method to load from file
+    - `merge_from(other)`: Merges coverage data from another instance
+    - XML includes: coverpoints, bins with hit/count, cross coverage
+
+14. **`verification/properties.py`** — Property-based testing module
+    - Hypothesis strategies: mac_addresses, unicast_mac, ethertypes, vlan_tags, payload_sizes, ethernet_frames
+    - Property functions: check_determinism, check_priority_correctness, check_conservation, check_default_action, check_independence
+    - PropertyTestResults class with report generation
+    - `run_property_tests()`: Runs all properties with random frames (configurable sample count)
+    - Works with or without Hypothesis installed (fallback to random)
+
+15. **`templates/test_properties.py.tera`** — Property test template
+    - Generated alongside main test harness
+    - Includes rule definitions from YAML
+    - Random suite test (200 frames, 5 properties each)
+    - Hypothesis-based tests if available (100 examples each)
+    - Runnable standalone or via pytest
+
+16. **`src/cocotb_gen.rs`** — Updated to generate property test file alongside main harness
+
+#### Batch 5: Documentation + Integration Tests
+
+17. **5 new integration tests** (19 total, up from 14)
+    - `compile_with_axi_flag`: Verifies --axi generates AXI RTL + tests + Makefile
+    - `compile_axi_json_output`: Verifies JSON includes axi_stream field
+    - `formal_generates_files`: Verifies SVA assertions + SBY task file content
+    - `formal_json_output`: Verifies formal JSON output structure
+    - `compile_generates_property_tests`: Verifies property test file generation
+
+18. **Documentation updates**
+    - CLAUDE.md: Updated with all new commands, files, and Phase 4 status
+    - OVERVIEW.md: Updated architecture, module hierarchy, verification stack
+    - REQUIREMENTS.md: Marked REQ-070-073, REQ-083, REQ-095-097, REQ-100-101 as IMPLEMENTED
+    - PROMPT_HISTORY.md: This session (Session 6)
+
+### Test Results
+- 63 Rust tests pass (44 unit + 19 integration)
+- All Verilog lints pass (including AXI modules)
+- Property-based tests: 500/500 properties verified
+- Coverage XML: export/load/merge verified
+
+### New Files Created
+- `rtl/axi_stream_adapter.v`
+- `rtl/store_forward_fifo.v`
+- `rtl/packet_filter_axi_top.v`
+- `synth/artix7.xdc`
+- `synth/synth_yosys.ys`
+- `templates/test_axi_harness.py.tera`
+- `templates/assertions.sv.tera`
+- `templates/formal.sby.tera`
+- `templates/test_properties.py.tera`
+- `src/formal_gen.rs`
+- `verification/properties.py`
+
+### Modified Files
+- `src/main.rs` — Added --axi flag, formal subcommand
+- `src/verilog_gen.rs` — Added copy_axi_rtl()
+- `src/cocotb_gen.rs` — Added generate_axi_tests(), property test generation
+- `verification/coverage.py` — Added to_xml(), save_xml(), load_xml(), merge_from()
+- `Makefile` — Added compile-axi, sim-axi, synth, formal, test-properties targets
+- `tests/integration_test.rs` — Added 5 new integration tests
+
+### Git Operations
+- Committed all Phase 4 and Advanced Verification files
 - Pushed to GitHub

@@ -1,0 +1,27 @@
+[tasks]
+bmc     # Bounded Model Checking
+cover   # Cover mode (reachability)
+
+[options]
+bmc: mode bmc
+bmc: depth {{ bmc_depth }}
+cover: mode cover
+cover: depth {{ cover_depth }}
+
+[engines]
+smtbmc
+
+[script]
+read -sv ../../rtl/frame_parser.v
+{% for vfile in verilog_files %}
+read -sv {{ vfile }}
+{% endfor %}
+read -sv assertions.sv
+prep -top packet_filter_top
+
+[files]
+../../rtl/frame_parser.v
+{% for vfile in verilog_files %}
+{{ vfile }}
+{% endfor %}
+assertions.sv
