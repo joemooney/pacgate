@@ -2,7 +2,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use tera::Tera;
 
-use crate::model::{Action, FilterConfig, PortMatch, parse_ethertype};
+use crate::model::{Action, FilterConfig, Ipv6Prefix, PortMatch, parse_ethertype};
 
 pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) -> Result<()> {
     let glob = format!("{}/**/*.tera", templates_dir.display());
@@ -67,6 +67,17 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         if let Some(ref pm) = rule.match_criteria.dst_port {
             tc.insert("dst_port".to_string(), generate_matching_port(pm));
         }
+        // IPv6 fields
+        if let Some(ref ipv6) = rule.match_criteria.src_ipv6 {
+            tc.insert("src_ipv6".to_string(), generate_matching_ipv6(ipv6));
+        }
+        if let Some(ref ipv6) = rule.match_criteria.dst_ipv6 {
+            tc.insert("dst_ipv6".to_string(), generate_matching_ipv6(ipv6));
+        }
+        if let Some(nh) = rule.match_criteria.ipv6_next_header {
+            tc.insert("ipv6_next_header".to_string(), nh.to_string());
+        }
+        tc.insert("has_ipv6".to_string(), rule.match_criteria.uses_ipv6().to_string());
         test_cases.push(tc);
     }
 
@@ -130,6 +141,16 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
                 PortMatch::Exact(p) => { sr.insert("dst_port".to_string(), p.to_string()); }
                 PortMatch::Range { range } => { sr.insert("dst_port_range".to_string(), format!("{}-{}", range[0], range[1])); }
             }
+        }
+        // IPv6 scoreboard fields
+        if let Some(ref ipv6) = rule.match_criteria.src_ipv6 {
+            sr.insert("src_ipv6".to_string(), ipv6.clone());
+        }
+        if let Some(ref ipv6) = rule.match_criteria.dst_ipv6 {
+            sr.insert("dst_ipv6".to_string(), ipv6.clone());
+        }
+        if let Some(nh) = rule.match_criteria.ipv6_next_header {
+            sr.insert("ipv6_next_header".to_string(), nh.to_string());
         }
         scoreboard_rules.push(sr);
     }
@@ -289,4 +310,45 @@ fn generate_matching_port(pm: &PortMatch) -> String {
         PortMatch::Exact(p) => p.to_string(),
         PortMatch::Range { range } => range[0].to_string(),
     }
+}
+
+/// Generate an IPv6 address string that matches a CIDR prefix
+fn generate_matching_ipv6(cidr: &str) -> String {
+    if let Ok(prefix) = Ipv6Prefix::parse(cidr) {
+        // Format as colon-separated hex string
+        let a = &prefix.addr;
+        format!("{:02x}{:02x}:{:02x}{:02x}:{:02x}{:02x}:{:02x}{:02x}:{:02x}{:02x}:{:02x}{:02x}:{:02x}{:02x}:{:02x}{:02x}",
+            a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7],
+            a[8], a[9], a[10], a[11], a[12], a[13], a[14], a[15])
+    } else {
+        "2001:0db8:0000:0000:0000:0000:0000:0001".to_string()
+    }
+}
+
+/// Generate rate limiter cocotb testbench files
+pub fn generate_rate_limiter_tests(templates_dir: &Path, output_dir: &Path) -> Result<()> {
+    let glob = format!("{}/**/*.tera", templates_dir.display());
+    let tera = Tera::new(&glob)
+        .with_context(|| format!("Failed to load templates from {}", templates_dir.display()))?;
+
+    let tb_rl_dir = output_dir.join("tb-rate-limiter");
+    std::fs::create_dir_all(&tb_rl_dir)?;
+
+    // Render rate limiter test
+    {
+        let ctx = tera::Context::new();
+        let rendered = tera.render("test_rate_limiter.py.tera", &ctx)?;
+        std::fs::write(tb_rl_dir.join("test_rate_limiter.py"), &rendered)?;
+        log::info!("Generated test_rate_limiter.py");
+    }
+
+    // Render rate limiter Makefile
+    {
+        let ctx = tera::Context::new();
+        let rendered = tera.render("test_rate_limiter_makefile.tera", &ctx)?;
+        std::fs::write(tb_rl_dir.join("Makefile"), &rendered)?;
+        log::info!("Generated tb-rate-limiter/Makefile");
+    }
+
+    Ok(())
 }

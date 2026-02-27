@@ -22,7 +22,8 @@ from cocotb.triggers import RisingEdge, ClockCycles
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from verification.packet import (
-    EthernetFrame, PacketFactory, VlanTag, mac_to_bytes
+    EthernetFrame, PacketFactory, VlanTag, mac_to_bytes,
+    Ipv4Header, Ipv6Header, ipv4_addr_to_bytes, ipv6_addr_to_bytes,
 )
 from verification.scoreboard import PacketFilterScoreboard, Rule
 from verification.coverage import FilterCoverage
@@ -88,7 +89,27 @@ async def setup(dut):
 async def {{ tc.name }}(dut):
     """{{ tc.description }}"""
     driver, monitor = await setup(dut)
-{% if tc.has_vlan == "true" %}
+{% if tc.has_ipv6 is defined and tc.has_ipv6 == "true" %}
+    # Construct IPv6 packet with proper headers
+    ipv6_hdr = Ipv6Header(
+        src_addr="{{ tc.src_ipv6 | default(value='2001:0db8:0000:0000:0000:0000:0000:0001') }}",
+        dst_addr="{{ tc.dst_ipv6 | default(value='2001:0db8:0000:0000:0000:0000:0000:0002') }}",
+        next_header={{ tc.ipv6_next_header | default(value='59') }},
+        payload_length=8,
+    )
+    l4_payload = bytes(8)
+{% if tc.dst_port is defined %}
+    import struct
+    l4_payload = struct.pack("!HH", 12345, {{ tc.dst_port }}) + bytes(4)
+{% endif %}
+    payload = ipv6_hdr.to_bytes() + l4_payload
+    frame = EthernetFrame(
+        dst_mac=mac_to_bytes("{{ tc.dst_mac }}"),
+        src_mac=mac_to_bytes("{{ tc.src_mac }}"),
+        ethertype={{ tc.ethertype }},
+        payload=payload,
+    )
+{% elif tc.has_vlan == "true" %}
     frame = EthernetFrame(
         dst_mac=mac_to_bytes("{{ tc.dst_mac }}"),
         src_mac=mac_to_bytes("{{ tc.src_mac }}"),

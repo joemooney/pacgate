@@ -3,9 +3,11 @@ Ethernet frame construction and manipulation for PacGate verification.
 
 Provides a PacketFactory for building directed and random test frames,
 plus utilities for MAC address and EtherType handling.
+Includes IPv4/IPv6 L3 headers and TCP/UDP L4 headers.
 """
 
 import random
+import socket
 import struct
 from dataclasses import dataclass, field
 from typing import Optional
@@ -32,6 +34,16 @@ def mac_matches(frame_mac: bytes, rule_mac: str) -> bool:
     return True
 
 
+def ipv4_addr_to_bytes(addr_str: str) -> bytes:
+    """Convert '10.0.0.1' to 4-byte bytes."""
+    return socket.inet_aton(addr_str)
+
+
+def ipv6_addr_to_bytes(addr_str: str) -> bytes:
+    """Convert IPv6 address string to 16-byte bytes."""
+    return socket.inet_pton(socket.AF_INET6, addr_str)
+
+
 @dataclass
 class VlanTag:
     """802.1Q VLAN tag."""
@@ -43,6 +55,53 @@ class VlanTag:
         """Encode as 4 bytes: 0x8100 + TCI."""
         tci = (self.pcp << 13) | (self.dei << 12) | self.vid
         return struct.pack(">HH", 0x8100, tci)
+
+
+@dataclass
+class Ipv4Header:
+    """IPv4 header (20 bytes minimum)."""
+    src_addr: str = "10.0.0.1"
+    dst_addr: str = "10.0.0.2"
+    protocol: int = 6       # TCP by default
+    ttl: int = 64
+    total_length: int = 40  # IP header + payload
+
+    def to_bytes(self) -> bytes:
+        """Serialize to 20-byte IPv4 header (no options)."""
+        ver_ihl = 0x45  # version=4, IHL=5 (20 bytes)
+        dscp_ecn = 0
+        flags_frag = 0
+        identification = 0
+        checksum = 0  # simplified (not computed)
+        src = ipv4_addr_to_bytes(self.src_addr)
+        dst = ipv4_addr_to_bytes(self.dst_addr)
+        return struct.pack(">BBHHHBBH4s4s",
+            ver_ihl, dscp_ecn, self.total_length,
+            identification, flags_frag,
+            self.ttl, self.protocol, checksum,
+            src, dst)
+
+
+@dataclass
+class Ipv6Header:
+    """IPv6 header (40 bytes fixed)."""
+    src_addr: str = "2001:db8::1"
+    dst_addr: str = "2001:db8::2"
+    next_header: int = 6    # TCP by default
+    hop_limit: int = 64
+    payload_length: int = 20
+    traffic_class: int = 0
+    flow_label: int = 0
+
+    def to_bytes(self) -> bytes:
+        """Serialize to 40-byte IPv6 header."""
+        ver_tc_fl = (6 << 28) | (self.traffic_class << 20) | self.flow_label
+        src = ipv6_addr_to_bytes(self.src_addr)
+        dst = ipv6_addr_to_bytes(self.dst_addr)
+        return struct.pack(">IHBB16s16s",
+            ver_tc_fl, self.payload_length,
+            self.next_header, self.hop_limit,
+            src, dst)
 
 
 @dataclass
@@ -94,7 +153,7 @@ class PacketFactory:
     @staticmethod
     def ipv4(dst_mac="de:ad:be:ef:00:01", src_mac="02:00:00:00:00:01",
              payload_size=46) -> EthernetFrame:
-        """IPv4 frame."""
+        """IPv4 frame (basic, no L3 header)."""
         return EthernetFrame(
             dst_mac=mac_to_bytes(dst_mac),
             src_mac=mac_to_bytes(src_mac),
@@ -103,13 +162,136 @@ class PacketFactory:
         )
 
     @staticmethod
+    def ipv4_tcp(
+        src_ip="10.0.0.1", dst_ip="10.0.0.2",
+        src_port=12345, dst_port=80,
+        dst_mac="de:ad:be:ef:00:01", src_mac="02:00:00:00:00:01",
+        payload_size=20,
+    ) -> EthernetFrame:
+        """IPv4 TCP frame with proper L3/L4 headers."""
+        tcp_hdr = struct.pack(">HH", src_port, dst_port) + bytes(16)  # minimal TCP
+        ip_hdr = Ipv4Header(
+            src_addr=src_ip, dst_addr=dst_ip,
+            protocol=6, total_length=20 + len(tcp_hdr) + payload_size,
+        )
+        payload = ip_hdr.to_bytes() + tcp_hdr + bytes(payload_size)
+        return EthernetFrame(
+            dst_mac=mac_to_bytes(dst_mac),
+            src_mac=mac_to_bytes(src_mac),
+            ethertype=0x0800,
+            payload=payload,
+        )
+
+    @staticmethod
+    def ipv4_udp(
+        src_ip="10.0.0.1", dst_ip="10.0.0.2",
+        src_port=12345, dst_port=53,
+        dst_mac="de:ad:be:ef:00:01", src_mac="02:00:00:00:00:01",
+        payload_size=20,
+    ) -> EthernetFrame:
+        """IPv4 UDP frame with proper L3/L4 headers."""
+        udp_hdr = struct.pack(">HHHH", src_port, dst_port, 8 + payload_size, 0)
+        ip_hdr = Ipv4Header(
+            src_addr=src_ip, dst_addr=dst_ip,
+            protocol=17, total_length=20 + len(udp_hdr) + payload_size,
+        )
+        payload = ip_hdr.to_bytes() + udp_hdr + bytes(payload_size)
+        return EthernetFrame(
+            dst_mac=mac_to_bytes(dst_mac),
+            src_mac=mac_to_bytes(src_mac),
+            ethertype=0x0800,
+            payload=payload,
+        )
+
+    @staticmethod
     def ipv6(dst_mac="de:ad:be:ef:00:01", src_mac="02:00:00:00:00:01") -> EthernetFrame:
-        """IPv6 frame."""
+        """IPv6 frame (basic, no L3 header)."""
         return EthernetFrame(
             dst_mac=mac_to_bytes(dst_mac),
             src_mac=mac_to_bytes(src_mac),
             ethertype=0x86DD,
             payload=bytes(46),
+        )
+
+    @staticmethod
+    def ipv6_tcp(
+        src_ip="2001:db8::1", dst_ip="2001:db8::2",
+        src_port=12345, dst_port=80,
+        dst_mac="de:ad:be:ef:00:01", src_mac="02:00:00:00:00:01",
+        payload_size=20,
+    ) -> EthernetFrame:
+        """IPv6 TCP frame with proper L3/L4 headers."""
+        tcp_hdr = struct.pack(">HH", src_port, dst_port) + bytes(16)
+        ip6_hdr = Ipv6Header(
+            src_addr=src_ip, dst_addr=dst_ip,
+            next_header=6, payload_length=len(tcp_hdr) + payload_size,
+        )
+        payload = ip6_hdr.to_bytes() + tcp_hdr + bytes(payload_size)
+        return EthernetFrame(
+            dst_mac=mac_to_bytes(dst_mac),
+            src_mac=mac_to_bytes(src_mac),
+            ethertype=0x86DD,
+            payload=payload,
+        )
+
+    @staticmethod
+    def ipv6_udp(
+        src_ip="2001:db8::1", dst_ip="2001:db8::2",
+        src_port=12345, dst_port=53,
+        dst_mac="de:ad:be:ef:00:01", src_mac="02:00:00:00:00:01",
+        payload_size=20,
+    ) -> EthernetFrame:
+        """IPv6 UDP frame with proper L3/L4 headers."""
+        udp_hdr = struct.pack(">HHHH", src_port, dst_port, 8 + payload_size, 0)
+        ip6_hdr = Ipv6Header(
+            src_addr=src_ip, dst_addr=dst_ip,
+            next_header=17, payload_length=len(udp_hdr) + payload_size,
+        )
+        payload = ip6_hdr.to_bytes() + udp_hdr + bytes(payload_size)
+        return EthernetFrame(
+            dst_mac=mac_to_bytes(dst_mac),
+            src_mac=mac_to_bytes(src_mac),
+            ethertype=0x86DD,
+            payload=payload,
+        )
+
+    @staticmethod
+    def ipv6_icmp(
+        src_ip="fe80::1", dst_ip="ff02::1",
+        dst_mac="33:33:00:00:00:01", src_mac="02:00:00:00:00:01",
+    ) -> EthernetFrame:
+        """IPv6 ICMPv6 frame (next_header=58)."""
+        icmp_payload = bytes(8)  # minimal ICMPv6
+        ip6_hdr = Ipv6Header(
+            src_addr=src_ip, dst_addr=dst_ip,
+            next_header=58, payload_length=len(icmp_payload),
+        )
+        payload = ip6_hdr.to_bytes() + icmp_payload
+        return EthernetFrame(
+            dst_mac=mac_to_bytes(dst_mac),
+            src_mac=mac_to_bytes(src_mac),
+            ethertype=0x86DD,
+            payload=payload,
+        )
+
+    @staticmethod
+    def ipv6_link_local(
+        src_ip="fe80::1", dst_ip="fe80::2",
+        next_header=58,
+        dst_mac="de:ad:be:ef:00:01", src_mac="02:00:00:00:00:01",
+    ) -> EthernetFrame:
+        """IPv6 link-local frame."""
+        payload_data = bytes(8)
+        ip6_hdr = Ipv6Header(
+            src_addr=src_ip, dst_addr=dst_ip,
+            next_header=next_header, payload_length=len(payload_data),
+        )
+        payload = ip6_hdr.to_bytes() + payload_data
+        return EthernetFrame(
+            dst_mac=mac_to_bytes(dst_mac),
+            src_mac=mac_to_bytes(src_mac),
+            ethertype=0x86DD,
+            payload=payload,
         )
 
     @staticmethod

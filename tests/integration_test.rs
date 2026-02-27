@@ -965,6 +965,98 @@ fn pcap_analyze_empty_error() {
     assert!(!output.status.success(), "should fail on empty PCAP");
 }
 
+// ── Mutation Testing Integration Tests ─────────────────────
+
+#[test]
+fn mutate_json_report() {
+    let output = pacgate_bin()
+        .args(["mutate", "rules/examples/allow_arp.yaml", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "mutate --json failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON output");
+    assert_eq!(json["status"], "ok");
+    assert!(json["total_mutations"].as_u64().unwrap() > 0, "should generate at least 1 mutation");
+    assert!(json["mutations"].is_array());
+}
+
+#[test]
+fn mutate_generates_mutants() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["mutate", "rules/examples/allow_arp.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "mutate failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // Should create mutants directory with at least one mutant
+    let mutants_dir = tmp.path().join("mutants");
+    assert!(mutants_dir.exists(), "mutants/ directory missing");
+
+    let mut_0 = mutants_dir.join("mut_0");
+    assert!(mut_0.exists(), "mut_0/ directory missing");
+    assert!(mut_0.join("rules.yaml").exists(), "mutant rules.yaml missing");
+    assert!(mut_0.join("rtl").exists(), "mutant rtl/ directory missing");
+    assert!(mut_0.join("tb").exists(), "mutant tb/ directory missing");
+}
+
+#[test]
+fn mutate_multi_rule() {
+    let output = pacgate_bin()
+        .args(["mutate", "rules/examples/enterprise.yaml", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "mutate --json failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    // Enterprise has 7 rules — should generate many mutations
+    let total = json["total_mutations"].as_u64().unwrap();
+    assert!(total >= 10, "expected >= 10 mutations for enterprise, got {}", total);
+}
+
+// ── IPv6 Test Generation Integration Tests ────────────────
+
+#[test]
+fn compile_ipv6_generates_ipv6_tests() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/ipv6_firewall.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // Verify the generated test harness contains IPv6 header construction
+    let test_py = std::fs::read_to_string(tmp.path().join("tb/test_packet_filter.py")).unwrap();
+    assert!(test_py.contains("Ipv6Header"), "test should use Ipv6Header for IPv6 rules");
+    assert!(test_py.contains("ipv6_addr_to_bytes"), "test should import ipv6_addr_to_bytes");
+}
+
+// ── Rate Limiter Testbench Integration Tests ──────────────
+
+#[test]
+fn compile_rate_limit_generates_tb() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/rate_limited.yaml", "-o", tmp.path().to_str().unwrap(), "--rate-limit"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile --rate-limit failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // Should generate rate limiter testbench directory
+    let tb_rl = tmp.path().join("tb-rate-limiter");
+    assert!(tb_rl.exists(), "tb-rate-limiter/ directory missing");
+    assert!(tb_rl.join("test_rate_limiter.py").exists(), "test_rate_limiter.py missing");
+    assert!(tb_rl.join("Makefile").exists(), "rate limiter Makefile missing");
+
+    // Verify content
+    let test_py = std::fs::read_to_string(tb_rl.join("test_rate_limiter.py")).unwrap();
+    assert!(test_py.contains("test_initial_burst"), "should contain initial burst test");
+    assert!(test_py.contains("test_token_refill"), "should contain token refill test");
+}
+
 // ── Simulator IPv6 Integration Tests ───────────────────────
 
 #[test]

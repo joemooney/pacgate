@@ -115,17 +115,48 @@ class FilterCoverage:
             cp.add_bin(name)
         self.coverpoints["corner_cases"] = cp
 
+        # L3 IP protocol coverage
+        cp = CoverPoint("ip_protocol")
+        for name in ["tcp", "udp", "icmp", "icmpv6", "other"]:
+            cp.add_bin(name)
+        self.coverpoints["ip_protocol"] = cp
+
+        # L4 destination port range
+        cp = CoverPoint("dst_port_range")
+        for name in ["well_known", "registered", "ephemeral"]:
+            cp.add_bin(name)
+        self.coverpoints["dst_port_range"] = cp
+
+        # IPv6 address type
+        cp = CoverPoint("ipv6_address_type")
+        for name in ["link_local", "global_unicast", "multicast", "loopback"]:
+            cp.add_bin(name)
+        self.coverpoints["ipv6_address_type"] = cp
+
+        # L3 type coverage
+        cp = CoverPoint("l3_type")
+        for name in ["ipv4", "ipv6", "arp", "other"]:
+            cp.add_bin(name)
+        self.coverpoints["l3_type"] = cp
+
         # Cross coverage tracking
         self.cross_coverage["ethertype_x_decision"] = defaultdict(int)
         self.cross_coverage["rule_x_decision"] = defaultdict(int)
+        self.cross_coverage["protocol_x_decision"] = defaultdict(int)
 
     def add_rule(self, rule_name: str):
         """Add a rule to the coverage model."""
         self.coverpoints["rule_hit"].add_bin(rule_name)
 
     def sample(self, frame: EthernetFrame, decision_pass: bool,
-               matched_rule: str = "__default__"):
-        """Sample coverage for a frame and its decision."""
+               matched_rule: str = "__default__", **kwargs):
+        """Sample coverage for a frame and its decision.
+
+        Optional kwargs:
+            ip_protocol (int): IP protocol number (6=TCP, 17=UDP, etc.)
+            dst_port (int): L4 destination port number
+            ipv6_src (str): IPv6 source address string
+        """
         self._sample_count += 1
 
         # EtherType
@@ -183,9 +214,44 @@ class FilterCoverage:
         if frame.vlan_tag and frame.vlan_tag.pcp == 7:
             self.coverpoints["corner_cases"].sample("vlan_pcp_7")
 
+        # L3 type
+        l3_bin = {0x0800: "ipv4", 0x0806: "arp", 0x86DD: "ipv6"}.get(frame.ethertype, "other")
+        self.coverpoints["l3_type"].sample(l3_bin)
+
+        # IP protocol (from kwargs)
+        ip_proto = kwargs.get("ip_protocol")
+        if ip_proto is not None:
+            proto_bin = {1: "icmp", 6: "tcp", 17: "udp", 58: "icmpv6"}.get(ip_proto, "other")
+            self.coverpoints["ip_protocol"].sample(proto_bin)
+
+        # Destination port range (from kwargs)
+        dst_port = kwargs.get("dst_port")
+        if dst_port is not None:
+            if dst_port < 1024:
+                self.coverpoints["dst_port_range"].sample("well_known")
+            elif dst_port < 49152:
+                self.coverpoints["dst_port_range"].sample("registered")
+            else:
+                self.coverpoints["dst_port_range"].sample("ephemeral")
+
+        # IPv6 address type (from kwargs)
+        ipv6_src = kwargs.get("ipv6_src")
+        if ipv6_src is not None:
+            if ipv6_src.startswith("fe80"):
+                self.coverpoints["ipv6_address_type"].sample("link_local")
+            elif ipv6_src.startswith("ff"):
+                self.coverpoints["ipv6_address_type"].sample("multicast")
+            elif ipv6_src == "::1":
+                self.coverpoints["ipv6_address_type"].sample("loopback")
+            else:
+                self.coverpoints["ipv6_address_type"].sample("global_unicast")
+
         # Cross coverage
         self.cross_coverage["ethertype_x_decision"][(etype_bin, dec_bin)] += 1
         self.cross_coverage["rule_x_decision"][(matched_rule, dec_bin)] += 1
+        if ip_proto is not None:
+            proto_bin = {1: "icmp", 6: "tcp", 17: "udp", 58: "icmpv6"}.get(ip_proto, "other")
+            self.cross_coverage["protocol_x_decision"][(proto_bin, dec_bin)] += 1
 
     @property
     def overall_coverage(self) -> float:

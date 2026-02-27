@@ -8,6 +8,7 @@ mod mermaid;
 mod simulator;
 mod pcap_analyze;
 mod synth_gen;
+mod mutation;
 
 use std::path::{Path, PathBuf};
 use clap::{CommandFactory, Parser, Subcommand};
@@ -276,6 +277,23 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Generate mutation test variants for a rule set
+    Mutate {
+        /// Path to the YAML rules file
+        rules: PathBuf,
+
+        /// Output directory for generated mutants
+        #[arg(short, long, default_value = "gen")]
+        output: PathBuf,
+
+        /// Templates directory
+        #[arg(short, long, default_value = "templates")]
+        templates: PathBuf,
+
+        /// Output JSON report instead of human-readable text
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -322,6 +340,11 @@ fn main() -> Result<()> {
             // Generate AXI-Stream cocotb tests if --axi
             if axi {
                 cocotb_gen::generate_axi_tests(&config, &templates, &output)?;
+            }
+
+            // Generate rate limiter testbench if --rate-limit
+            if has_rate_limit {
+                cocotb_gen::generate_rate_limiter_tests(&templates, &output)?;
             }
 
             if json {
@@ -725,6 +748,36 @@ fn main() -> Result<()> {
                     }
                     println!();
                 }
+            }
+        }
+        Commands::Mutate { rules, output, templates, json } => {
+            let (config, _warnings) = loader::load_rules_with_warnings(&rules)?;
+
+            if json {
+                let report = mutation::generate_mutation_report(&config);
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                let mutations = mutation::generate_mutations(&config);
+                let mutants_dir = output.join("mutants");
+                std::fs::create_dir_all(&mutants_dir)?;
+
+                for (i, (m, mutated_config)) in mutations.iter().enumerate() {
+                    let mutant_dir = mutants_dir.join(format!("mut_{}", i));
+                    std::fs::create_dir_all(&mutant_dir)?;
+
+                    // Write mutated YAML
+                    let yaml = serde_yaml::to_string(&mutated_config)?;
+                    std::fs::write(mutant_dir.join("rules.yaml"), &yaml)?;
+
+                    // Generate mutated Verilog + tests
+                    verilog_gen::generate(mutated_config, &templates, &mutant_dir)?;
+                    cocotb_gen::generate(mutated_config, &templates, &mutant_dir)?;
+
+                    println!("  Mutant {}: {} — {}", i, m.name, m.description);
+                }
+                println!();
+                println!("  Generated {} mutants in {}/mutants/", mutations.len(), output.display());
+                println!("  Each mutant should fail at least one test. Surviving mutants indicate test gaps.");
             }
         }
     }
