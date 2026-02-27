@@ -40,7 +40,7 @@
 - **Coverage-directed closure**: CoverageDirector wired into test loop with XML export
 - **Boundary test generation**: auto-derived CIDR/port boundary tests + formally-derived negative tests
 - **Enhanced property tests**: 9 Hypothesis-based tests including CIDR/port/IPv6 boundary checks
-- `lint` subcommand for best-practice analysis and security checks (12 lint rules)
+- `lint` subcommand for best-practice analysis and security checks (15 lint rules)
 - FPGA resource estimation (LUTs/FFs for Artix-7) + timing/pipeline analysis
 - `--json` flag on compile/validate/estimate/diff/formal/lint for CI/scripting integration
 - `diff` subcommand for rule set change management
@@ -55,7 +55,7 @@
 - Coverage-directed test generation (verification/coverage_driven.py)
 - Enhanced overlap detection with CIDR containment and port range analysis
 - 21 real-world YAML examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast)
-- 218 Rust unit tests + 137 integration tests = 355 total, 36 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
+- 226 Rust unit tests + 142 integration tests = 368 total, 43 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
 
 ## Architecture
 ```
@@ -138,8 +138,8 @@ pacgate doc rules.yaml                 # Generate HTML rule documentation
 pacgate bench rules.yaml               # Benchmark compile time + simulation throughput + LUT/FF scaling
 pacgate bench rules.yaml --json        # JSON benchmark report
 pacgate diff old.yaml new.yaml --html report.html  # Generate HTML diff visualization report
-cargo test                             # 355 tests (218 unit + 137 integration)
-pytest verification/test_scoreboard.py # 36 Python scoreboard unit tests
+cargo test                             # 368 tests (226 unit + 142 integration)
+pytest verification/test_scoreboard.py # 43 Python scoreboard unit tests
 ```
 
 ## Key Files
@@ -218,3 +218,4 @@ pytest verification/test_scoreboard.py # 36 Python scoreboard unit tests
 - **Phase 12**: Complete — GTP-U tunnel parsing (gtp_teid), MPLS label stack (mpls_label/mpls_tc/mpls_bos), IGMP/MLD multicast (igmp_type/mld_type)
 - **Phase 13**: Complete — Verification framework enhancements: coverage wiring (L3/L4 kwargs, CoverageDirector, XML export), boundary/negative test generation, MCY Verilog mutation testing, mutation kill-rate runner, CI improvements
 - **Phase 14**: Complete — Protocol verification completeness: GTP-U/MPLS/IGMP/MLD in Python scoreboard + packet factory + test templates (directed+random) + SVA formal assertions + shadow/overlap detection + stats/graph/diff/estimate/doc; fixed diff_rules() L3/L4/IPv6 bug
+- **Phase 15**: Complete — Verification depth & tool completeness: reachability analysis with protocol fields + stateful rule tracking, 11 mutation types (6 new: widen_src_ip, shift_dst_port, remove_gtp_teid/mpls_label/igmp_type/vxlan_vni), 5 new coverage coverpoints (tunnel_type, mpls_present, igmp_type_range, mld_type_range, gtp_teid_range), fixed conntrack test assertions, 4 Hypothesis strategies (GTP-U/MPLS/IGMP/MLD frames), 9 property checks wired in runner, LINT013-015 (GTP/MPLS/IGMP/MLD prerequisite checks), CI simulate matrix expanded to 8 examples

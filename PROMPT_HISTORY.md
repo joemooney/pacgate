@@ -1362,3 +1362,73 @@ Implement Phase 9 with five major feature areas: PCAP traffic analysis with rule
 
 ### Git Operations
 - Commits pushed to https://github.com/joemooney/pacgate.git after each batch
+
+## Session 7 — 2026-02-27: Phase 15 — Verification Depth & Tool Completeness
+
+### Goal
+Close verification gaps left by Phases 12-14: reachability analysis missing protocol fields, mutation testing with only 5 types, zero coverage for tunnel/multicast protocols, weak conntrack assertions, no protocol-specific Hypothesis strategies, missing lint rules for protocol prerequisites, and CI only simulating 4 of 21 examples.
+
+### Actions Taken
+
+**Batch 1: Reachability + Mutation Extensions (Rust)**
+1. Modified `src/reachability.rs`:
+   - Added 8 protocol fields to additional vector (vlan_pcp, ipv6_next_header, gtp_teid, mpls_label, mpls_tc, mpls_bos, igmp_type, mld_type)
+   - Added `stateful_rules: Vec<String>` to ReachabilityReport; stateful rules now tracked instead of silently skipped
+   - Added stateful rules section to format_report() output
+   - Added gtp_teid, mpls_label, igmp_type, mld_type to query_by_action descriptions
+   - Added 4 unit tests for protocol field reachability and stateful rule reporting
+2. Modified `src/mutation.rs`:
+   - Added PortMatch to import
+   - Added 6 new mutation types: widen_src_ip (CIDR -8), shift_dst_port (+1), remove_gtp_teid, remove_mpls_label, remove_igmp_type, remove_vxlan_vni
+   - Added 4 unit tests for new mutation types
+3. 226 unit + 137 integration = 363 Rust tests pass
+
+**Batch 2: Coverage Model + CoverageDirector (Python)**
+4. Modified `verification/coverage.py`:
+   - Added 5 new CoverPoints: tunnel_type (vxlan/gtp_u/plain), mpls_present (with/without), igmp_type_range (query/report_v1/report_v2/leave/other), mld_type_range (listener_query/report/done/other), gtp_teid_range (low/mid/high)
+   - Added tunnel_x_decision cross-coverage
+   - Extended sample() to read vxlan_vni, gtp_teid, mpls_label, igmp_type, mld_type from kwargs
+5. Modified `verification/coverage_driven.py`:
+   - Added 5 generator methods: _gen_tunnel_type, _gen_mpls_present, _gen_igmp_type, _gen_mld_type, _gen_gtp_teid_range
+6. Modified `verification/test_scoreboard.py`:
+   - Added TestCoverageProtocols class with 7 tests
+7. 43 Python tests pass (36 existing + 7 new)
+
+**Batch 3: Conntrack Assertions + Hypothesis Strategies**
+8. Modified `templates/test_conntrack.py.tera`:
+   - test_conntrack_return_traffic: assert hit==0 (asymmetric hash)
+   - test_conntrack_timeout: assert hit is not None (DUT not stuck)
+   - test_conntrack_hash_collision: assert hit1==1 AND hit2==1 (both flows via probing)
+   - test_conntrack_table_full: assert hit is not None (responsive under overflow)
+9. Modified `verification/properties.py`:
+   - Added 4 Hypothesis strategies: gtp_u_frames, mpls_frames, igmp_frames, mld_frames
+   - Added check_tunnel_determinism and check_protocol_determinism functions
+   - Wired all 9 property checks in run_property_tests() with L3/L4 extracted field generation
+
+**Batch 4: Lint Rules + CI Pipeline**
+10. Modified `src/main.rs`:
+    - LINT013: GTP-U without UDP prerequisite (ip_protocol:17, dst_port:2152)
+    - LINT014: MPLS without MPLS EtherType (0x8847/0x8848)
+    - LINT015: IGMP without ip_protocol:2 or MLD without ipv6_next_header:58
+11. Modified `.github/workflows/ci.yml`:
+    - Expanded simulate matrix from 4 to 8 examples
+    - Replaced || true with continue-on-error: true on property test step
+12. Modified `tests/integration_test.rs`:
+    - Added 5 integration tests: lint_detects_gtp_without_udp_prereq, lint_no_warning_for_valid_gtp_rule, lint_detects_mpls_without_ethertype, lint_detects_igmp_without_protocol, reachability_shows_protocol_fields
+13. 226 unit + 142 integration = 368 Rust tests pass
+
+**Batch 5: Documentation**
+14. Updated CLAUDE.md — Phase 15 status, test counts (368 Rust, 43 Python), lint count (15), mutation types (11)
+15. Updated OVERVIEW.md — Quality metrics, development status
+16. Updated REQUIREMENTS.md — Phase 15 requirements REQ-900 through REQ-973
+17. Updated PROMPT_HISTORY.md — This session entry
+
+### Test Results
+- 226 unit tests — all PASS
+- 142 integration tests — all PASS
+- Total: 368 Rust tests (from 355 in Phase 14)
+- 43 Python scoreboard tests (from 36 in Phase 14)
+- All 21 YAML examples compile unchanged
+
+### Git Operations
+- Commits pushed to https://github.com/joemooney/pacgate.git after each batch

@@ -142,21 +142,21 @@ UVM-inspired Python verification environment with:
 - Multicast filtering (IGMP/MLD type-based control)
 
 ## Quality
-- 218 Rust unit tests (model parsing, validation, CIDR/port overlap, IPv4/IPv6, PCAP, byte-match, HSM, Mermaid, simulation incl. byte-match, PCAP analysis, synthesis, mutation, templates, benchmarking, reachability, GTP-U, MPLS, IGMP/MLD, MCY config generation)
-- 137 Rust integration tests (full compile pipeline, AXI, formal, lint, L3/L4, IPv6, VXLAN, counters, PCAP, report, byte-match, HSM, Mermaid, multi-port, conntrack, rate-limit, simulate, pcap-analyze, synth, mutate, template, doc, scoreboard field verification, multi-flag compile, all-examples lint, bench, diff --html, reachability, GTP-U, MPLS, multicast, coverage framework, boundary tests, MCY, mutation kill-rate, protocol verification completeness)
-- 36 Python scoreboard unit tests (IPv4 CIDR, IPv6 CIDR, port matching, VXLAN VNI, byte-match, multi-field L3/L4, GTP-U TEID, MPLS label/TC/BOS, IGMP/MLD type)
+- 226 Rust unit tests (model parsing, validation, CIDR/port overlap, IPv4/IPv6, PCAP, byte-match, HSM, Mermaid, simulation incl. byte-match, PCAP analysis, synthesis, mutation (11 types), templates, benchmarking, reachability (protocol fields), GTP-U, MPLS, IGMP/MLD, MCY config generation)
+- 142 Rust integration tests (full compile pipeline, AXI, formal, lint (15 rules), L3/L4, IPv6, VXLAN, counters, PCAP, report, byte-match, HSM, Mermaid, multi-port, conntrack, rate-limit, simulate, pcap-analyze, synth, mutate, template, doc, scoreboard field verification, multi-flag compile, all-examples lint, bench, diff --html, reachability, GTP-U, MPLS, multicast, coverage framework, boundary tests, MCY, mutation kill-rate, protocol verification completeness, lint protocol prereqs)
+- 43 Python scoreboard unit tests (IPv4 CIDR, IPv6 CIDR, port matching, VXLAN VNI, byte-match, multi-field L3/L4, GTP-U TEID, MPLS label/TC/BOS, IGMP/MLD type, protocol coverage sampling)
 - 13+ cocotb simulation tests (directed with L3/L4 headers + 500-packet random + corner cases)
 - 5 conntrack cocotb tests (new flow, return traffic, timeout, hash collision, table overflow)
 - 85%+ functional coverage with varied frame sizes and VLAN-tagged traffic
 - Rule overlap and shadow detection with CIDR containment and port range analysis
-- Best-practice linting with 12 lint rules (LINT001-012)
-- Mutation testing: 5 YAML mutation strategies + MCY Verilog-level mutation config generation
+- Best-practice linting with 15 lint rules (LINT001-015, including GTP/MPLS/IGMP/MLD prerequisite checks)
+- Mutation testing: 11 YAML mutation strategies + MCY Verilog-level mutation config generation
 - Mutation kill-rate runner: compile + lint each mutant, report kill/survived/error rates
 - Coverage-directed test generation with CoverageDirector wired into random test loop
 - Coverage XML export for CI artifact tracking
 - Boundary test generation: auto-derived CIDR boundary and port boundary test cases
 - Formally-derived negative tests: guaranteed no-match frames from unused ethertypes
-- Property-based testing with Hypothesis for invariant verification (9 property tests incl. CIDR/port/IPv6 boundary)
+- Property-based testing with Hypothesis for invariant verification (9 property checks + 4 protocol strategies for GTP-U/MPLS/IGMP/MLD)
 - SVA formal assertions with IPv6 CIDR, port range, rate limiter, byte-match, GTP-U, MPLS, IGMP/MLD correctness checks
 - Shadow/overlap detection covers all protocol fields (L2/L3/L4/IPv6/VXLAN/GTP-U/MPLS/IGMP/MLD)
 - Analysis tools (stats/graph/diff/estimate/doc) fully cover all protocol fields
@@ -176,6 +176,7 @@ UVM-inspired Python verification environment with:
 - **Phase 12** (complete): Protocol extensions — GTP-U tunnel parsing (gtp_teid), MPLS label stack (mpls_label/mpls_tc/mpls_bos), IGMP/MLD multicast (igmp_type/mld_type)
 - **Phase 13** (complete): Verification framework enhancements — Coverage wiring (L3/L4 kwargs, CoverageDirector, XML export), boundary/negative test generation, MCY Verilog mutation testing, mutation kill-rate runner, CI improvements (hypothesis, JUnit, property tests)
 - **Phase 14** (complete): Protocol verification completeness — GTP-U/MPLS/IGMP/MLD in Python scoreboard + packet factory + test templates (directed+random) + SVA formal assertions + shadow/overlap detection + all analysis tools (stats/graph/diff/estimate/doc); fixed diff_rules() L3/L4/IPv6 field comparison bug
+- **Phase 15** (complete): Verification depth & tool completeness — reachability with protocol fields + stateful rule tracking, 11 mutation types, 5 protocol coverage coverpoints, fixed conntrack assertions, 4 Hypothesis protocol strategies, 9 wired property checks, LINT013-015 protocol prereqs, CI expanded to 8 simulate examples
 
 ## Documentation
 - `README.md` — Project showcase and quick start

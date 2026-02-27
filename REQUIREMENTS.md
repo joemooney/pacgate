@@ -567,3 +567,49 @@
 - REQ-842: 36 Python scoreboard unit tests (through Phase 14) [IMPLEMENTED]
 - REQ-843: Integration tests for stats/graph/diff/estimate/doc with protocol fields [IMPLEMENTED]
 - REQ-844: Integration test verifying L3/L4 diff bug fix (src_ip, dst_port changes detected) [IMPLEMENTED]
+
+## Phase 15 Requirements — Verification Depth & Tool Completeness [IMPLEMENTED]
+
+### Reachability Analysis
+- REQ-900: Reachability analysis includes 8 additional protocol fields (vlan_pcp, ipv6_next_header, gtp_teid, mpls_label, mpls_tc, mpls_bos, igmp_type, mld_type) [IMPLEMENTED]
+- REQ-901: Stateful rules tracked in ReachabilityReport.stateful_rules instead of silently skipped [IMPLEMENTED]
+- REQ-902: Stateful rules section displayed in format_report() output [IMPLEMENTED]
+- REQ-903: Protocol fields (gtp_teid, mpls_label, igmp_type, mld_type) shown in query_by_action descriptions [IMPLEMENTED]
+
+### Mutation Testing
+- REQ-910: 11 mutation types (6 new: widen_src_ip, shift_dst_port, remove_gtp_teid, remove_mpls_label, remove_igmp_type, remove_vxlan_vni) [IMPLEMENTED]
+- REQ-911: widen_src_ip mutation reduces CIDR prefix by 8 bits for rules with prefix > /8 [IMPLEMENTED]
+- REQ-912: shift_dst_port mutation increments exact dst_port by 1 [IMPLEMENTED]
+- REQ-913: remove_* mutations set protocol fields to None for field-level sensitivity testing [IMPLEMENTED]
+
+### Coverage Model
+- REQ-920: 5 new CoverPoints: tunnel_type, mpls_present, igmp_type_range, mld_type_range, gtp_teid_range [IMPLEMENTED]
+- REQ-921: tunnel_x_decision cross-coverage tracking [IMPLEMENTED]
+- REQ-922: sample() reads vxlan_vni, gtp_teid, mpls_label, igmp_type, mld_type from kwargs [IMPLEMENTED]
+- REQ-923: CoverageDirector has 5 protocol generators for targeted packet generation [IMPLEMENTED]
+
+### Conntrack Assertions
+- REQ-930: test_conntrack_return_traffic asserts hit==0 (asymmetric hash) [IMPLEMENTED]
+- REQ-931: test_conntrack_timeout asserts lookup completes (DUT not stuck) [IMPLEMENTED]
+- REQ-932: test_conntrack_hash_collision asserts both flows found (and, not or) [IMPLEMENTED]
+- REQ-933: test_conntrack_table_full asserts lookup completes under overflow [IMPLEMENTED]
+
+### Hypothesis Strategies
+- REQ-940: 4 Hypothesis strategies for protocol frames: gtp_u_frames, mpls_frames, igmp_frames, mld_frames [IMPLEMENTED]
+- REQ-941: check_tunnel_determinism and check_protocol_determinism property functions [IMPLEMENTED]
+- REQ-942: All 9 property checks wired in run_property_tests() with L3/L4 extracted fields [IMPLEMENTED]
+
+### Lint Rules
+- REQ-950: LINT013: GTP-U without UDP prerequisite (ip_protocol:17, dst_port:2152) [IMPLEMENTED]
+- REQ-951: LINT014: MPLS without MPLS EtherType (0x8847/0x8848) [IMPLEMENTED]
+- REQ-952: LINT015: IGMP without ip_protocol:2 or MLD without ipv6_next_header:58 [IMPLEMENTED]
+
+### CI Pipeline
+- REQ-960: Simulate matrix expanded from 4 to 8 examples (gtp_5g, mpls_network, multicast, vxlan_datacenter) [IMPLEMENTED]
+- REQ-961: Property test step uses continue-on-error instead of || true [IMPLEMENTED]
+
+### Testing
+- REQ-970: 226 Rust unit tests (through Phase 15) [IMPLEMENTED]
+- REQ-971: 142 Rust integration tests (through Phase 15) [IMPLEMENTED]
+- REQ-972: 43 Python scoreboard unit tests (through Phase 15) [IMPLEMENTED]
+- REQ-973: Integration tests for LINT013/014/015 and reachability protocol fields [IMPLEMENTED]
