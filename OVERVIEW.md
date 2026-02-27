@@ -30,6 +30,11 @@ The generated hardware has a simple streaming interface (byte-at-a-time Ethernet
 
 ## Development Phases
 - **Phase 1** (current): Minimal end-to-end — one stateless rule, frame parser, cocotb tests
-- **Phase 2**: Multiple stateless rules, MAC wildcards, VLAN matching, byte_match
-- **Phase 3**: Stateful FSM rules with timeout counters and sequence testing
-- **Phase 4**: Synthesis targeting (Vivado, Artix-7 constraints, AXI-Stream, store-and-forward)
+- **Phase 2**: Multiple stateless rules, MAC wildcards, VLAN matching, byte_match + advanced verification (coverage model generation, constrained random, negative/boundary tests)
+- **Phase 3**: Stateful FSM rules with timeout counters and sequence testing + mutation testing (MCY), formal property generation (SymbiYosys)
+- **Phase 4**: Synthesis targeting (Vivado, Artix-7 constraints, AXI-Stream via cocotbext-axi, store-and-forward)
+
+## Innovation / Unique Value
+Flippy is unique in that no other open-source tool generates both the hardware implementation (Verilog) and the verification environment (cocotb) from a single specification. Commercial tools like Agnisys IDS-Verify generate tests from register specs but assume the RTL already exists. LLM-based approaches generate one or the other non-deterministically. Flippy generates both, ensuring perfect alignment between specification, implementation, and verification.
+
+See `docs/RESEARCH.md` for the full verification framework research report.

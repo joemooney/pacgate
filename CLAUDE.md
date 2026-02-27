@@ -56,3 +56,10 @@ make lint                                             # Icarus lint check
 ## Current Phase: 1 (Minimal End-to-End)
 - Single stateless rule (allow ARP)
 - Future: Phase 2 (multi-rule), Phase 3 (stateful FSM), Phase 4 (synthesis)
+
+## Research Completed (Session 2)
+- See `docs/RESEARCH.md` for comprehensive verification framework research
+- Key libraries: cocotb 2.0, cocotb-coverage 2.0, PyUVM 3.0, PyVSC, MCY, SymbiYosys
+- Unique value proposition: generate BOTH hardware AND tests from same YAML spec
+- Priority features: coverage model generation, constrained random, mutation testing, formal properties
+- cocotbext-axi for Phase 4 AXI-Stream verification

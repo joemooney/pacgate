@@ -54,3 +54,41 @@ Implement Phase 1 of the Flippy FPGA Layer 2 Packet Filter Switch. Build the ful
 ### Git Operations
 - Initial commit with all Phase 1 files
 - Pushed to GitHub
+
+## Session 2 — 2026-02-26: Verification Framework Research
+
+### Prompt
+Research 8 topics for building an innovative FPGA packet filter verification framework using cocotb: cocotb 2.x features, coverage-driven verification, property-based testing for HDL, mutation testing for hardware, UVM methodology in Python, test harness generation from specs, formal verification integration, and CI/regression best practices.
+
+### Actions Taken
+
+1. **Comprehensive web research** across all 8 topics with multiple search queries per topic
+2. **Created docs/RESEARCH.md** — detailed research document with:
+   - cocotb 2.0/2.1 new features (Logic/LogicArray types, Copra type stubs, HDL-native indexing)
+   - cocotb extension ecosystem (cocotbext-axi, cocotbext-eth, cocotbext-pcie, etc.)
+   - cocotb-coverage and PyVSC for functional coverage and constrained random
+   - Coverage-driven test generation with runtime-adaptive randomization
+   - Hypothesis property-based testing integration architecture for cocotb
+   - MCY (Mutation Cover with Yosys) for hardware mutation testing
+   - PyUVM 3.0 with RAL support, mapping UVM concepts to Python
+   - ML-driven coverage optimization (2025 research papers)
+   - Agnisys IDS-Verify comparison and LLM-based testbench generation state of the art
+   - SymbiYosys formal verification and SVA property generation from YAML
+   - GitHub Actions CI pipeline design with JUnit XML reporting
+   - Coverage trending and regression dashboard architecture
+3. **Competitive analysis** comparing Flippy to commercial tools (Agnisys) and LLM approaches
+4. **Prioritized recommendations** in 3 tiers with implementation order
+5. **Updated PROMPT_HISTORY.md and REQUIREMENTS.md** with research session details
+
+### Key Findings
+- cocotb 2.0 released Sept 2025 with new type system — Flippy should target it
+- cocotb-coverage 2.0 provides coverage-driven test generation from YAML specs
+- MCY (YosysHQ) enables mutation testing to measure test harness quality — unique differentiator
+- No existing tool generates BOTH hardware and tests from a single specification
+- Hypothesis + cocotb integration is unexplored territory — innovation opportunity
+- PyUVM 3.0 provides professional UVM methodology in Python
+- Recent ML+PyUVM papers show coverage optimization is cutting-edge research
+
+### Git Operations
+- Committed docs/RESEARCH.md and updated documentation files
+- Pushed to GitHub

@@ -60,3 +60,41 @@
 - REQ-071: XDC constraint files
 - REQ-072: AXI-Stream packet interface
 - REQ-073: Store-and-forward FIFO for full-frame buffering
+
+## Advanced Verification Requirements (Research-Identified)
+
+### Coverage-Driven Verification
+- REQ-080: Generate cocotb-coverage cover points from YAML rule specification
+- REQ-081: Constrained random Ethernet frame generation with cocotb-coverage Randomized class
+- REQ-082: Coverage-driven test generation with runtime-adaptive randomization
+- REQ-083: Coverage export to XML/YAML format with merge support across runs
+- REQ-084: Cross coverage for ethertype x decision and rule_index x action
+
+### Negative and Boundary Testing
+- REQ-085: Auto-generate negative test frames that match no rule (verify default action)
+- REQ-086: Auto-generate boundary test frames (broadcast MAC, multicast, max payload, etc.)
+
+### Mutation Testing
+- REQ-090: Integrate MCY (Mutation Cover with Yosys) to measure test harness quality
+- REQ-091: Generate mutants of generated Verilog and run against generated cocotb tests
+- REQ-092: Report mutation coverage score and identify test gaps
+
+### Formal Verification
+- REQ-095: Generate SVA assertions from YAML rule specification
+- REQ-096: Generate SymbiYosys .sby task files for formal property checking
+- REQ-097: Formal verification of mutual exclusion, completeness, latency bounds, and reset correctness
+
+### Property-Based Testing
+- REQ-100: Hypothesis-generated edge-case Ethernet frames for invariant testing
+- REQ-101: Properties: determinism, termination, priority correctness, conservation, independence
+
+### CI/Regression
+- REQ-105: GitHub Actions CI pipeline with automated build/compile/simulate
+- REQ-106: JUnit XML test result reporting (built into cocotb)
+- REQ-107: Coverage trend tracking across CI runs
+- REQ-108: Regression dashboard with coverage metrics
+
+### cocotb 2.0 Compatibility
+- REQ-110: Target cocotb 2.0+ with Logic/LogicArray types
+- REQ-111: Copra type stub generation for DUT signals
+- REQ-112: cocotb-coverage 2.0 compatibility
