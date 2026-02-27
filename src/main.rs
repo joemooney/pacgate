@@ -118,6 +118,14 @@ enum Commands {
         /// Output JSON instead of human-readable text
         #[arg(long)]
         json: bool,
+
+        /// Generate HTML diff report
+        #[arg(long)]
+        html: Option<PathBuf>,
+
+        /// Templates directory (for HTML output)
+        #[arg(short, long, default_value = "templates")]
+        templates: PathBuf,
     },
     /// Lint rules for best practices, security issues, and optimization hints
     Lint {
@@ -547,10 +555,15 @@ fn main() -> Result<()> {
                 print_stats(&config);
             }
         }
-        Commands::Diff { old, new, json } => {
+        Commands::Diff { old, new, json, html, templates } => {
             let old_config = loader::load_rules_with_warnings(&old)?.0;
             let new_config = loader::load_rules_with_warnings(&new)?.0;
-            diff_rules(&old_config, &new_config, json)?;
+            if let Some(ref html_path) = html {
+                generate_diff_html(&old_config, &new_config, &old, &new, &templates, html_path)?;
+                println!("  Generated HTML diff report: {}", html_path.display());
+            } else {
+                diff_rules(&old_config, &new_config, json)?;
+            }
         }
         Commands::Lint { rules, json } => {
             let (config, warnings) = loader::load_rules_with_warnings(&rules)?;
@@ -1603,6 +1616,214 @@ fn diff_rules(old: &model::FilterConfig, new: &model::FilterConfig, json: bool) 
     }
 
     Ok(())
+}
+
+fn generate_diff_html(
+    old: &model::FilterConfig,
+    new: &model::FilterConfig,
+    old_path: &Path,
+    new_path: &Path,
+    templates_dir: &Path,
+    output_path: &Path,
+) -> Result<()> {
+    use std::collections::HashMap;
+
+    let glob = format!("{}/**/*.tera", templates_dir.display());
+    let tera = tera::Tera::new(&glob)
+        .with_context(|| format!("Failed to load templates from {}", templates_dir.display()))?;
+
+    let old_map: HashMap<&str, &model::StatelessRule> = old.pacgate.rules.iter()
+        .map(|r| (r.name.as_str(), r)).collect();
+    let new_map: HashMap<&str, &model::StatelessRule> = new.pacgate.rules.iter()
+        .map(|r| (r.name.as_str(), r)).collect();
+
+    let mut added = Vec::new();
+    let mut removed = Vec::new();
+    let mut modified = Vec::new();
+    let mut unchanged_count = 0usize;
+
+    // Build criteria description
+    let criteria_str = |r: &model::StatelessRule| -> String {
+        let mc = &r.match_criteria;
+        let mut parts = Vec::new();
+        if let Some(ref e) = mc.ethertype { parts.push(format!("ethertype={}", e)); }
+        if let Some(ref m) = mc.dst_mac { parts.push(format!("dst_mac={}", m)); }
+        if let Some(ref m) = mc.src_mac { parts.push(format!("src_mac={}", m)); }
+        if let Some(ref ip) = mc.src_ip { parts.push(format!("src_ip={}", ip)); }
+        if let Some(ref ip) = mc.dst_ip { parts.push(format!("dst_ip={}", ip)); }
+        if let Some(p) = mc.ip_protocol { parts.push(format!("ip_protocol={}", p)); }
+        if let Some(ref pm) = mc.src_port { parts.push(format!("src_port={}", format_port_match(pm))); }
+        if let Some(ref pm) = mc.dst_port { parts.push(format!("dst_port={}", format_port_match(pm))); }
+        if let Some(vid) = mc.vlan_id { parts.push(format!("vlan_id={}", vid)); }
+        if let Some(vni) = mc.vxlan_vni { parts.push(format!("vxlan_vni={}", vni)); }
+        if let Some(ref ipv6) = mc.src_ipv6 { parts.push(format!("src_ipv6={}", ipv6)); }
+        if let Some(ref ipv6) = mc.dst_ipv6 { parts.push(format!("dst_ipv6={}", ipv6)); }
+        if parts.is_empty() { "any".to_string() } else { parts.join(", ") }
+    };
+
+    let action_str = |r: &model::StatelessRule| -> String {
+        match &r.action {
+            Some(model::Action::Pass) => "pass".to_string(),
+            Some(model::Action::Drop) => "drop".to_string(),
+            None => "default".to_string(),
+        }
+    };
+
+    // Compute diffs
+    for (name, old_rule) in &old_map {
+        match new_map.get(name) {
+            None => {
+                removed.push(serde_json::json!({
+                    "name": name,
+                    "priority": old_rule.priority,
+                    "action": action_str(old_rule),
+                    "criteria": criteria_str(old_rule),
+                }));
+            }
+            Some(new_rule) => {
+                let mut changes = Vec::new();
+                if old_rule.priority != new_rule.priority {
+                    changes.push(serde_json::json!({
+                        "field": "priority",
+                        "old_value": old_rule.priority.to_string(),
+                        "new_value": new_rule.priority.to_string(),
+                    }));
+                }
+                if old_rule.action != new_rule.action {
+                    changes.push(serde_json::json!({
+                        "field": "action",
+                        "old_value": action_str(old_rule),
+                        "new_value": action_str(new_rule),
+                    }));
+                }
+                if old_rule.match_criteria.ethertype != new_rule.match_criteria.ethertype {
+                    changes.push(serde_json::json!({
+                        "field": "ethertype",
+                        "old_value": format!("{:?}", old_rule.match_criteria.ethertype),
+                        "new_value": format!("{:?}", new_rule.match_criteria.ethertype),
+                    }));
+                }
+                if old_rule.match_criteria.dst_mac != new_rule.match_criteria.dst_mac {
+                    changes.push(serde_json::json!({
+                        "field": "dst_mac",
+                        "old_value": format!("{:?}", old_rule.match_criteria.dst_mac),
+                        "new_value": format!("{:?}", new_rule.match_criteria.dst_mac),
+                    }));
+                }
+                if old_rule.match_criteria.src_ip != new_rule.match_criteria.src_ip {
+                    changes.push(serde_json::json!({
+                        "field": "src_ip",
+                        "old_value": format!("{:?}", old_rule.match_criteria.src_ip),
+                        "new_value": format!("{:?}", new_rule.match_criteria.src_ip),
+                    }));
+                }
+                if old_rule.match_criteria.dst_ip != new_rule.match_criteria.dst_ip {
+                    changes.push(serde_json::json!({
+                        "field": "dst_ip",
+                        "old_value": format!("{:?}", old_rule.match_criteria.dst_ip),
+                        "new_value": format!("{:?}", new_rule.match_criteria.dst_ip),
+                    }));
+                }
+                if old_rule.match_criteria.dst_port != new_rule.match_criteria.dst_port {
+                    changes.push(serde_json::json!({
+                        "field": "dst_port",
+                        "old_value": format!("{:?}", old_rule.match_criteria.dst_port),
+                        "new_value": format!("{:?}", new_rule.match_criteria.dst_port),
+                    }));
+                }
+                if old_rule.match_criteria.src_port != new_rule.match_criteria.src_port {
+                    changes.push(serde_json::json!({
+                        "field": "src_port",
+                        "old_value": format!("{:?}", old_rule.match_criteria.src_port),
+                        "new_value": format!("{:?}", new_rule.match_criteria.src_port),
+                    }));
+                }
+
+                if changes.is_empty() {
+                    unchanged_count += 1;
+                } else {
+                    modified.push(serde_json::json!({
+                        "name": name,
+                        "old_priority": old_rule.priority,
+                        "new_priority": new_rule.priority,
+                        "old_action": action_str(old_rule),
+                        "new_action": action_str(new_rule),
+                        "old_criteria": criteria_str(old_rule),
+                        "new_criteria": criteria_str(new_rule),
+                        "changes": changes,
+                    }));
+                }
+            }
+        }
+    }
+
+    for name in new_map.keys() {
+        if !old_map.contains_key(name) {
+            let r = new_map[name];
+            added.push(serde_json::json!({
+                "name": name,
+                "priority": r.priority,
+                "action": action_str(r),
+                "criteria": criteria_str(r),
+            }));
+        }
+    }
+
+    let default_changed = old.pacgate.defaults.action != new.pacgate.defaults.action;
+    let old_default = match old.pacgate.defaults.action { model::Action::Pass => "pass", model::Action::Drop => "drop" };
+    let new_default = match new.pacgate.defaults.action { model::Action::Pass => "pass", model::Action::Drop => "drop" };
+
+    let mut ctx = tera::Context::new();
+    ctx.insert("old_file", &old_path.display().to_string());
+    ctx.insert("new_file", &new_path.display().to_string());
+    ctx.insert("old_rule_count", &old.pacgate.rules.len());
+    ctx.insert("new_rule_count", &new.pacgate.rules.len());
+    ctx.insert("timestamp", &chrono_timestamp());
+    ctx.insert("default_changed", &default_changed);
+    ctx.insert("old_default", old_default);
+    ctx.insert("new_default", new_default);
+    ctx.insert("added", &added);
+    ctx.insert("removed", &removed);
+    ctx.insert("modified", &modified);
+    ctx.insert("added_count", &added.len());
+    ctx.insert("removed_count", &removed.len());
+    ctx.insert("modified_count", &modified.len());
+    ctx.insert("unchanged_count", &unchanged_count);
+
+    let html = tera.render("diff_report.html.tera", &ctx)
+        .with_context(|| "Failed to render diff_report.html.tera")?;
+
+    if let Some(parent) = output_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(output_path, html)?;
+
+    Ok(())
+}
+
+fn format_port_match(pm: &model::PortMatch) -> String {
+    match pm {
+        model::PortMatch::Exact(p) => p.to_string(),
+        model::PortMatch::Range { range } => format!("{}-{}", range[0], range[1]),
+    }
+}
+
+fn chrono_timestamp() -> String {
+    // Simple timestamp without chrono dependency
+    use std::time::SystemTime;
+    match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+        Ok(d) => {
+            let secs = d.as_secs();
+            let days = secs / 86400;
+            let year = 1970 + (days / 365); // approximate
+            let remainder = secs % 86400;
+            let hours = remainder / 3600;
+            let minutes = (remainder % 3600) / 60;
+            format!("{}-{:02}-{:02} {:02}:{:02} UTC",
+                year, (days % 365) / 30 + 1, (days % 365) % 30 + 1, hours, minutes)
+        }
+        Err(_) => "unknown".to_string(),
+    }
 }
 
 fn compute_resource_estimate(config: &model::FilterConfig) -> serde_json::Value {

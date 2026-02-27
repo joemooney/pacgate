@@ -45,7 +45,7 @@ pub struct ByteMatch {
 }
 
 /// Port matching: exact value or range
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum PortMatch {
     Exact(u16),

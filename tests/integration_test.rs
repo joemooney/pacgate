@@ -1505,6 +1505,45 @@ fn reachability_json() {
     assert!(json["default_action"].is_string());
 }
 
+// ── Diff HTML Visualization Tests ──────────────────────────────
+
+#[test]
+fn diff_html_output() {
+    let tmp = tempfile::tempdir().unwrap();
+    let html_path = tmp.path().join("diff_report.html");
+    let output = pacgate_bin()
+        .args(["diff", "rules/examples/allow_arp.yaml", "rules/examples/l3l4_firewall.yaml",
+               "--html", html_path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "diff --html failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    assert!(html_path.exists(), "HTML file should be created");
+    let html = std::fs::read_to_string(&html_path).unwrap();
+    assert!(html.contains("PacGate Rule Diff Report"), "should contain report title");
+    assert!(html.contains("Added"), "should show added section");
+    assert!(html.contains("Removed"), "should show removed section");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Generated HTML diff report"), "should print success");
+}
+
+#[test]
+fn diff_html_same_file() {
+    let tmp = tempfile::tempdir().unwrap();
+    let html_path = tmp.path().join("same_diff.html");
+    let output = pacgate_bin()
+        .args(["diff", "rules/examples/allow_arp.yaml", "rules/examples/allow_arp.yaml",
+               "--html", html_path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "diff --html same file failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let html = std::fs::read_to_string(&html_path).unwrap();
+    // Should show 0 added, 0 removed, 0 modified
+    assert!(html.contains(">0<"), "should have zero changes");
+}
+
 // ── Performance Benchmark Tests ────────────────────────────────
 
 #[test]
