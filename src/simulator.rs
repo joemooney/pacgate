@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use anyhow::{Result, bail};
 use crate::model::{FilterConfig, MatchCriteria, Action, PortMatch, Ipv4Prefix, Ipv6Prefix, MacAddress, ByteMatch, parse_ethertype};
 
@@ -164,6 +165,87 @@ pub fn simulate(config: &FilterConfig, packet: &SimPacket) -> SimResult {
         is_default: true,
         fields: Vec::new(),
     }
+}
+
+/// Rate-limit state for software simulation (token-bucket per rule)
+pub struct SimRateLimitState {
+    pub tokens: HashMap<String, f64>,
+    pub last_time: HashMap<String, f64>,
+}
+
+impl SimRateLimitState {
+    /// Initialize rate-limit state from a filter config, setting tokens to burst for each rate-limited rule
+    pub fn new(config: &FilterConfig) -> Self {
+        let mut tokens = HashMap::new();
+        let mut last_time = HashMap::new();
+        for rule in &config.pacgate.rules {
+            if let Some(ref rl) = rule.rate_limit {
+                tokens.insert(rule.name.clone(), rl.burst as f64);
+                last_time.insert(rule.name.clone(), 0.0);
+            }
+        }
+        SimRateLimitState { tokens, last_time }
+    }
+
+    /// Refill tokens for a rule based on elapsed time
+    pub fn refill(&mut self, rule_name: &str, pps: u32, burst: u32, elapsed: f64) {
+        if let Some(tok) = self.tokens.get_mut(rule_name) {
+            *tok += pps as f64 * elapsed;
+            if *tok > burst as f64 {
+                *tok = burst as f64;
+            }
+        }
+    }
+
+    /// Try to consume one token; returns true if successful
+    pub fn try_consume(&mut self, rule_name: &str) -> bool {
+        if let Some(tok) = self.tokens.get_mut(rule_name) {
+            if *tok >= 1.0 {
+                *tok -= 1.0;
+                return true;
+            }
+        }
+        false
+    }
+}
+
+/// Simulate a packet with rate-limit enforcement
+pub fn simulate_with_rate_limit(
+    config: &FilterConfig,
+    packet: &SimPacket,
+    rate_state: &mut SimRateLimitState,
+    elapsed_secs: f64,
+) -> SimResult {
+    let result = simulate(config, packet);
+
+    // If no rule matched (default action), rate-limit doesn't apply
+    if result.is_default {
+        return result;
+    }
+
+    // Check if the matched rule has rate_limit
+    if let Some(ref rule_name) = result.rule_name {
+        let rule = config.pacgate.rules.iter().find(|r| &r.name == rule_name);
+        if let Some(rule) = rule {
+            if let Some(ref rl) = rule.rate_limit {
+                // Refill tokens based on elapsed time
+                rate_state.refill(rule_name, rl.pps, rl.burst, elapsed_secs);
+
+                // Try to consume a token
+                if !rate_state.try_consume(rule_name) {
+                    // Rate limited — return default action
+                    return SimResult {
+                        rule_name: Some("rate_limited".to_string()),
+                        action: config.pacgate.defaults.action.clone(),
+                        is_default: true,
+                        fields: result.fields,
+                    };
+                }
+            }
+        }
+    }
+
+    result
 }
 
 /// Evaluate match criteria against a packet, returning (overall_match, per-field breakdown)
@@ -1275,5 +1357,120 @@ mod tests {
         let mut pkt = SimPacket::default();
         pkt.mld_type = Some(130);
         assert_eq!(simulate(&config, &pkt).action, Action::Pass);
+    }
+
+    // --- Rate limit simulation tests ---
+
+    fn make_rate_limited_config() -> FilterConfig {
+        use crate::model::RateLimit;
+        let rules = vec![
+            StatelessRule {
+                name: "http_limited".to_string(),
+                priority: 200,
+                match_criteria: MatchCriteria {
+                    ethertype: Some("0x0800".to_string()),
+                    dst_port: Some(PortMatch::Exact(80)),
+                    ..Default::default()
+                },
+                action: Some(Action::Pass),
+                rule_type: None,
+                fsm: None,
+                ports: None,
+                rate_limit: Some(RateLimit { pps: 100, burst: 10 }),
+            },
+            StatelessRule {
+                name: "allow_arp".to_string(),
+                priority: 100,
+                match_criteria: MatchCriteria {
+                    ethertype: Some("0x0806".to_string()),
+                    ..Default::default()
+                },
+                action: Some(Action::Pass),
+                rule_type: None,
+                fsm: None,
+                ports: None,
+                rate_limit: None,
+            },
+        ];
+        make_config(rules, Action::Drop)
+    }
+
+    #[test]
+    fn rate_limit_state_new_initializes_tokens() {
+        let config = make_rate_limited_config();
+        let state = SimRateLimitState::new(&config);
+        assert_eq!(*state.tokens.get("http_limited").unwrap(), 10.0);
+        assert!(!state.tokens.contains_key("allow_arp"));
+    }
+
+    #[test]
+    fn rate_limit_state_refill_adds_tokens() {
+        let config = make_rate_limited_config();
+        let mut state = SimRateLimitState::new(&config);
+        // Consume all tokens first
+        state.tokens.insert("http_limited".to_string(), 0.0);
+        state.refill("http_limited", 100, 10, 0.05); // 100 pps * 0.05s = 5 tokens
+        let tokens = *state.tokens.get("http_limited").unwrap();
+        assert!((tokens - 5.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn rate_limit_state_refill_caps_at_burst() {
+        let config = make_rate_limited_config();
+        let mut state = SimRateLimitState::new(&config);
+        state.refill("http_limited", 100, 10, 1.0); // 100 pps * 1s = 100, but burst=10
+        let tokens = *state.tokens.get("http_limited").unwrap();
+        assert!((tokens - 10.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn rate_limit_try_consume_decrements() {
+        let config = make_rate_limited_config();
+        let mut state = SimRateLimitState::new(&config);
+        assert!(state.try_consume("http_limited"));
+        let tokens = *state.tokens.get("http_limited").unwrap();
+        assert!((tokens - 9.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn rate_limit_try_consume_empty_returns_false() {
+        let config = make_rate_limited_config();
+        let mut state = SimRateLimitState::new(&config);
+        state.tokens.insert("http_limited".to_string(), 0.0);
+        assert!(!state.try_consume("http_limited"));
+    }
+
+    #[test]
+    fn simulate_with_rate_limit_passes_when_tokens_available() {
+        let config = make_rate_limited_config();
+        let mut state = SimRateLimitState::new(&config);
+        let pkt = parse_packet_spec("ethertype=0x0800,dst_port=80").unwrap();
+        let result = simulate_with_rate_limit(&config, &pkt, &mut state, 0.0);
+        assert_eq!(result.action, Action::Pass);
+        assert_eq!(result.rule_name.as_deref(), Some("http_limited"));
+        assert!(!result.is_default);
+    }
+
+    #[test]
+    fn simulate_with_rate_limit_drops_when_exhausted() {
+        let config = make_rate_limited_config();
+        let mut state = SimRateLimitState::new(&config);
+        state.tokens.insert("http_limited".to_string(), 0.0);
+        let pkt = parse_packet_spec("ethertype=0x0800,dst_port=80").unwrap();
+        let result = simulate_with_rate_limit(&config, &pkt, &mut state, 0.0);
+        assert_eq!(result.action, Action::Drop); // default action
+        assert!(result.is_default);
+        assert_eq!(result.rule_name.as_deref(), Some("rate_limited"));
+    }
+
+    #[test]
+    fn simulate_with_rate_limit_no_rate_limit_rule_passes() {
+        let config = make_rate_limited_config();
+        let mut state = SimRateLimitState::new(&config);
+        let pkt = parse_packet_spec("ethertype=0x0806").unwrap();
+        let result = simulate_with_rate_limit(&config, &pkt, &mut state, 0.0);
+        assert_eq!(result.action, Action::Pass);
+        assert_eq!(result.rule_name.as_deref(), Some("allow_arp"));
+        assert!(!result.is_default);
     }
 }
