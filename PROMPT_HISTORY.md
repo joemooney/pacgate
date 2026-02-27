@@ -970,3 +970,82 @@ Implement Phase 8: packet simulation subcommand, full IPv6 support, per-rule rat
 
 ### Git Operations
 - 6 batch commits pushed to https://github.com/joemooney/pacgate.git
+
+---
+
+## Session 11 — 2026-02-27: Phase 9 Implementation — PCAP Analysis, Synthesis, Advanced Tests, Templates
+
+### Goal
+Implement Phase 9 with five major feature areas: PCAP traffic analysis with rule suggestions, Vivado/Yosys synthesis project generation, advanced test generation (IPv6 cocotb, rate-limiter TB, coverage-driven, mutation testing), rule templates with variable substitution, and HTML documentation generation.
+
+### Actions Taken
+
+**Batch 1: PCAP Traffic Analysis + Rule Suggestions**
+- Created `src/pcap_analyze.rs` (~500 lines) — PCAP analysis engine
+  - ParsedPacket, FlowKey, FlowStats, TrafficAnalysis, SuggestedRule structs
+  - parse_packet(): L2/VLAN/IPv4/IPv6/TCP/UDP/VXLAN extraction (mirrors frame_parser.v)
+  - extract_flows(): 5-tuple aggregation with per-flow statistics
+  - analyze_traffic(): protocol distribution, top talkers, port usage
+  - suggest_rules(): whitelist (group by service), blacklist (detect floods/scans), auto mode
+  - suggestions_to_yaml(): generate valid PacGate YAML
+  - 18 unit tests
+- Added `pcap-analyze` subcommand to main.rs (--mode, --output-yaml, --max-rules, --json)
+- 4 integration tests: basic, json, yaml output, empty error
+
+**Batch 2: Vivado/Yosys Synthesis Project Generation**
+- Created `src/synth_gen.rs` (~350 lines) — synthesis project generator
+  - SynthTarget enum (Yosys{device}/Vivado{part}), YosysDevice enum
+  - collect_rtl_files(): build file list from feature flags
+  - generate_yosys_script(), generate_vivado_tcl(), generate_xdc_constraints(), generate_synth_makefile()
+  - parse_yosys_log(), parse_vivado_utilization(): post-synthesis log parsing
+  - 12 unit tests
+- Created templates: synth_yosys.ys.tera, synth_vivado.tcl.tera, synth_xdc.tera
+- Added `synth` subcommand (--target, --part, --clock-mhz, feature flags, --parse-results, --json)
+- 3 integration tests: yosys artix7, vivado project, json output
+
+**Batch 3: Advanced Test Generation**
+- Updated `verification/packet.py`: Ipv4Header, Ipv6Header dataclasses; ipv4_tcp/udp, ipv6_tcp/udp/icmp/link_local factory methods
+- Updated `verification/coverage.py`: 4 new coverpoints (ip_protocol, dst_port_range, ipv6_address_type, l3_type), protocol_x_decision cross coverage, extended sample() with **kwargs
+- Created `verification/coverage_driven.py`: CoverageDirector class with targeted packet generation per uncovered bin
+- Created `templates/test_rate_limiter.py.tera`: 5 cocotb tests (initial_burst, rate_drop, token_refill, upstream_passthrough, token_cap)
+- Created `templates/test_rate_limiter_makefile.tera`
+- Created `src/mutation.rs`: Mutation struct, 5 mutation strategies (flip action, remove rule, swap priority, flip default, remove field), generate_mutation_report()
+- Updated `src/cocotb_gen.rs`: generate_matching_ipv6(), IPv6 fields in test cases/scoreboard, generate_rate_limiter_tests()
+- Updated `templates/test_harness.py.tera`: IPv6-aware directed test construction (Ipv6Header)
+- Added `mutate` subcommand (--json for report, generates gen/mutants/mut_N/)
+- 7 integration tests: mutation json/generate/multi-rule, IPv6 test gen, rate-limiter TB
+
+**Batch 4: Rule Templates + HTML Documentation**
+- Created `src/templates_lib.rs`: RuleTemplate, TemplateVariable structs; 7 built-in templates via include_str!; find_template(), apply_template(), apply_template_to_yaml()
+- Created 7 template YAML snippets in `rules/templates/`: allow_management, block_bogons, rate_limit_dns, allow_icmp, vlan_isolation, web_server, iot_gateway
+- Created `templates/rule_documentation.html.tera`: styled HTML datasheet (summary grid, rule table, detail sections, architecture diagram, warnings)
+- Added `template` subcommand with sub-subcommands: list (--category, --json), show, apply (--set key=value, -o)
+- Added `doc` subcommand
+- 12 unit tests, 8 integration tests
+
+**Batch 5: Documentation Updates**
+- Updated CLAUDE.md, OVERVIEW.md, REQUIREMENTS.md, PROMPT_HISTORY.md
+
+### New Files
+- `src/pcap_analyze.rs`, `src/synth_gen.rs`, `src/mutation.rs`, `src/templates_lib.rs`
+- `verification/coverage_driven.py`
+- `templates/synth_yosys.ys.tera`, `templates/synth_vivado.tcl.tera`, `templates/synth_xdc.tera`
+- `templates/test_rate_limiter.py.tera`, `templates/test_rate_limiter_makefile.tera`
+- `templates/rule_documentation.html.tera`
+- `rules/templates/` (7 YAML template snippets)
+
+### Modified Files
+- `src/main.rs` — 7 new subcommands (pcap-analyze, synth, mutate, template list/show/apply, doc), TemplateAction enum
+- `src/cocotb_gen.rs` — IPv6 fields, generate_matching_ipv6(), generate_rate_limiter_tests()
+- `verification/packet.py` — Ipv4Header, Ipv6Header, L3/L4 factory methods
+- `verification/coverage.py` — L3/L4/IPv6 coverpoints, extended sample() kwargs
+- `templates/test_harness.py.tera` — IPv6 directed test support
+- `tests/integration_test.rs` — 20 new integration tests
+
+### Test Results
+- 239 Rust tests pass (174 unit + 65 integration)
+- All 18 YAML examples validate clean
+- All existing tests pass unmodified (backward compatible)
+
+### Git Operations
+- 5 batch commits pushed to https://github.com/joemooney/pacgate.git

@@ -298,3 +298,70 @@
 - REQ-321: 45 Rust integration tests (through Phase 8) [IMPLEMENTED]
 - REQ-322: IPv6 simulation tests (CIDR matching, next_header, all-fields) [IMPLEMENTED]
 - REQ-323: Rate-limited compile/JSON integration tests [IMPLEMENTED]
+
+## Phase 9 Requirements — PCAP Analysis, Synthesis, Advanced Tests, Templates [IMPLEMENTED]
+
+### PCAP Traffic Analysis
+- REQ-330: Parse PCAP files and extract L2/L3/L4/VXLAN fields from each frame [IMPLEMENTED]
+- REQ-331: Aggregate packets into 5-tuple flows with statistics (count, bytes, timing) [IMPLEMENTED]
+- REQ-332: Analyze traffic: protocol distribution, top talkers, port usage [IMPLEMENTED]
+- REQ-333: Suggest rules in whitelist mode (group by service, merge IPs) [IMPLEMENTED]
+- REQ-334: Suggest rules in blacklist mode (detect floods, port scans) [IMPLEMENTED]
+- REQ-335: Auto mode: pick whitelist/blacklist based on flow count [IMPLEMENTED]
+- REQ-336: Generate valid PacGate YAML from suggestions [IMPLEMENTED]
+- REQ-337: `pcap-analyze` subcommand with --mode, --output-yaml, --max-rules, --json [IMPLEMENTED]
+
+### Synthesis Project Generation
+- REQ-340: Generate Yosys synthesis script targeting Artix-7, iCE40, ECP5 [IMPLEMENTED]
+- REQ-341: Generate Vivado TCL project script [IMPLEMENTED]
+- REQ-342: Generate XDC timing constraints (clock, I/O delays) [IMPLEMENTED]
+- REQ-343: Generate synthesis Makefile with yosys/vivado targets [IMPLEMENTED]
+- REQ-344: Collect RTL file list based on feature flags (AXI, counters, conntrack, rate-limit, ports) [IMPLEMENTED]
+- REQ-345: Parse Yosys synthesis log for resource utilization [IMPLEMENTED]
+- REQ-346: Parse Vivado utilization report [IMPLEMENTED]
+- REQ-347: `synth` subcommand with --target, --part, --clock-mhz, feature flags, --parse-results, --json [IMPLEMENTED]
+
+### Advanced Test Generation
+- REQ-350: IPv6 directed test generation in cocotb (Ipv6Header construction) [IMPLEMENTED]
+- REQ-351: IPv6 fields wired into cocotb test case HashMap (src_ipv6, dst_ipv6, ipv6_next_header) [IMPLEMENTED]
+- REQ-352: Rate limiter standalone cocotb testbench (5 tests) [IMPLEMENTED]
+- REQ-353: Rate limiter test Makefile [IMPLEMENTED]
+- REQ-354: L3/L4/IPv6 coverage bins (ip_protocol, dst_port_range, ipv6_address_type, l3_type) [IMPLEMENTED]
+- REQ-355: Coverage-directed test generation (CoverageDirector class) [IMPLEMENTED]
+- REQ-356: IPv6 packet factory methods (ipv6_tcp, ipv6_udp, ipv6_icmp, ipv6_link_local) [IMPLEMENTED]
+- REQ-357: IPv4 packet factory methods (ipv4_tcp, ipv4_udp) [IMPLEMENTED]
+
+### Mutation Testing
+- REQ-360: Mutation engine: flip action on each rule [IMPLEMENTED]
+- REQ-361: Mutation engine: remove each rule [IMPLEMENTED]
+- REQ-362: Mutation engine: swap priorities of adjacent rules [IMPLEMENTED]
+- REQ-363: Mutation engine: flip default action [IMPLEMENTED]
+- REQ-364: Mutation engine: remove ethertype match field [IMPLEMENTED]
+- REQ-365: Generate mutation report as JSON [IMPLEMENTED]
+- REQ-366: `mutate` subcommand with --json, generates mutated YAML + Verilog + tests in gen/mutants/ [IMPLEMENTED]
+
+### Rule Templates
+- REQ-370: Rule template library with 7 built-in templates [IMPLEMENTED]
+- REQ-371: Template variable substitution (${var} patterns with defaults) [IMPLEMENTED]
+- REQ-372: Template categories: access-control, security, rate-limiting, diagnostics, segmentation, application, iot [IMPLEMENTED]
+- REQ-373: `template list` subcommand with --category filter and --json [IMPLEMENTED]
+- REQ-374: `template show` subcommand with variable details and YAML preview [IMPLEMENTED]
+- REQ-375: `template apply` subcommand with --set key=value and -o output [IMPLEMENTED]
+- REQ-376: Built-in templates: allow_management, block_bogons, rate_limit_dns, allow_icmp, vlan_isolation, web_server, iot_gateway [IMPLEMENTED]
+
+### HTML Documentation
+- REQ-380: Generate styled HTML documentation from rule set [IMPLEMENTED]
+- REQ-381: Rule summary table (name, priority, type, action, key match) [IMPLEMENTED]
+- REQ-382: Per-rule detail sections with all match criteria [IMPLEMENTED]
+- REQ-383: Architecture diagram (ASCII) [IMPLEMENTED]
+- REQ-384: Warning display section [IMPLEMENTED]
+- REQ-385: `doc` subcommand with -o output path [IMPLEMENTED]
+
+### Testing
+- REQ-390: 174 Rust unit tests (through Phase 9) [IMPLEMENTED]
+- REQ-391: 65 Rust integration tests (through Phase 9) [IMPLEMENTED]
+- REQ-392: PCAP analysis integration tests (basic, json, yaml output, empty error) [IMPLEMENTED]
+- REQ-393: Synthesis integration tests (yosys, vivado, json output) [IMPLEMENTED]
+- REQ-394: Mutation integration tests (json report, generate mutants, multi-rule) [IMPLEMENTED]
+- REQ-395: Template integration tests (list, list json, show, apply, apply with vars) [IMPLEMENTED]
+- REQ-396: Doc integration tests (html generation, enterprise rules) [IMPLEMENTED]

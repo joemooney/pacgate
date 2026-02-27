@@ -20,7 +20,9 @@
 - Whitelist/blacklist mode via default action (pass/drop)
 - Per-rule hardware counters with AXI-Lite CSR readout (`--counters` flag)
 - PCAP import for cocotb test stimulus (`pcap` subcommand)
+- **PCAP traffic analysis**: automatic rule suggestion from captured traffic (`pcap-analyze` subcommand)
 - HTML coverage report generation (`report` subcommand)
+- **HTML rule documentation**: styled datasheet generation (`doc` subcommand)
 - Rule overlap and shadow detection with warnings
 - `lint` subcommand for best-practice analysis and security checks (12 lint rules)
 - FPGA resource estimation (LUTs/FFs for Artix-7) + timing/pipeline analysis
@@ -29,12 +31,15 @@
 - Shell completions (bash/zsh/fish) via hidden `completions` subcommand
 - AXI-Stream wrapper with store-and-forward FIFO (`--axi` flag)
 - SVA assertion generation + SymbiYosys formal verification (`formal` subcommand)
+- **Synthesis project generation**: Yosys and Vivado project files (`synth` subcommand)
+- **Rule templates**: 7 built-in templates with variable substitution (`template` subcommand)
+- **Mutation testing**: rule mutation engine with mutant generation (`mutate` subcommand)
 - Property-based testing with Hypothesis strategies
 - Coverage XML export with merge support across runs
-- Yosys synthesis script + Artix-7 XDC constraints
+- Coverage-directed test generation (verification/coverage_driven.py)
 - Enhanced overlap detection with CIDR containment and port range analysis
 - 18 real-world YAML examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited)
-- 125 Rust unit tests + 45 integration tests, 13+ cocotb simulation tests, 85%+ functional coverage
+- 174 Rust unit tests + 65 integration tests, 13+ cocotb simulation tests, 85%+ functional coverage
 
 ## Architecture
 ```
@@ -96,7 +101,17 @@ pacgate pcap capture.pcap              # Import PCAP for cocotb test stimulus
 pacgate from-mermaid fsm.md --name rule --priority 100  # Mermaid → YAML
 pacgate to-mermaid rules.yaml          # YAML → Mermaid (stdout)
 pacgate simulate rules.yaml --packet "ethertype=0x0800,dst_port=80"  # Dry-run simulation
-cargo test                             # 170 tests (125 unit + 45 integration)
+pacgate pcap-analyze capture.pcap      # Analyze PCAP + suggest rules
+pacgate pcap-analyze capture.pcap -m whitelist --output-yaml rules.yaml  # Generate rules from PCAP
+pacgate synth rules.yaml --target yosys --part artix7  # Generate Yosys synthesis project
+pacgate synth rules.yaml --target vivado --part xc7a35t  # Generate Vivado project
+pacgate mutate rules.yaml              # Generate mutation test variants
+pacgate mutate rules.yaml --json       # JSON mutation report
+pacgate template list                  # List built-in rule templates
+pacgate template show allow_management # Show template details
+pacgate template apply web_server --set server_subnet=10.0.0.0/8 -o rules.yaml  # Apply template
+pacgate doc rules.yaml                 # Generate HTML rule documentation
+cargo test                             # 239 tests (174 unit + 65 integration)
 ```
 
 ## Key Files
@@ -108,7 +123,11 @@ cargo test                             # 170 tests (125 unit + 45 integration)
 - `src/pcap.rs` — PCAP file reader + cocotb stimulus generator
 - `src/mermaid.rs` — Mermaid stateDiagram-v2 parser + bidirectional converter
 - `src/simulator.rs` — Software packet simulation reference model (IPv4/IPv6 CIDR, ports, MAC wildcards)
-- `src/main.rs` — clap CLI (18 subcommands including simulate, from-mermaid, to-mermaid)
+- `src/pcap_analyze.rs` — PCAP traffic analysis + automatic rule suggestion engine
+- `src/synth_gen.rs` — Synthesis project file generation (Yosys/Vivado)
+- `src/mutation.rs` — Rule mutation engine for mutation testing
+- `src/templates_lib.rs` — Rule template library (7 built-in templates)
+- `src/main.rs` — clap CLI (24 subcommands)
 - `rtl/frame_parser.v` — Hand-written Ethernet/IPv4/IPv6/TCP/UDP/VXLAN parser FSM
 - `rtl/rule_counters.v` — Per-rule 64-bit packet/byte counters
 - `rtl/axi_lite_csr.v` — AXI4-Lite register interface for counters
@@ -117,9 +136,10 @@ cargo test                             # 170 tests (125 unit + 45 integration)
 - `rtl/packet_filter_axi_top.v` — AXI-Stream top-level integrating all modules
 - `rtl/conntrack_table.v` — Connection tracking hash table with CRC hash + timeout
 - `rtl/rate_limiter.v` — Token-bucket rate limiter (parameterized PPS, BURST)
-- `templates/*.tera` — 12 Tera templates (+ byte_capture, multiport top, HTML report)
-- `verification/` — Python verification framework (packet, scoreboard, coverage, driver, properties)
+- `templates/*.tera` — 16 Tera templates (+ synth scripts, rate limiter TB, HTML docs)
+- `verification/` — Python verification framework (packet, scoreboard, coverage, driver, properties, coverage_driven)
 - `rules/examples/` — 18 YAML examples
+- `rules/templates/` — 7 rule template YAML snippets
 - `.github/workflows/ci.yml` — GitHub Actions CI pipeline
 
 ## Design Decisions
@@ -156,3 +176,4 @@ cargo test                             # 170 tests (125 unit + 45 integration)
 - **Phase 6**: Complete — L3/L4 matching (IPv4/TCP/UDP), per-rule counters, PCAP import, HTML reports, VXLAN tunnel parsing
 - **Phase 7**: Complete — Byte-offset matching, hierarchical state machines, Mermaid import/export, multi-port switch fabric, connection tracking
 - **Phase 8**: Complete — IPv6 support, packet simulation, rate limiting, enhanced lint (12 rules), CIDR/port overlap detection
+- **Phase 9**: Complete — PCAP analysis, synthesis project generation, advanced test gen (IPv6/rate-limiter/mutation/coverage-driven), rule templates, HTML documentation

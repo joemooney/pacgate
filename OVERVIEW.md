@@ -98,6 +98,15 @@ UVM-inspired Python verification environment with:
 - `pacgate from-mermaid fsm.md --name rule --priority 100` — Import Mermaid stateDiagram to YAML
 - `pacgate to-mermaid rules.yaml` — Export YAML FSM rules to Mermaid stateDiagram-v2
 - `pacgate simulate rules.yaml --packet "ethertype=0x0800,dst_port=80"` — Software dry-run simulation
+- `pacgate pcap-analyze capture.pcap` — Analyze PCAP traffic, suggest rules (whitelist/blacklist/auto)
+- `pacgate pcap-analyze capture.pcap --output-yaml rules.yaml` — Auto-generate rules from traffic
+- `pacgate synth rules.yaml --target yosys --part artix7` — Generate Yosys synthesis project
+- `pacgate synth rules.yaml --target vivado --part xc7a35t` — Generate Vivado TCL project
+- `pacgate mutate rules.yaml` — Generate mutation test variants (flip action, remove rule, swap priority)
+- `pacgate template list` — List built-in rule templates (7 templates across security/access/IoT/etc.)
+- `pacgate template show <name>` — Show template details and variables
+- `pacgate template apply <name> --set key=value -o rules.yaml` — Apply template with variable substitution
+- `pacgate doc rules.yaml` — Generate styled HTML rule documentation datasheet
 - All commands except `init`, `graph`, `report` support `--json` for machine-readable output
 
 ## Examples
@@ -116,12 +125,14 @@ UVM-inspired Python verification environment with:
 - Rate-limited rules (HTTP/DNS/SSH token-bucket limiting)
 
 ## Quality
-- 125 Rust unit tests (model parsing, validation, CIDR/port overlap, IPv4/IPv6, PCAP, byte-match, HSM, Mermaid, simulation)
-- 45 Rust integration tests (full compile pipeline, AXI, formal, lint, L3/L4, IPv6, VXLAN, counters, PCAP, report, byte-match, HSM, Mermaid, multi-port, conntrack, rate-limit, simulate)
+- 174 Rust unit tests (model parsing, validation, CIDR/port overlap, IPv4/IPv6, PCAP, byte-match, HSM, Mermaid, simulation, PCAP analysis, synthesis, mutation, templates)
+- 65 Rust integration tests (full compile pipeline, AXI, formal, lint, L3/L4, IPv6, VXLAN, counters, PCAP, report, byte-match, HSM, Mermaid, multi-port, conntrack, rate-limit, simulate, pcap-analyze, synth, mutate, template, doc)
 - 13+ cocotb simulation tests (directed + 500-packet random + corner cases)
 - 85%+ functional coverage with varied frame sizes and VLAN-tagged traffic
 - Rule overlap and shadow detection with CIDR containment and port range analysis
 - Best-practice linting with 12 lint rules (LINT001-012)
+- Mutation testing: 5 mutation strategies with automatic mutant generation
+- Coverage-directed test generation with targeted gap-filling
 - Property-based testing with Hypothesis for invariant verification
 - SVA formal assertions for mathematical correctness proofs
 
@@ -134,6 +145,7 @@ UVM-inspired Python verification environment with:
 - **Phase 6** (complete): L3/L4 matching, per-rule counters, PCAP import, HTML reports, VXLAN tunnel parsing
 - **Phase 7** (complete): Byte-offset matching, hierarchical state machines, Mermaid import/export, multi-port switch fabric, connection tracking
 - **Phase 8** (complete): IPv6 support, packet simulation, rate limiting, enhanced lint (12 rules), CIDR/port overlap detection
+- **Phase 9** (complete): PCAP analysis + rule suggestions, Yosys/Vivado synthesis projects, advanced test generation (IPv6 cocotb, rate-limiter TB, mutation testing, coverage-driven), rule templates (7 built-in), HTML documentation
 
 ## Documentation
 - `README.md` — Project showcase and quick start
