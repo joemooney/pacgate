@@ -508,6 +508,34 @@ fn pcap_import() {
     assert!(stimulus.contains("PCAP_FRAMES"), "missing PCAP_FRAMES");
 }
 
+// ── Byte-Match Integration Tests ──────────────────────────────────
+
+#[test]
+fn compile_byte_match() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/byte_match.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // Should generate byte_capture module
+    assert!(tmp.path().join("rtl/byte_capture.v").exists(), "byte_capture.v missing");
+    let byte_cap = std::fs::read_to_string(tmp.path().join("rtl/byte_capture.v")).unwrap();
+    assert!(byte_cap.contains("module byte_capture"), "byte_capture module missing");
+    assert!(byte_cap.contains("byte_cap_14"), "byte_cap_14 register missing");
+    assert!(byte_cap.contains("byte_cap_47"), "byte_cap_47 register missing");
+
+    // Top-level should instantiate byte_capture
+    let top = std::fs::read_to_string(tmp.path().join("rtl/packet_filter_top.v")).unwrap();
+    assert!(top.contains("byte_capture"), "byte_capture instantiation missing from top");
+    assert!(top.contains("byte_cap_14"), "byte_cap_14 wiring missing from top");
+
+    // Rule matcher should use byte_cap inputs
+    let rule0 = std::fs::read_to_string(tmp.path().join("rtl/rule_match_0.v")).unwrap();
+    assert!(rule0.contains("byte_cap_14"), "byte_cap_14 missing from rule matcher");
+}
+
 #[test]
 fn validate_l3l4_firewall() {
     let output = pacgate_bin()

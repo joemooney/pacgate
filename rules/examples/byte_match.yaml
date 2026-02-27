@@ -1,0 +1,32 @@
+# byte_match.yaml — Byte-offset matching example
+# Demonstrates raw byte matching at specific packet offsets
+#
+# Example matches:
+#   - IPv4 version nibble at offset 14 (first byte after Ethernet header)
+#   - TCP SYN flag at offset 47 (TCP flags byte in standard IPv4/TCP frame)
+
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: match_ipv4_version
+      priority: 200
+      match:
+        ethertype: "0x0800"
+        byte_match:
+          - offset: 14
+            value: "0x45"
+            mask: "0xf0"
+      action: pass
+
+    - name: match_tcp_syn
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        byte_match:
+          - offset: 47
+            value: "0x02"
+            mask: "0x02"
+      action: drop

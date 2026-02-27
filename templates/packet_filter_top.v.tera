@@ -66,6 +66,27 @@ module packet_filter_top (
         .fields_valid (fields_valid)
     );
 
+{% if has_byte_capture %}
+    // Byte capture module
+{% for cap in byte_captures %}
+    wire [{{ cap.bit_width - 1 }}:0] byte_cap_{{ cap.offset }};
+{% endfor %}
+    wire captures_valid;
+
+    byte_capture u_byte_capture (
+        .clk            (clk),
+        .rst_n          (rst_n),
+        .pkt_data       (pkt_data),
+        .pkt_valid      (pkt_valid),
+        .pkt_sof        (pkt_sof),
+        .pkt_eof        (pkt_eof),
+{% for cap in byte_captures %}
+        .byte_cap_{{ cap.offset }}  (byte_cap_{{ cap.offset }}),
+{% endfor %}
+        .captures_valid (captures_valid)
+    );
+{% endif %}
+
     // Per-rule matchers (stateless: combinational, stateful: registered FSM)
 {% for rule in rules %}
     wire match_hit_{{ rule.index }};
@@ -87,6 +108,11 @@ module packet_filter_top (
         .src_port     (src_port),
         .dst_port     (dst_port),
         .vxlan_vni    (vxlan_vni),
+{% if has_byte_capture %}
+{% for cap in byte_captures %}
+        .byte_cap_{{ cap.offset }}  (byte_cap_{{ cap.offset }}),
+{% endfor %}
+{% endif %}
         .fields_valid (fields_valid),
         .match_hit    (match_hit_{{ rule.index }}),
         .match_action (match_action_{{ rule.index }})

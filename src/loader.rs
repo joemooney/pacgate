@@ -71,6 +71,30 @@ fn validate_match_criteria(mc: &crate::model::MatchCriteria, rule_name: &str) ->
             anyhow::bail!("VXLAN VNI must be 0-16777215 (24-bit), got {} in rule '{}'", vni, rule_name);
         }
     }
+    // Byte-offset matching validation
+    if let Some(ref byte_matches) = mc.byte_match {
+        if byte_matches.len() > 4 {
+            anyhow::bail!("Max 4 byte_match entries per rule, got {} in rule '{}'", byte_matches.len(), rule_name);
+        }
+        for bm in byte_matches {
+            if bm.offset > 1500 {
+                anyhow::bail!("byte_match offset must be <= 1500, got {} in rule '{}'", bm.offset, rule_name);
+            }
+            let value_bytes = crate::model::ByteMatch::parse_hex_value(&bm.value)
+                .map_err(|e| anyhow::anyhow!("Bad byte_match value in rule '{}': {}", rule_name, e))?;
+            if value_bytes.len() > 4 {
+                anyhow::bail!("byte_match value must be <= 4 bytes, got {} in rule '{}'", value_bytes.len(), rule_name);
+            }
+            if let Some(ref mask) = bm.mask {
+                let mask_bytes = crate::model::ByteMatch::parse_hex_value(mask)
+                    .map_err(|e| anyhow::anyhow!("Bad byte_match mask in rule '{}': {}", rule_name, e))?;
+                if mask_bytes.len() != value_bytes.len() {
+                    anyhow::bail!("byte_match mask length ({}) must equal value length ({}) in rule '{}'",
+                        mask_bytes.len(), value_bytes.len(), rule_name);
+                }
+            }
+        }
+    }
     Ok(())
 }
 
@@ -192,6 +216,7 @@ pub fn check_rule_overlaps(rules: &[crate::model::StatelessRule]) -> Vec<String>
             && mc.src_ip.is_none() && mc.dst_ip.is_none() && mc.ip_protocol.is_none()
             && mc.src_port.is_none() && mc.dst_port.is_none()
             && mc.vxlan_vni.is_none()
+            && !mc.uses_byte_match()
         {
             warnings.push(format!(
                 "rule '{}' (priority {}) has no match criteria — matches ALL packets",
@@ -761,6 +786,44 @@ pacgate:
         );
         let err = load_rules_from_str(&yaml).unwrap_err();
         assert!(err.to_string().contains("VXLAN VNI must be"), "got: {}", err);
+    }
+
+    // --- Byte-match validation tests ---
+
+    #[test]
+    fn accept_byte_match() {
+        let yaml = valid_yaml(
+            "    - name: ipv4_ver\n      priority: 100\n      match:\n        byte_match:\n          - offset: 14\n            value: \"0x45\"\n            mask: \"0xf0\"\n      action: pass",
+        );
+        let config = load_rules_from_str(&yaml).unwrap();
+        assert!(config.pacgate.rules[0].match_criteria.byte_match.is_some());
+    }
+
+    #[test]
+    fn reject_byte_match_too_many() {
+        let yaml = valid_yaml(
+            "    - name: too_many\n      priority: 100\n      match:\n        byte_match:\n          - offset: 0\n            value: \"0x45\"\n          - offset: 1\n            value: \"0x45\"\n          - offset: 2\n            value: \"0x45\"\n          - offset: 3\n            value: \"0x45\"\n          - offset: 4\n            value: \"0x45\"\n      action: pass",
+        );
+        let err = load_rules_from_str(&yaml).unwrap_err();
+        assert!(err.to_string().contains("Max 4 byte_match"), "got: {}", err);
+    }
+
+    #[test]
+    fn reject_byte_match_offset_too_large() {
+        let yaml = valid_yaml(
+            "    - name: big_off\n      priority: 100\n      match:\n        byte_match:\n          - offset: 1501\n            value: \"0x45\"\n      action: pass",
+        );
+        let err = load_rules_from_str(&yaml).unwrap_err();
+        assert!(err.to_string().contains("offset must be <= 1500"), "got: {}", err);
+    }
+
+    #[test]
+    fn reject_byte_match_mask_length_mismatch() {
+        let yaml = valid_yaml(
+            "    - name: bad_mask\n      priority: 100\n      match:\n        byte_match:\n          - offset: 14\n            value: \"0x4500\"\n            mask: \"0xf0\"\n      action: pass",
+        );
+        let err = load_rules_from_str(&yaml).unwrap_err();
+        assert!(err.to_string().contains("mask length"), "got: {}", err);
     }
 
     #[test]

@@ -13,6 +13,11 @@ module rule_match_{{ rule_index }} (
     input  wire [15:0] src_port,
     input  wire [15:0] dst_port,
     input  wire [23:0] vxlan_vni,
+{% if has_byte_capture %}
+{% for cap in byte_captures %}
+    input  wire [{{ cap.bit_width - 1 }}:0] byte_cap_{{ cap.offset }},
+{% endfor %}
+{% endif %}
     input  wire        fields_valid,
 
     output wire        match_hit,

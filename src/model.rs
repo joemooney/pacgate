@@ -23,6 +23,18 @@ pub struct MatchCriteria {
     pub dst_port: Option<PortMatch>,
     // VXLAN tunnel
     pub vxlan_vni: Option<u32>,
+    // Byte-offset matching
+    #[serde(default)]
+    pub byte_match: Option<Vec<ByteMatch>>,
+}
+
+/// Byte-offset matching: match raw bytes at a specific offset in the packet
+#[derive(Debug, Clone, Deserialize)]
+pub struct ByteMatch {
+    pub offset: u16,
+    pub value: String,
+    #[serde(default)]
+    pub mask: Option<String>,
 }
 
 /// Port matching: exact value or range
@@ -89,6 +101,11 @@ impl MatchCriteria {
         self.src_ip.is_some() || self.dst_ip.is_some() || self.ip_protocol.is_some()
             || self.src_port.is_some() || self.dst_port.is_some()
             || self.vxlan_vni.is_some()
+    }
+
+    /// Returns true if this criteria uses byte_match
+    pub fn uses_byte_match(&self) -> bool {
+        self.byte_match.as_ref().map(|v| !v.is_empty()).unwrap_or(false)
     }
 }
 
@@ -204,6 +221,50 @@ impl MacAddress {
             self.mask[0], self.mask[1], self.mask[2],
             self.mask[3], self.mask[4], self.mask[5]
         )
+    }
+}
+
+impl ByteMatch {
+    /// Parse hex string like "0x45" or "0x4500" into bytes
+    pub fn parse_hex_value(s: &str) -> anyhow::Result<Vec<u8>> {
+        let s = s.trim_start_matches("0x").trim_start_matches("0X");
+        if s.len() % 2 != 0 {
+            anyhow::bail!("Hex value must have even number of digits: {}", s);
+        }
+        let mut bytes = Vec::new();
+        for i in (0..s.len()).step_by(2) {
+            let byte = u8::from_str_radix(&s[i..i+2], 16)
+                .map_err(|e| anyhow::anyhow!("Bad hex byte in '{}': {}", s, e))?;
+            bytes.push(byte);
+        }
+        Ok(bytes)
+    }
+
+    /// Number of bytes in the value
+    pub fn byte_len(&self) -> anyhow::Result<usize> {
+        Ok(Self::parse_hex_value(&self.value)?.len())
+    }
+
+    /// Value as Verilog hex literal
+    pub fn to_verilog_value(&self) -> anyhow::Result<String> {
+        let bytes = Self::parse_hex_value(&self.value)?;
+        let bits = bytes.len() * 8;
+        let hex: String = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+        Ok(format!("{}'h{}", bits, hex))
+    }
+
+    /// Mask as Verilog hex literal (all-ones if no mask specified)
+    pub fn to_verilog_mask(&self) -> anyhow::Result<String> {
+        let value_bytes = Self::parse_hex_value(&self.value)?;
+        let bits = value_bytes.len() * 8;
+        if let Some(ref mask) = self.mask {
+            let mask_bytes = Self::parse_hex_value(mask)?;
+            let hex: String = mask_bytes.iter().map(|b| format!("{:02x}", b)).collect();
+            Ok(format!("{}'h{}", bits, hex))
+        } else {
+            let hex: String = value_bytes.iter().map(|_| "ff".to_string()).collect();
+            Ok(format!("{}'h{}", bits, hex))
+        }
     }
 }
 
@@ -508,6 +569,49 @@ pacgate:
         let rule = &config.pacgate.rules[0];
         assert_eq!(rule.match_criteria.vlan_id, Some(100));
         assert_eq!(rule.match_criteria.vlan_pcp, Some(5));
+    }
+
+    // --- ByteMatch parsing ---
+
+    #[test]
+    fn byte_match_parse_hex() {
+        let bytes = ByteMatch::parse_hex_value("0x45").unwrap();
+        assert_eq!(bytes, vec![0x45]);
+    }
+
+    #[test]
+    fn byte_match_parse_multi_byte() {
+        let bytes = ByteMatch::parse_hex_value("0x4500").unwrap();
+        assert_eq!(bytes, vec![0x45, 0x00]);
+    }
+
+    #[test]
+    fn byte_match_reject_odd_digits() {
+        assert!(ByteMatch::parse_hex_value("0x456").is_err());
+    }
+
+    #[test]
+    fn byte_match_verilog_value() {
+        let bm = ByteMatch { offset: 14, value: "0x45".to_string(), mask: None };
+        assert_eq!(bm.to_verilog_value().unwrap(), "8'h45");
+    }
+
+    #[test]
+    fn byte_match_verilog_mask_default() {
+        let bm = ByteMatch { offset: 14, value: "0x4500".to_string(), mask: None };
+        assert_eq!(bm.to_verilog_mask().unwrap(), "16'hffff");
+    }
+
+    #[test]
+    fn byte_match_verilog_mask_custom() {
+        let bm = ByteMatch { offset: 14, value: "0x45".to_string(), mask: Some("0xf0".to_string()) };
+        assert_eq!(bm.to_verilog_mask().unwrap(), "8'hf0");
+    }
+
+    #[test]
+    fn byte_match_byte_len() {
+        let bm = ByteMatch { offset: 0, value: "0x001122".to_string(), mask: None };
+        assert_eq!(bm.byte_len().unwrap(), 3);
     }
 
     #[test]
