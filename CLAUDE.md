@@ -17,6 +17,7 @@
 - **Connection tracking**: CRC-based hash table with timeout (`--conntrack`)
 - **IPv6 matching**: src_ipv6, dst_ipv6 (CIDR prefix), ipv6_next_header
 - **Packet simulation**: software dry-run with `simulate` subcommand (no hardware needed)
+- **Stateful simulation**: `--stateful` flag enables rate-limit + conntrack in software dry-run
 - **Rate limiting**: per-rule token-bucket rate limiter RTL (`--rate-limit`)
 - Stateful FSM rules: sequence detection with timeout counters
 - Priority-based first-match-wins decision logic
@@ -33,7 +34,7 @@
 - **Full-stack scoreboard**: Python reference model matches L2/L3/L4/IPv6/VXLAN/GTP-U/MPLS/IGMP/MLD/byte-match fields
 - **Directed L3/L4 tests**: generated tests construct proper IPv4/IPv6/TCP/UDP headers
 - **Byte-match simulation**: software simulator evaluates byte_match rules with raw_bytes
-- **Enhanced formal**: SVA assertions for IPv6 CIDR, port range, rate limiter, byte-match, GTP-U, MPLS, IGMP/MLD correctness
+- **Enhanced formal**: SVA assertions for IPv6 CIDR, port range, rate limiter enforcement, byte-match, GTP-U/MPLS/IGMP/MLD prerequisite + bounds assertions with protocol cover statements
 - **Conntrack cocotb tests**: 5 tests (new flow, return traffic, timeout, collision, overflow)
 - **MCY Verilog mutation testing**: generate MCY config for Yosys-level mutation analysis (`mcy` subcommand)
 - **Mutation kill-rate runner**: compile + lint each mutant, report kill/survived/error rates (`mutate --run`)
@@ -55,7 +56,7 @@
 - Coverage-directed test generation (verification/coverage_driven.py)
 - Enhanced overlap detection with CIDR containment and port range analysis
 - 21 real-world YAML examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast)
-- 226 Rust unit tests + 142 integration tests = 368 total, 43 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
+- 237 Rust unit tests + 151 integration tests = 388 total, 47 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
 
 ## Architecture
 ```
@@ -117,6 +118,7 @@ pacgate pcap capture.pcap              # Import PCAP for cocotb test stimulus
 pacgate from-mermaid fsm.md --name rule --priority 100  # Mermaid → YAML
 pacgate to-mermaid rules.yaml          # YAML → Mermaid (stdout)
 pacgate simulate rules.yaml --packet "ethertype=0x0800,dst_port=80"  # Dry-run simulation
+pacgate simulate rules.yaml --packet "..." --stateful                # Stateful sim (rate-limit + conntrack)
 pacgate simulate rules.yaml --packet "gtp_teid=12345"               # GTP-U tunnel simulation
 pacgate simulate rules.yaml --packet "mpls_label=1000,mpls_bos=1"   # MPLS label simulation
 pacgate simulate rules.yaml --packet "igmp_type=0x11"               # IGMP multicast simulation
@@ -138,8 +140,8 @@ pacgate doc rules.yaml                 # Generate HTML rule documentation
 pacgate bench rules.yaml               # Benchmark compile time + simulation throughput + LUT/FF scaling
 pacgate bench rules.yaml --json        # JSON benchmark report
 pacgate diff old.yaml new.yaml --html report.html  # Generate HTML diff visualization report
-cargo test                             # 368 tests (226 unit + 142 integration)
-pytest verification/test_scoreboard.py # 43 Python scoreboard unit tests
+cargo test                             # 388 tests (237 unit + 151 integration)
+pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 ```
 
 ## Key Files
@@ -219,3 +221,4 @@ pytest verification/test_scoreboard.py # 43 Python scoreboard unit tests
 - **Phase 13**: Complete — Verification framework enhancements: coverage wiring (L3/L4 kwargs, CoverageDirector, XML export), boundary/negative test generation, MCY Verilog mutation testing, mutation kill-rate runner, CI improvements
 - **Phase 14**: Complete — Protocol verification completeness: GTP-U/MPLS/IGMP/MLD in Python scoreboard + packet factory + test templates (directed+random) + SVA formal assertions + shadow/overlap detection + stats/graph/diff/estimate/doc; fixed diff_rules() L3/L4/IPv6 bug
 - **Phase 15**: Complete — Verification depth & tool completeness: reachability analysis with protocol fields + stateful rule tracking, 11 mutation types (6 new: widen_src_ip, shift_dst_port, remove_gtp_teid/mpls_label/igmp_type/vxlan_vni), 5 new coverage coverpoints (tunnel_type, mpls_present, igmp_type_range, mld_type_range, gtp_teid_range), fixed conntrack test assertions, 4 Hypothesis strategies (GTP-U/MPLS/IGMP/MLD frames), 9 property checks wired in runner, LINT013-015 (GTP/MPLS/IGMP/MLD prerequisite checks), CI simulate matrix expanded to 8 examples
+- **Phase 16**: Complete — Simulator completeness + verification depth: rate-limit simulation (token-bucket in software), conntrack simulation (5-tuple hash + reverse lookup), --stateful CLI flag, strengthened SVA (rate-limit enforcement, GTP/MPLS/IGMP/MLD prereq + bounds assertions, protocol cover statements), protocol property tests wired into generated test files, byte_match in HTML docs, CI expansion (conntrack-simulate, formal-generate, rate-limit-simulate jobs)

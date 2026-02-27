@@ -609,7 +609,49 @@
 - REQ-961: Property test step uses continue-on-error instead of || true [IMPLEMENTED]
 
 ### Testing
-- REQ-970: 226 Rust unit tests (through Phase 15) [IMPLEMENTED]
-- REQ-971: 142 Rust integration tests (through Phase 15) [IMPLEMENTED]
-- REQ-972: 43 Python scoreboard unit tests (through Phase 15) [IMPLEMENTED]
+- REQ-970: 237 Rust unit tests (through Phase 16) [IMPLEMENTED]
+- REQ-971: 151 Rust integration tests (through Phase 16) [IMPLEMENTED]
+- REQ-972: 47 Python scoreboard unit tests (through Phase 16) [IMPLEMENTED]
 - REQ-973: Integration tests for LINT013/014/015 and reachability protocol fields [IMPLEMENTED]
+
+## Phase 16 — Simulator Completeness & Verification Depth
+
+### Rate Limit Simulation
+- REQ-1000: SimRateLimitState with token-bucket per rate-limited rule [IMPLEMENTED]
+- REQ-1001: Token refill based on PPS rate and elapsed time, capped at burst [IMPLEMENTED]
+- REQ-1002: simulate_with_rate_limit() applies rate limiting after rule match [IMPLEMENTED]
+- REQ-1003: Exhausted tokens return default action with rule_name "rate_limited" [IMPLEMENTED]
+
+### Connection Tracking Simulation
+- REQ-1010: SimConntrackTable with 5-tuple hashing (src/dst IP, protocol, src/dst port) [IMPLEMENTED]
+- REQ-1011: Reverse-flow lookup for return traffic with timeout check [IMPLEMENTED]
+- REQ-1012: simulate_stateful() combines rate-limit and conntrack evaluation [IMPLEMENTED]
+
+### Stateful CLI Flag
+- REQ-1020: --stateful flag on simulate subcommand enables rate-limit + conntrack [IMPLEMENTED]
+- REQ-1021: JSON output includes rate_limited and stateful fields when --stateful [IMPLEMENTED]
+
+### Formal Assertion Strengthening
+- REQ-1030: Rate-limit SVA: assert rate_limiter_drop → !decision_pass [IMPLEMENTED]
+- REQ-1031: GTP prerequisite: per-rule assert match → parsed_ip_protocol == UDP [IMPLEMENTED]
+- REQ-1032: MPLS bounds: assert TC <= 7 and label <= 20-bit when valid [IMPLEMENTED]
+- REQ-1033: IGMP prerequisite: per-rule assert match → ip_protocol == 2 [IMPLEMENTED]
+- REQ-1034: MLD prerequisite: per-rule assert match → ipv6_next_header == 58 [IMPLEMENTED]
+- REQ-1035: Protocol cover statements (parsed_gtp_valid, parsed_mpls_valid, etc.) [IMPLEMENTED]
+
+### Protocol Property Tests
+- REQ-1040: Generated test_properties.py includes GTP/MPLS/IGMP/MLD Hypothesis tests when rules use protocol fields [IMPLEMENTED]
+- REQ-1041: Protocol strategies (gtp_u_frames, mpls_frames, igmp_frames, mld_frames) imported into generated tests [IMPLEMENTED]
+
+### Documentation Fix
+- REQ-1050: byte_match fields displayed in HTML doc output [IMPLEMENTED]
+
+### CI Pipeline
+- REQ-1060: conntrack-simulate job: compile + cocotb simulation of hsm_conntrack [IMPLEMENTED]
+- REQ-1061: formal-generate job: compile + formal + verify SVA assertions [IMPLEMENTED]
+- REQ-1062: rate-limit-simulate job: compile + simulate --stateful [IMPLEMENTED]
+
+### Testing
+- REQ-1070: 237 Rust unit tests (through Phase 16) [IMPLEMENTED]
+- REQ-1071: 151 Rust integration tests (through Phase 16) [IMPLEMENTED]
+- REQ-1072: 47 Python scoreboard unit tests (through Phase 16) [IMPLEMENTED]

@@ -208,6 +208,132 @@ jobs:
       - name: Lint generated Verilog (multi-flag)
         run: iverilog -g2012 -o /dev/null gen/rtl/*.v rtl/*.v
 
+  conntrack-simulate:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+
+      - name: Install Icarus Verilog
+        run: sudo apt-get update && sudo apt-get install -y iverilog
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install cocotb pytest hypothesis
+
+      - name: Build PacGate compiler
+        run: cargo build --release
+
+      - name: Compile with --conntrack
+        run: cargo run --release -- compile rules/examples/hsm_conntrack.yaml --conntrack
+
+      - name: Lint generated Verilog (conntrack)
+        run: iverilog -g2012 -o /dev/null gen/rtl/*.v rtl/*.v
+
+      - name: Run conntrack cocotb simulation
+        run: |
+          source .venv/bin/activate
+          cd gen/tb && make
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-conntrack
+          path: gen/tb/results.xml
+
+      - name: Upload waveforms on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: waveforms-conntrack
+          path: gen/tb/sim_build/*.fst
+
+  formal-generate:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+
+      - name: Install Icarus Verilog
+        run: sudo apt-get update && sudo apt-get install -y iverilog
+
+      - name: Build PacGate compiler
+        run: cargo build --release
+
+      - name: Compile GTP rules
+        run: cargo run --release -- compile rules/examples/gtp_5g.yaml
+
+      - name: Generate formal assertions
+        run: cargo run --release -- formal rules/examples/gtp_5g.yaml
+
+      - name: Verify SVA contains expected assertions
+        run: |
+          grep -q "parsed_ip_protocol == 8'd17" gen/formal/assertions.sv
+          grep -q "cover property" gen/formal/assertions.sv
+          echo "SVA assertion checks passed"
+
+      - name: Lint generated formal SVA
+        run: iverilog -g2012 -o /dev/null gen/rtl/*.v rtl/*.v
+
+  rate-limit-simulate:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+
+      - name: Build PacGate compiler
+        run: cargo build --release
+
+      - name: Compile with --rate-limit
+        run: cargo run --release -- compile rules/examples/rate_limited.yaml --rate-limit
+
+      - name: Simulate with --stateful
+        run: cargo run --release -- simulate rules/examples/rate_limited.yaml --packet "ethertype=0x0800,ip_protocol=6,dst_port=80" --stateful --json
+
   lint-stateful:
     runs-on: ubuntu-latest
     needs: build-and-test

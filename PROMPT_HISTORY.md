@@ -1432,3 +1432,82 @@ Close verification gaps left by Phases 12-14: reachability analysis missing prot
 
 ### Git Operations
 - Commits pushed to https://github.com/joemooney/pacgate.git after each batch
+
+---
+
+## Session 16 — 2026-02-27: Phase 16 — Simulator Completeness & Verification Depth
+
+### Goal
+Complete simulator subsystems (rate-limit, conntrack) and strengthen verification (formal assertions, protocol property tests, byte_match docs, CI expansion).
+
+### Actions Taken
+
+**Batch 1: Rate Limit Simulation**
+1. Modified `src/simulator.rs`:
+   - Added `SimRateLimitState` struct (token-bucket per rule, HashMap<String, f64>)
+   - `new()` initializes tokens to burst value for each rate-limited rule
+   - `refill()` adds pps × elapsed tokens, capped at burst
+   - `try_consume()` decrements token if >= 1.0, returns bool
+   - `simulate_with_rate_limit()` wraps simulate() with rate-limit enforcement
+   - If tokens exhausted, returns default action with rule_name "rate_limited"
+   - 8 unit tests covering initialization, refill, cap, consume, and integration
+
+**Batch 2: Conntrack Simulation + --stateful CLI Flag**
+2. Modified `src/simulator.rs`:
+   - Added `SimConntrackTable` struct (HashMap<u64, (String, u64)> with timeout)
+   - `hash_5tuple()` hashes src/dst IP, protocol, src/dst port
+   - `hash_reverse()` swaps src/dst for return traffic lookup
+   - `insert_flow()` and `check_return()` with timeout checking
+   - `simulate_stateful()` combines rate-limit + conntrack evaluation
+   - 3 unit tests (hash determinism, insert/check return, timeout expiry)
+3. Modified `src/main.rs`:
+   - Added `--stateful` flag to Simulate subcommand
+   - Handler uses `simulate_stateful()` when flag is set
+   - JSON output includes `rate_limited` and `stateful` fields
+   - 2 integration tests (flag accepted, stateful JSON output)
+
+**Batch 3: Formal Assertion Strengthening**
+4. Modified `src/formal_gen.rs`:
+   - Build per-rule protocol index lists (gtp_rule_indices, mpls_rule_indices, igmp_rule_indices, mld_rule_indices)
+   - Pass indices to SVA template context
+5. Modified `templates/assertions.sv.tera`:
+   - Rate-limit: assert `rate_limiter_drop → !decision_pass` (replaces tautology)
+   - GTP prerequisite: per-rule `match_hit_N → parsed_ip_protocol == 8'd17`
+   - MPLS bounds: `parsed_mpls_tc <= 3'd7` and `parsed_mpls_label <= 20'hFFFFF`
+   - IGMP prerequisite: per-rule `match_hit_N → parsed_ip_protocol == 8'd2`
+   - MLD prerequisite: per-rule `match_hit_N → parsed_ipv6_next_header == 8'd58`
+   - Protocol cover statements (parsed_gtp_valid, parsed_mpls_valid, parsed_igmp_valid, parsed_mld_valid)
+   - Cover for rate_limiter_drop
+   - 3 integration tests (GTP prereq, MPLS bounds, cover statements)
+
+**Batch 4: Protocol Property Tests + Doc byte_match Fix**
+6. Modified `src/cocotb_gen.rs`:
+   - Pass has_gtp_rules, has_mpls_rules, has_igmp_rules, has_mld_rules to property test template
+7. Modified `templates/test_properties.py.tera`:
+   - Import gtp_u_frames, mpls_frames, igmp_frames, mld_frames strategies + check functions
+   - Conditional GTP/MPLS/IGMP/MLD Hypothesis tests when rules use protocol fields
+8. Modified `src/main.rs`:
+   - byte_match fields now included in HTML doc output (generate_rule_documentation)
+9. Modified `verification/test_scoreboard.py`:
+   - Added TestProtocolDeterminism class with 4 tests (GTP, MPLS, IGMP, MLD determinism)
+   - 2 integration tests (GTP strategy generated, doc byte_match displayed)
+
+**Batch 5: CI Expansion + Documentation**
+10. Modified `.github/workflows/ci.yml`:
+    - Added conntrack-simulate job (compile --conntrack + cocotb simulation + artifact upload)
+    - Added formal-generate job (compile + formal + SVA verification + iverilog lint)
+    - Added rate-limit-simulate job (compile --rate-limit + simulate --stateful --json)
+11. Modified `tests/integration_test.rs`:
+    - simulate_stateful_json_output: verify stateful JSON has rate_limited and stateful fields
+    - all_examples_simulate_basic: loop 4 key examples with simulate --json
+12. Updated CLAUDE.md, OVERVIEW.md, REQUIREMENTS.md, PROMPT_HISTORY.md
+
+### Test Results
+- 237 unit tests — all PASS
+- 151 integration tests — all PASS
+- Total: 388 Rust tests (from 368 in Phase 15)
+- 47 Python scoreboard tests (from 43 in Phase 15)
+- All 21 YAML examples compile unchanged
+
+### Git Operations
+- Commits pushed to https://github.com/joemooney/pacgate.git after each batch

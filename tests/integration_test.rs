@@ -2547,6 +2547,43 @@ fn simulate_stateful_rate_limit_drops() {
 }
 
 #[test]
+fn simulate_stateful_json_output() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/rate_limited.yaml",
+               "--packet", "ethertype=0x0800,ip_protocol=6,dst_port=80",
+               "--stateful", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    assert_eq!(json["status"], "ok");
+    assert!(json.get("rate_limited").is_some(), "stateful JSON should include rate_limited field");
+    assert!(json.get("stateful").is_some(), "stateful JSON should include stateful field");
+}
+
+#[test]
+fn all_examples_simulate_basic() {
+    // Verify key examples can be simulated without error
+    let examples = vec![
+        ("allow_arp", "ethertype=0x0806"),
+        ("l3l4_firewall", "ethertype=0x0800,ip_protocol=6,dst_port=80"),
+        ("ipv6_firewall", "src_ipv6=2001:db8::1,ipv6_next_header=6"),
+        ("gtp_5g", "ethertype=0x0800,ip_protocol=17,dst_port=2152,gtp_teid=1000"),
+    ];
+    for (example, packet) in examples {
+        let output = pacgate_bin()
+            .args(["simulate", &format!("rules/examples/{}.yaml", example), "--packet", packet, "--json"])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "simulate {} failed: {}", example, String::from_utf8_lossy(&output.stderr));
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let json: serde_json::Value = serde_json::from_str(&stdout).expect(&format!("invalid JSON for {}", example));
+        assert_eq!(json["status"], "ok", "simulate {} status should be ok", example);
+    }
+}
+
+#[test]
 fn property_test_gtp_strategy_generated() {
     let tmp = tempfile::tempdir().unwrap();
     let output = pacgate_bin()
