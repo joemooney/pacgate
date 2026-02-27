@@ -1153,6 +1153,12 @@ fn generate_rule_documentation(
         if let Some(ref ipv6) = rule.match_criteria.src_ipv6 { match_fields.push(format!("src_ipv6: {}", ipv6)); }
         if let Some(ref ipv6) = rule.match_criteria.dst_ipv6 { match_fields.push(format!("dst_ipv6: {}", ipv6)); }
         if let Some(nh) = rule.match_criteria.ipv6_next_header { match_fields.push(format!("ipv6_next_header: {}", nh)); }
+        if let Some(teid) = rule.match_criteria.gtp_teid { match_fields.push(format!("gtp_teid: {}", teid)); }
+        if let Some(label) = rule.match_criteria.mpls_label { match_fields.push(format!("mpls_label: {}", label)); }
+        if let Some(tc) = rule.match_criteria.mpls_tc { match_fields.push(format!("mpls_tc: {}", tc)); }
+        if let Some(bos) = rule.match_criteria.mpls_bos { match_fields.push(format!("mpls_bos: {}", bos)); }
+        if let Some(igmp) = rule.match_criteria.igmp_type { match_fields.push(format!("igmp_type: 0x{:02X}", igmp)); }
+        if let Some(mld) = rule.match_criteria.mld_type { match_fields.push(format!("mld_type: {}", mld)); }
 
         let key_match = if match_fields.is_empty() { "any".to_string() } else { match_fields.join(", ") };
         let action = if rule.action() == model::Action::Pass { "pass" } else { "drop" };
@@ -1378,6 +1384,12 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
     let mut uses_ip_protocol = 0;
     let mut uses_src_port = 0;
     let mut uses_dst_port = 0;
+    let mut uses_gtp_teid = 0;
+    let mut uses_mpls_label = 0;
+    let mut uses_mpls_tc = 0;
+    let mut uses_mpls_bos = 0;
+    let mut uses_igmp_type = 0;
+    let mut uses_mld_type = 0;
     let mut match_field_count = Vec::new();
 
     for rule in rules.iter().filter(|r| !r.is_stateful()) {
@@ -1394,6 +1406,12 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
         if mc.src_port.is_some() { uses_src_port += 1; count += 1; }
         if mc.dst_port.is_some() { uses_dst_port += 1; count += 1; }
         if mc.vxlan_vni.is_some() { count += 1; }
+        if mc.gtp_teid.is_some() { uses_gtp_teid += 1; count += 1; }
+        if mc.mpls_label.is_some() { uses_mpls_label += 1; count += 1; }
+        if mc.mpls_tc.is_some() { uses_mpls_tc += 1; count += 1; }
+        if mc.mpls_bos.is_some() { uses_mpls_bos += 1; count += 1; }
+        if mc.igmp_type.is_some() { uses_igmp_type += 1; count += 1; }
+        if mc.mld_type.is_some() { uses_mld_type += 1; count += 1; }
         match_field_count.push(count);
     }
 
@@ -1429,6 +1447,12 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
             "ip_protocol": uses_ip_protocol,
             "src_port": uses_src_port,
             "dst_port": uses_dst_port,
+            "gtp_teid": uses_gtp_teid,
+            "mpls_label": uses_mpls_label,
+            "mpls_tc": uses_mpls_tc,
+            "mpls_bos": uses_mpls_bos,
+            "igmp_type": uses_igmp_type,
+            "mld_type": uses_mld_type,
         },
         "match_complexity": {
             "avg_fields_per_rule": format!("{:.1}", avg_fields),
@@ -1462,6 +1486,10 @@ fn print_stats(config: &model::FilterConfig) {
     let mut uses_src_mac = 0usize;
     let mut uses_vlan_id = 0usize;
     let mut uses_vlan_pcp = 0usize;
+    let mut uses_gtp_teid = 0usize;
+    let mut uses_mpls_label = 0usize;
+    let mut uses_igmp_type = 0usize;
+    let mut uses_mld_type = 0usize;
 
     for rule in rules.iter().filter(|r| !r.is_stateful()) {
         let mc = &rule.match_criteria;
@@ -1470,6 +1498,10 @@ fn print_stats(config: &model::FilterConfig) {
         if mc.src_mac.is_some() { uses_src_mac += 1; }
         if mc.vlan_id.is_some() { uses_vlan_id += 1; }
         if mc.vlan_pcp.is_some() { uses_vlan_pcp += 1; }
+        if mc.gtp_teid.is_some() { uses_gtp_teid += 1; }
+        if mc.mpls_label.is_some() { uses_mpls_label += 1; }
+        if mc.igmp_type.is_some() { uses_igmp_type += 1; }
+        if mc.mld_type.is_some() { uses_mld_type += 1; }
     }
 
     // Priority spacing
@@ -1493,6 +1525,18 @@ fn print_stats(config: &model::FilterConfig) {
         println!("  src_mac    [{:>2}/{}] |{}|", uses_src_mac, stateless, bar(uses_src_mac));
         println!("  vlan_id    [{:>2}/{}] |{}|", uses_vlan_id, stateless, bar(uses_vlan_id));
         println!("  vlan_pcp   [{:>2}/{}] |{}|", uses_vlan_pcp, stateless, bar(uses_vlan_pcp));
+        if uses_gtp_teid > 0 {
+            println!("  gtp_teid   [{:>2}/{}] |{}|", uses_gtp_teid, stateless, bar(uses_gtp_teid));
+        }
+        if uses_mpls_label > 0 {
+            println!("  mpls_label [{:>2}/{}] |{}|", uses_mpls_label, stateless, bar(uses_mpls_label));
+        }
+        if uses_igmp_type > 0 {
+            println!("  igmp_type  [{:>2}/{}] |{}|", uses_igmp_type, stateless, bar(uses_igmp_type));
+        }
+        if uses_mld_type > 0 {
+            println!("  mld_type   [{:>2}/{}] |{}|", uses_mld_type, stateless, bar(uses_mld_type));
+        }
     }
     println!();
     println!("  Priority Range: {} — {}", priorities.first().unwrap_or(&0), priorities.last().unwrap_or(&0));
@@ -1549,6 +1593,12 @@ fn print_dot_graph(config: &model::FilterConfig) {
             if let Some(ref ip) = mc.src_ipv6 { criteria.push(format!("src_ipv6={}", ip)); }
             if let Some(ref ip) = mc.dst_ipv6 { criteria.push(format!("dst_ipv6={}", ip)); }
             if let Some(nh) = mc.ipv6_next_header { criteria.push(format!("next_hdr={}", nh)); }
+            if let Some(teid) = mc.gtp_teid { criteria.push(format!("gtp_teid={}", teid)); }
+            if let Some(label) = mc.mpls_label { criteria.push(format!("mpls_label={}", label)); }
+            if let Some(tc) = mc.mpls_tc { criteria.push(format!("mpls_tc={}", tc)); }
+            if let Some(bos) = mc.mpls_bos { criteria.push(format!("mpls_bos={}", bos)); }
+            if let Some(igmp) = mc.igmp_type { criteria.push(format!("igmp_type=0x{:02X}", igmp)); }
+            if let Some(mld) = mc.mld_type { criteria.push(format!("mld_type={}", mld)); }
         } else {
             criteria.push("(FSM states)".to_string());
         }
@@ -1632,6 +1682,69 @@ fn diff_rules(old: &model::FilterConfig, new: &model::FilterConfig, json: bool) 
                 if old_rule.match_criteria.vlan_pcp != new_rule.match_criteria.vlan_pcp {
                     changes.push(format!("vlan_pcp: {:?} -> {:?}",
                         old_rule.match_criteria.vlan_pcp, new_rule.match_criteria.vlan_pcp));
+                }
+                // L3/L4 fields
+                if old_rule.match_criteria.src_ip != new_rule.match_criteria.src_ip {
+                    changes.push(format!("src_ip: {:?} -> {:?}",
+                        old_rule.match_criteria.src_ip, new_rule.match_criteria.src_ip));
+                }
+                if old_rule.match_criteria.dst_ip != new_rule.match_criteria.dst_ip {
+                    changes.push(format!("dst_ip: {:?} -> {:?}",
+                        old_rule.match_criteria.dst_ip, new_rule.match_criteria.dst_ip));
+                }
+                if old_rule.match_criteria.ip_protocol != new_rule.match_criteria.ip_protocol {
+                    changes.push(format!("ip_protocol: {:?} -> {:?}",
+                        old_rule.match_criteria.ip_protocol, new_rule.match_criteria.ip_protocol));
+                }
+                if old_rule.match_criteria.src_port != new_rule.match_criteria.src_port {
+                    changes.push(format!("src_port: {:?} -> {:?}",
+                        old_rule.match_criteria.src_port, new_rule.match_criteria.src_port));
+                }
+                if old_rule.match_criteria.dst_port != new_rule.match_criteria.dst_port {
+                    changes.push(format!("dst_port: {:?} -> {:?}",
+                        old_rule.match_criteria.dst_port, new_rule.match_criteria.dst_port));
+                }
+                if old_rule.match_criteria.vxlan_vni != new_rule.match_criteria.vxlan_vni {
+                    changes.push(format!("vxlan_vni: {:?} -> {:?}",
+                        old_rule.match_criteria.vxlan_vni, new_rule.match_criteria.vxlan_vni));
+                }
+                // IPv6 fields
+                if old_rule.match_criteria.src_ipv6 != new_rule.match_criteria.src_ipv6 {
+                    changes.push(format!("src_ipv6: {:?} -> {:?}",
+                        old_rule.match_criteria.src_ipv6, new_rule.match_criteria.src_ipv6));
+                }
+                if old_rule.match_criteria.dst_ipv6 != new_rule.match_criteria.dst_ipv6 {
+                    changes.push(format!("dst_ipv6: {:?} -> {:?}",
+                        old_rule.match_criteria.dst_ipv6, new_rule.match_criteria.dst_ipv6));
+                }
+                if old_rule.match_criteria.ipv6_next_header != new_rule.match_criteria.ipv6_next_header {
+                    changes.push(format!("ipv6_next_header: {:?} -> {:?}",
+                        old_rule.match_criteria.ipv6_next_header, new_rule.match_criteria.ipv6_next_header));
+                }
+                // Protocol extension fields
+                if old_rule.match_criteria.gtp_teid != new_rule.match_criteria.gtp_teid {
+                    changes.push(format!("gtp_teid: {:?} -> {:?}",
+                        old_rule.match_criteria.gtp_teid, new_rule.match_criteria.gtp_teid));
+                }
+                if old_rule.match_criteria.mpls_label != new_rule.match_criteria.mpls_label {
+                    changes.push(format!("mpls_label: {:?} -> {:?}",
+                        old_rule.match_criteria.mpls_label, new_rule.match_criteria.mpls_label));
+                }
+                if old_rule.match_criteria.mpls_tc != new_rule.match_criteria.mpls_tc {
+                    changes.push(format!("mpls_tc: {:?} -> {:?}",
+                        old_rule.match_criteria.mpls_tc, new_rule.match_criteria.mpls_tc));
+                }
+                if old_rule.match_criteria.mpls_bos != new_rule.match_criteria.mpls_bos {
+                    changes.push(format!("mpls_bos: {:?} -> {:?}",
+                        old_rule.match_criteria.mpls_bos, new_rule.match_criteria.mpls_bos));
+                }
+                if old_rule.match_criteria.igmp_type != new_rule.match_criteria.igmp_type {
+                    changes.push(format!("igmp_type: {:?} -> {:?}",
+                        old_rule.match_criteria.igmp_type, new_rule.match_criteria.igmp_type));
+                }
+                if old_rule.match_criteria.mld_type != new_rule.match_criteria.mld_type {
+                    changes.push(format!("mld_type: {:?} -> {:?}",
+                        old_rule.match_criteria.mld_type, new_rule.match_criteria.mld_type));
                 }
                 if old_rule.is_stateful() != new_rule.is_stateful() {
                     changes.push(format!("type: {} -> {}",
@@ -1763,6 +1876,13 @@ fn generate_diff_html(
         if let Some(vni) = mc.vxlan_vni { parts.push(format!("vxlan_vni={}", vni)); }
         if let Some(ref ipv6) = mc.src_ipv6 { parts.push(format!("src_ipv6={}", ipv6)); }
         if let Some(ref ipv6) = mc.dst_ipv6 { parts.push(format!("dst_ipv6={}", ipv6)); }
+        if let Some(nh) = mc.ipv6_next_header { parts.push(format!("ipv6_next_header={}", nh)); }
+        if let Some(teid) = mc.gtp_teid { parts.push(format!("gtp_teid={}", teid)); }
+        if let Some(label) = mc.mpls_label { parts.push(format!("mpls_label={}", label)); }
+        if let Some(tc) = mc.mpls_tc { parts.push(format!("mpls_tc={}", tc)); }
+        if let Some(bos) = mc.mpls_bos { parts.push(format!("mpls_bos={}", bos)); }
+        if let Some(igmp) = mc.igmp_type { parts.push(format!("igmp_type=0x{:02X}", igmp)); }
+        if let Some(mld) = mc.mld_type { parts.push(format!("mld_type={}", mld)); }
         if parts.is_empty() { "any".to_string() } else { parts.join(", ") }
     };
 
@@ -1841,6 +1961,97 @@ fn generate_diff_html(
                         "field": "src_port",
                         "old_value": format!("{:?}", old_rule.match_criteria.src_port),
                         "new_value": format!("{:?}", new_rule.match_criteria.src_port),
+                    }));
+                }
+                if old_rule.match_criteria.src_mac != new_rule.match_criteria.src_mac {
+                    changes.push(serde_json::json!({
+                        "field": "src_mac",
+                        "old_value": format!("{:?}", old_rule.match_criteria.src_mac),
+                        "new_value": format!("{:?}", new_rule.match_criteria.src_mac),
+                    }));
+                }
+                if old_rule.match_criteria.vlan_id != new_rule.match_criteria.vlan_id {
+                    changes.push(serde_json::json!({
+                        "field": "vlan_id",
+                        "old_value": format!("{:?}", old_rule.match_criteria.vlan_id),
+                        "new_value": format!("{:?}", new_rule.match_criteria.vlan_id),
+                    }));
+                }
+                if old_rule.match_criteria.ip_protocol != new_rule.match_criteria.ip_protocol {
+                    changes.push(serde_json::json!({
+                        "field": "ip_protocol",
+                        "old_value": format!("{:?}", old_rule.match_criteria.ip_protocol),
+                        "new_value": format!("{:?}", new_rule.match_criteria.ip_protocol),
+                    }));
+                }
+                if old_rule.match_criteria.vxlan_vni != new_rule.match_criteria.vxlan_vni {
+                    changes.push(serde_json::json!({
+                        "field": "vxlan_vni",
+                        "old_value": format!("{:?}", old_rule.match_criteria.vxlan_vni),
+                        "new_value": format!("{:?}", new_rule.match_criteria.vxlan_vni),
+                    }));
+                }
+                if old_rule.match_criteria.src_ipv6 != new_rule.match_criteria.src_ipv6 {
+                    changes.push(serde_json::json!({
+                        "field": "src_ipv6",
+                        "old_value": format!("{:?}", old_rule.match_criteria.src_ipv6),
+                        "new_value": format!("{:?}", new_rule.match_criteria.src_ipv6),
+                    }));
+                }
+                if old_rule.match_criteria.dst_ipv6 != new_rule.match_criteria.dst_ipv6 {
+                    changes.push(serde_json::json!({
+                        "field": "dst_ipv6",
+                        "old_value": format!("{:?}", old_rule.match_criteria.dst_ipv6),
+                        "new_value": format!("{:?}", new_rule.match_criteria.dst_ipv6),
+                    }));
+                }
+                if old_rule.match_criteria.ipv6_next_header != new_rule.match_criteria.ipv6_next_header {
+                    changes.push(serde_json::json!({
+                        "field": "ipv6_next_header",
+                        "old_value": format!("{:?}", old_rule.match_criteria.ipv6_next_header),
+                        "new_value": format!("{:?}", new_rule.match_criteria.ipv6_next_header),
+                    }));
+                }
+                if old_rule.match_criteria.gtp_teid != new_rule.match_criteria.gtp_teid {
+                    changes.push(serde_json::json!({
+                        "field": "gtp_teid",
+                        "old_value": format!("{:?}", old_rule.match_criteria.gtp_teid),
+                        "new_value": format!("{:?}", new_rule.match_criteria.gtp_teid),
+                    }));
+                }
+                if old_rule.match_criteria.mpls_label != new_rule.match_criteria.mpls_label {
+                    changes.push(serde_json::json!({
+                        "field": "mpls_label",
+                        "old_value": format!("{:?}", old_rule.match_criteria.mpls_label),
+                        "new_value": format!("{:?}", new_rule.match_criteria.mpls_label),
+                    }));
+                }
+                if old_rule.match_criteria.mpls_tc != new_rule.match_criteria.mpls_tc {
+                    changes.push(serde_json::json!({
+                        "field": "mpls_tc",
+                        "old_value": format!("{:?}", old_rule.match_criteria.mpls_tc),
+                        "new_value": format!("{:?}", new_rule.match_criteria.mpls_tc),
+                    }));
+                }
+                if old_rule.match_criteria.mpls_bos != new_rule.match_criteria.mpls_bos {
+                    changes.push(serde_json::json!({
+                        "field": "mpls_bos",
+                        "old_value": format!("{:?}", old_rule.match_criteria.mpls_bos),
+                        "new_value": format!("{:?}", new_rule.match_criteria.mpls_bos),
+                    }));
+                }
+                if old_rule.match_criteria.igmp_type != new_rule.match_criteria.igmp_type {
+                    changes.push(serde_json::json!({
+                        "field": "igmp_type",
+                        "old_value": format!("{:?}", old_rule.match_criteria.igmp_type),
+                        "new_value": format!("{:?}", new_rule.match_criteria.igmp_type),
+                    }));
+                }
+                if old_rule.match_criteria.mld_type != new_rule.match_criteria.mld_type {
+                    changes.push(serde_json::json!({
+                        "field": "mld_type",
+                        "old_value": format!("{:?}", old_rule.match_criteria.mld_type),
+                        "new_value": format!("{:?}", new_rule.match_criteria.mld_type),
                     }));
                 }
 
@@ -1974,6 +2185,13 @@ fn compute_resource_estimate(config: &model::FilterConfig) -> serde_json::Value 
             if mc.src_ipv6.is_some() { fields += 8; }
             if mc.dst_ipv6.is_some() { fields += 8; }
             if mc.ipv6_next_header.is_some() { fields += 1; }
+            // Protocol extension fields
+            if mc.gtp_teid.is_some() { fields += 3; }   // 32-bit comparator
+            if mc.mpls_label.is_some() { fields += 2; }  // 20-bit comparator
+            if mc.mpls_tc.is_some() { fields += 1; }     // 3-bit comparator
+            if mc.mpls_bos.is_some() { fields += 1; }    // 1-bit comparator
+            if mc.igmp_type.is_some() { fields += 1; }   // 8-bit comparator
+            if mc.mld_type.is_some() { fields += 1; }    // 8-bit comparator
             rule_luts += 10 + fields * 12;
         }
     }
@@ -2072,6 +2290,13 @@ fn print_resource_estimate(config: &model::FilterConfig) {
             if mc.src_ipv6.is_some() { fields += 8; }
             if mc.dst_ipv6.is_some() { fields += 8; }
             if mc.ipv6_next_header.is_some() { fields += 1; }
+            // Protocol extension fields
+            if mc.gtp_teid.is_some() { fields += 3; }
+            if mc.mpls_label.is_some() { fields += 2; }
+            if mc.mpls_tc.is_some() { fields += 1; }
+            if mc.mpls_bos.is_some() { fields += 1; }
+            if mc.igmp_type.is_some() { fields += 1; }
+            if mc.mld_type.is_some() { fields += 1; }
             rule_luts += 10 + fields * 12;
         }
     }

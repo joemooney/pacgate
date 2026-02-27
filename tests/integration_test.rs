@@ -2219,3 +2219,157 @@ fn formal_mld_assertions() {
     assert!(sva.contains("MLD Assertions"), "formal assertions should include MLD section");
     assert!(sva.contains("p_mld_decision_stable"), "formal assertions should include MLD stability property");
 }
+
+// ── Phase 14 Batch 4: Analysis tool completeness ────────────────────
+
+#[test]
+fn stats_includes_protocol_fields() {
+    let output = pacgate_bin()
+        .args(["stats", "rules/examples/gtp_5g.yaml"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("gtp_teid"), "stats should show gtp_teid usage");
+
+    let output2 = pacgate_bin()
+        .args(["stats", "rules/examples/mpls_network.yaml"])
+        .output()
+        .unwrap();
+    let stdout2 = String::from_utf8_lossy(&output2.stdout);
+    assert!(stdout2.contains("mpls_label"), "stats should show mpls_label usage");
+
+    let output3 = pacgate_bin()
+        .args(["stats", "rules/examples/multicast.yaml"])
+        .output()
+        .unwrap();
+    let stdout3 = String::from_utf8_lossy(&output3.stdout);
+    assert!(stdout3.contains("igmp_type"), "stats should show igmp_type usage");
+}
+
+#[test]
+fn graph_includes_protocol_fields() {
+    let output = pacgate_bin()
+        .args(["graph", "rules/examples/gtp_5g.yaml"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("gtp_teid"), "graph should include gtp_teid in DOT labels");
+
+    let output2 = pacgate_bin()
+        .args(["graph", "rules/examples/mpls_network.yaml"])
+        .output()
+        .unwrap();
+    let stdout2 = String::from_utf8_lossy(&output2.stdout);
+    assert!(stdout2.contains("mpls_label"), "graph should include mpls_label in DOT labels");
+}
+
+#[test]
+fn diff_detects_protocol_field_changes() {
+    // Create two YAML files that differ in gtp_teid
+    let tmp = tempfile::tempdir().unwrap();
+    let old_yaml = tmp.path().join("old.yaml");
+    let new_yaml = tmp.path().join("new.yaml");
+    std::fs::write(&old_yaml, r#"pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: gtp_rule
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        gtp_teid: 1000
+      action: pass
+"#).unwrap();
+    std::fs::write(&new_yaml, r#"pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: gtp_rule
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        gtp_teid: 2000
+      action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["diff", old_yaml.to_str().unwrap(), new_yaml.to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("gtp_teid"), "diff should detect gtp_teid change");
+}
+
+#[test]
+fn estimate_includes_protocol_field_costs() {
+    let output = pacgate_bin()
+        .args(["estimate", "rules/examples/gtp_5g.yaml"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // The estimate should include LUT costs for gtp_teid matching
+    assert!(output.status.success(), "estimate should succeed for GTP example");
+    // Check JSON output includes the fields
+    let json_output = pacgate_bin()
+        .args(["estimate", "rules/examples/gtp_5g.yaml", "--json"])
+        .output()
+        .unwrap();
+    let json_str = String::from_utf8_lossy(&json_output.stdout);
+    assert!(json_str.contains("\"luts\""), "JSON estimate should include luts");
+}
+
+#[test]
+fn doc_renders_protocol_fields() {
+    let tmp = tempfile::tempdir().unwrap();
+    let html_path = tmp.path().join("gtp_doc.html");
+    let output = pacgate_bin()
+        .args(["doc", "rules/examples/gtp_5g.yaml", "-o", html_path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "doc should succeed for GTP example");
+    assert!(html_path.exists(), "doc should generate HTML file");
+    let html = std::fs::read_to_string(&html_path).unwrap();
+    assert!(html.contains("gtp_teid"), "doc HTML should contain gtp_teid field");
+}
+
+#[test]
+fn diff_detects_l3_l4_field_changes() {
+    // Verify the L3/L4 diff bug fix — diff should detect src_ip changes
+    let tmp = tempfile::tempdir().unwrap();
+    let old_yaml = tmp.path().join("old.yaml");
+    let new_yaml = tmp.path().join("new.yaml");
+    std::fs::write(&old_yaml, r#"pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: ip_rule
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        src_ip: "10.0.0.0/8"
+        dst_port: 80
+      action: pass
+"#).unwrap();
+    std::fs::write(&new_yaml, r#"pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: ip_rule
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        src_ip: "192.168.0.0/16"
+        dst_port: 443
+      action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["diff", old_yaml.to_str().unwrap(), new_yaml.to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("src_ip"), "diff should detect src_ip change (L3/L4 bug fix)");
+    assert!(stdout.contains("dst_port"), "diff should detect dst_port change (L3/L4 bug fix)");
+}

@@ -575,6 +575,56 @@ pub fn criteria_shadows(a: &crate::model::MatchCriteria, b: &crate::model::Match
         }
     }
 
+    // VXLAN shadow check
+    if let Some(a_vni) = a.vxlan_vni {
+        match b.vxlan_vni {
+            Some(b_vni) if a_vni == b_vni => {},
+            _ => return false,
+        }
+    }
+
+    // GTP-U shadow check
+    if let Some(a_teid) = a.gtp_teid {
+        match b.gtp_teid {
+            Some(b_teid) if a_teid == b_teid => {},
+            _ => return false,
+        }
+    }
+
+    // MPLS shadow checks
+    if let Some(a_label) = a.mpls_label {
+        match b.mpls_label {
+            Some(b_label) if a_label == b_label => {},
+            _ => return false,
+        }
+    }
+    if let Some(a_tc) = a.mpls_tc {
+        match b.mpls_tc {
+            Some(b_tc) if a_tc == b_tc => {},
+            _ => return false,
+        }
+    }
+    if let Some(a_bos) = a.mpls_bos {
+        match b.mpls_bos {
+            Some(b_bos) if a_bos == b_bos => {},
+            _ => return false,
+        }
+    }
+
+    // IGMP/MLD shadow checks
+    if let Some(a_igmp) = a.igmp_type {
+        match b.igmp_type {
+            Some(b_igmp) if a_igmp == b_igmp => {},
+            _ => return false,
+        }
+    }
+    if let Some(a_mld) = a.mld_type {
+        match b.mld_type {
+            Some(b_mld) if a_mld == b_mld => {},
+            _ => return false,
+        }
+    }
+
     true
 }
 
@@ -641,6 +691,35 @@ fn criteria_overlaps(a: &crate::model::MatchCriteria, b: &crate::model::MatchCri
     }
     if let (Some(a_nh), Some(b_nh)) = (a.ipv6_next_header, b.ipv6_next_header) {
         if a_nh != b_nh { return false; }
+    }
+
+    // VXLAN overlap check
+    if let (Some(a_vni), Some(b_vni)) = (a.vxlan_vni, b.vxlan_vni) {
+        if a_vni != b_vni { return false; }
+    }
+
+    // GTP-U overlap check
+    if let (Some(a_teid), Some(b_teid)) = (a.gtp_teid, b.gtp_teid) {
+        if a_teid != b_teid { return false; }
+    }
+
+    // MPLS overlap checks
+    if let (Some(a_label), Some(b_label)) = (a.mpls_label, b.mpls_label) {
+        if a_label != b_label { return false; }
+    }
+    if let (Some(a_tc), Some(b_tc)) = (a.mpls_tc, b.mpls_tc) {
+        if a_tc != b_tc { return false; }
+    }
+    if let (Some(a_bos), Some(b_bos)) = (a.mpls_bos, b.mpls_bos) {
+        if a_bos != b_bos { return false; }
+    }
+
+    // IGMP/MLD overlap checks
+    if let (Some(a_igmp), Some(b_igmp)) = (a.igmp_type, b.igmp_type) {
+        if a_igmp != b_igmp { return false; }
+    }
+    if let (Some(a_mld), Some(b_mld)) = (a.mld_type, b.mld_type) {
+        if a_mld != b_mld { return false; }
     }
 
     true
