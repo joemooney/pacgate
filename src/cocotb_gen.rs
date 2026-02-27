@@ -133,14 +133,18 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         if let Some(ref pm) = rule.match_criteria.src_port {
             match pm {
                 PortMatch::Exact(p) => { sr.insert("src_port".to_string(), p.to_string()); }
-                PortMatch::Range { range } => { sr.insert("src_port_range".to_string(), format!("{}-{}", range[0], range[1])); }
+                PortMatch::Range { range } => { sr.insert("src_port_range".to_string(), format!("{}, {}", range[0], range[1])); }
             }
         }
         if let Some(ref pm) = rule.match_criteria.dst_port {
             match pm {
                 PortMatch::Exact(p) => { sr.insert("dst_port".to_string(), p.to_string()); }
-                PortMatch::Range { range } => { sr.insert("dst_port_range".to_string(), format!("{}-{}", range[0], range[1])); }
+                PortMatch::Range { range } => { sr.insert("dst_port_range".to_string(), format!("{}, {}", range[0], range[1])); }
             }
+        }
+        // VXLAN scoreboard fields
+        if let Some(vni) = rule.match_criteria.vxlan_vni {
+            sr.insert("vxlan_vni".to_string(), vni.to_string());
         }
         // IPv6 scoreboard fields
         if let Some(ref ipv6) = rule.match_criteria.src_ipv6 {

@@ -6,11 +6,61 @@ in Python, for independent verification. Compares DUT decisions
 against expected results and reports mismatches.
 """
 
+import ipaddress
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Tuple
 
 from .packet import EthernetFrame, mac_matches
+
+
+def ipv4_matches_cidr(addr: str, cidr: str) -> bool:
+    """Check if an IPv4 address matches a CIDR prefix."""
+    try:
+        if "/" not in cidr:
+            cidr = cidr + "/32"
+        network = ipaddress.ip_network(cidr, strict=False)
+        return ipaddress.ip_address(addr) in network
+    except (ValueError, TypeError):
+        return False
+
+
+def ipv6_matches_cidr(addr: str, cidr: str) -> bool:
+    """Check if an IPv6 address matches a CIDR prefix."""
+    try:
+        if "/" not in cidr:
+            cidr = cidr + "/128"
+        network = ipaddress.ip_network(cidr, strict=False)
+        return ipaddress.ip_address(addr) in network
+    except (ValueError, TypeError):
+        return False
+
+
+def port_matches(port: int, exact: Optional[int] = None,
+                 port_range: Optional[Tuple[int, int]] = None) -> bool:
+    """Check if a port matches an exact value or range."""
+    if exact is not None:
+        return port == exact
+    if port_range is not None:
+        return port_range[0] <= port <= port_range[1]
+    return True
+
+
+def byte_match_matches(payload: bytes, matches: list) -> bool:
+    """Check if raw bytes match byte_match rules.
+
+    Each match is a dict with 'offset', 'value', and optional 'mask'.
+    Values are integers.
+    """
+    for bm in matches:
+        offset = bm["offset"]
+        value = bm["value"]
+        mask = bm.get("mask", 0xFF)
+        if offset >= len(payload):
+            return False
+        if (payload[offset] & mask) != (value & mask):
+            return False
+    return True
 
 
 @dataclass
@@ -24,9 +74,36 @@ class Rule:
     src_mac: Optional[str] = None
     vlan_id: Optional[int] = None
     vlan_pcp: Optional[int] = None
+    # L3/L4 fields
+    src_ip: Optional[str] = None
+    dst_ip: Optional[str] = None
+    ip_protocol: Optional[int] = None
+    src_port: Optional[int] = None
+    dst_port: Optional[int] = None
+    src_port_range: Optional[Tuple[int, int]] = None
+    dst_port_range: Optional[Tuple[int, int]] = None
+    # Tunnel fields
+    vxlan_vni: Optional[int] = None
+    # IPv6 fields
+    src_ipv6: Optional[str] = None
+    dst_ipv6: Optional[str] = None
+    ipv6_next_header: Optional[int] = None
+    # Byte-offset matching
+    byte_match: Optional[list] = None
 
-    def matches(self, frame: EthernetFrame) -> bool:
-        """Check if this rule matches the given frame."""
+    def matches(self, frame: EthernetFrame, extracted: Optional[dict] = None) -> bool:
+        """Check if this rule matches the given frame.
+
+        Args:
+            frame: The Ethernet frame to check
+            extracted: Optional dict with parsed L3/L4 fields:
+                src_ip, dst_ip, ip_protocol, src_port, dst_port,
+                src_ipv6, dst_ipv6, ipv6_next_header, vxlan_vni, raw_bytes
+        """
+        if extracted is None:
+            extracted = {}
+
+        # L2 matching
         if self.ethertype is not None:
             if frame.ethertype != self.ethertype:
                 return False
@@ -42,6 +119,65 @@ class Rule:
         if self.vlan_pcp is not None:
             if frame.vlan_tag is None or frame.vlan_tag.pcp != self.vlan_pcp:
                 return False
+
+        # L3 IPv4 matching
+        if self.src_ip is not None:
+            pkt_ip = extracted.get("src_ip")
+            if pkt_ip is None or not ipv4_matches_cidr(pkt_ip, self.src_ip):
+                return False
+        if self.dst_ip is not None:
+            pkt_ip = extracted.get("dst_ip")
+            if pkt_ip is None or not ipv4_matches_cidr(pkt_ip, self.dst_ip):
+                return False
+        if self.ip_protocol is not None:
+            pkt_proto = extracted.get("ip_protocol")
+            if pkt_proto is None or pkt_proto != self.ip_protocol:
+                return False
+
+        # L4 port matching
+        if self.src_port is not None:
+            pkt_port = extracted.get("src_port")
+            if pkt_port is None or not port_matches(pkt_port, exact=self.src_port):
+                return False
+        if self.dst_port is not None:
+            pkt_port = extracted.get("dst_port")
+            if pkt_port is None or not port_matches(pkt_port, exact=self.dst_port):
+                return False
+        if self.src_port_range is not None:
+            pkt_port = extracted.get("src_port")
+            if pkt_port is None or not port_matches(pkt_port, port_range=self.src_port_range):
+                return False
+        if self.dst_port_range is not None:
+            pkt_port = extracted.get("dst_port")
+            if pkt_port is None or not port_matches(pkt_port, port_range=self.dst_port_range):
+                return False
+
+        # VXLAN matching
+        if self.vxlan_vni is not None:
+            pkt_vni = extracted.get("vxlan_vni")
+            if pkt_vni is None or pkt_vni != self.vxlan_vni:
+                return False
+
+        # IPv6 matching
+        if self.src_ipv6 is not None:
+            pkt_ip = extracted.get("src_ipv6")
+            if pkt_ip is None or not ipv6_matches_cidr(pkt_ip, self.src_ipv6):
+                return False
+        if self.dst_ipv6 is not None:
+            pkt_ip = extracted.get("dst_ipv6")
+            if pkt_ip is None or not ipv6_matches_cidr(pkt_ip, self.dst_ipv6):
+                return False
+        if self.ipv6_next_header is not None:
+            pkt_nh = extracted.get("ipv6_next_header")
+            if pkt_nh is None or pkt_nh != self.ipv6_next_header:
+                return False
+
+        # Byte-offset matching
+        if self.byte_match is not None:
+            raw = extracted.get("raw_bytes", frame.payload)
+            if not byte_match_matches(raw, self.byte_match):
+                return False
+
         return True
 
 
@@ -86,24 +222,34 @@ class PacketFilterScoreboard:
         self.default_action = default_action
         self.stats = ScoreboardStats()
 
-    def predict(self, frame: EthernetFrame) -> tuple[str, str]:
+    def predict(self, frame: EthernetFrame, extracted: Optional[dict] = None) -> tuple[str, str]:
         """
         Predict the expected decision for a frame.
         Returns (action, matched_rule_name).
+
+        Args:
+            frame: The Ethernet frame
+            extracted: Optional dict with parsed L3/L4 fields
         """
         for rule in self.rules:
-            if rule.matches(frame):
+            if rule.matches(frame, extracted):
                 return rule.action, rule.name
         return self.default_action, "__default__"
 
-    def check(self, frame: EthernetFrame, actual_pass: int) -> tuple[str, str]:
+    def check(self, frame: EthernetFrame, actual_pass: int,
+              extracted: Optional[dict] = None) -> tuple[str, str]:
         """
         Compare DUT decision against reference model.
         Raises ScoreboardMismatch on disagreement.
         Returns (action, matched_rule_name).
+
+        Args:
+            frame: The Ethernet frame
+            actual_pass: DUT decision (1=pass, 0=drop)
+            extracted: Optional dict with parsed L3/L4 fields
         """
         self.stats.total_packets += 1
-        expected_action, matched_rule = self.predict(frame)
+        expected_action, matched_rule = self.predict(frame, extracted)
         expected_pass = 1 if expected_action == "pass" else 0
 
         self.stats.rule_hit_count[matched_rule] += 1

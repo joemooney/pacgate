@@ -1204,3 +1204,65 @@ fn simulate_all_fields() {
     assert_eq!(json["status"], "ok");
     assert!(!json["fields"].as_array().unwrap().is_empty(), "expected field breakdown");
 }
+
+// ── Phase 10: Verification Completeness ──────────────────────────
+
+#[test]
+fn scoreboard_l3l4_fields_in_generated_test() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let test_py = std::fs::read_to_string(tmp.path().join("tb/test_packet_filter.py")).unwrap();
+    // L3/L4 firewall rules should emit src_ip/dst_ip/dst_port in scoreboard
+    assert!(test_py.contains("src_ip="), "test file missing src_ip scoreboard field");
+    assert!(test_py.contains("dst_port="), "test file missing dst_port scoreboard field");
+    assert!(test_py.contains("ip_protocol="), "test file missing ip_protocol scoreboard field");
+}
+
+#[test]
+fn scoreboard_ipv6_fields_in_generated_test() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/ipv6_firewall.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let test_py = std::fs::read_to_string(tmp.path().join("tb/test_packet_filter.py")).unwrap();
+    assert!(test_py.contains("src_ipv6="), "test file missing src_ipv6 scoreboard field");
+    assert!(test_py.contains("ipv6_next_header="), "test file missing ipv6_next_header scoreboard field");
+}
+
+#[test]
+fn scoreboard_port_range_format() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let test_py = std::fs::read_to_string(tmp.path().join("tb/test_packet_filter.py")).unwrap();
+    // Port ranges should be formatted as Python tuples "(low, high)" not "low-high"
+    if test_py.contains("port_range=") {
+        assert!(!test_py.contains("port_range=\""), "port_range should be tuple, not string");
+    }
+}
+
+#[test]
+fn properties_l3l4_fields_in_generated_test() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let props_py = std::fs::read_to_string(tmp.path().join("tb/test_properties.py")).unwrap();
+    assert!(props_py.contains("src_ip="), "properties file missing src_ip field");
+    assert!(props_py.contains("ip_protocol="), "properties file missing ip_protocol field");
+}

@@ -55,6 +55,39 @@ def build_scoreboard():
 {% if rule.vlan_pcp is defined %}
             vlan_pcp={{ rule.vlan_pcp }},
 {% endif %}
+{% if rule.src_ip is defined %}
+            src_ip="{{ rule.src_ip }}",
+{% endif %}
+{% if rule.dst_ip is defined %}
+            dst_ip="{{ rule.dst_ip }}",
+{% endif %}
+{% if rule.ip_protocol is defined %}
+            ip_protocol={{ rule.ip_protocol }},
+{% endif %}
+{% if rule.src_port is defined %}
+            src_port={{ rule.src_port }},
+{% endif %}
+{% if rule.dst_port is defined %}
+            dst_port={{ rule.dst_port }},
+{% endif %}
+{% if rule.src_port_range is defined %}
+            src_port_range=({{ rule.src_port_range }}),
+{% endif %}
+{% if rule.dst_port_range is defined %}
+            dst_port_range=({{ rule.dst_port_range }}),
+{% endif %}
+{% if rule.vxlan_vni is defined %}
+            vxlan_vni={{ rule.vxlan_vni }},
+{% endif %}
+{% if rule.src_ipv6 is defined %}
+            src_ipv6="{{ rule.src_ipv6 }}",
+{% endif %}
+{% if rule.dst_ipv6 is defined %}
+            dst_ipv6="{{ rule.dst_ipv6 }}",
+{% endif %}
+{% if rule.ipv6_next_header is defined %}
+            ipv6_next_header={{ rule.ipv6_next_header }},
+{% endif %}
         ),
 {% endfor %}
     ]
