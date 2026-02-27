@@ -55,6 +55,10 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
     });
     let has_byte_match_rules = rules.iter().any(|r| r.match_criteria.uses_byte_match());
     let has_rate_limit = rules.iter().any(|r| r.rate_limit.is_some());
+    let has_gtp_rules = rules.iter().any(|r| r.match_criteria.gtp_teid.is_some());
+    let has_mpls_rules = rules.iter().any(|r| r.match_criteria.mpls_label.is_some() || r.match_criteria.mpls_tc.is_some() || r.match_criteria.mpls_bos.is_some());
+    let has_igmp_rules = rules.iter().any(|r| r.match_criteria.igmp_type.is_some());
+    let has_mld_rules = rules.iter().any(|r| r.match_criteria.mld_type.is_some());
 
     // Render SVA assertions
     {
@@ -66,6 +70,10 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         ctx.insert("has_port_range_rules", &has_port_range_rules);
         ctx.insert("has_byte_match_rules", &has_byte_match_rules);
         ctx.insert("has_rate_limit", &has_rate_limit);
+        ctx.insert("has_gtp_rules", &has_gtp_rules);
+        ctx.insert("has_mpls_rules", &has_mpls_rules);
+        ctx.insert("has_igmp_rules", &has_igmp_rules);
+        ctx.insert("has_mld_rules", &has_mld_rules);
 
         let rendered = tera.render("assertions.sv.tera", &ctx)?;
         std::fs::write(formal_dir.join("assertions.sv"), &rendered)?;

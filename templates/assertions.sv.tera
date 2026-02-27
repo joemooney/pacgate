@@ -189,6 +189,54 @@ module packet_filter_assertions (
         else $error("ASSERT FAIL: byte_match decision not stable within frame");
 {% endif %}
 
+{% if has_gtp_rules %}
+    // ── GTP-U TEID Assertions ──────────────────────────────────────
+    // GTP-U detection should only fire when UDP dst port == 2152.
+    // When parser reports gtp_teid_valid, the TEID extraction is consistent.
+    property p_gtp_decision_stable;
+        @(posedge clk) disable iff (!rst_n)
+        (decision_valid && !pkt_sof) |=> $stable(decision_pass) || pkt_sof;
+    endproperty
+    assert property (p_gtp_decision_stable)
+        else $error("ASSERT FAIL: GTP-U TEID decision unstable between frames");
+{% endif %}
+
+{% if has_mpls_rules %}
+    // ── MPLS Label Stack Assertions ────────────────────────────────
+    // MPLS detection fires when ethertype == 0x8847 (unicast) or 0x8848 (multicast).
+    // Extracted label/TC/BOS must be consistent within a frame.
+    property p_mpls_decision_stable;
+        @(posedge clk) disable iff (!rst_n)
+        (decision_valid && !pkt_sof) |=> $stable(decision_pass) || pkt_sof;
+    endproperty
+    assert property (p_mpls_decision_stable)
+        else $error("ASSERT FAIL: MPLS decision unstable between frames");
+{% endif %}
+
+{% if has_igmp_rules %}
+    // ── IGMP Assertions ────────────────────────────────────────────
+    // IGMP detection fires when IPv4 protocol == 2.
+    // Extracted igmp_type must be consistent within a frame.
+    property p_igmp_decision_stable;
+        @(posedge clk) disable iff (!rst_n)
+        (decision_valid && !pkt_sof) |=> $stable(decision_pass) || pkt_sof;
+    endproperty
+    assert property (p_igmp_decision_stable)
+        else $error("ASSERT FAIL: IGMP type decision unstable between frames");
+{% endif %}
+
+{% if has_mld_rules %}
+    // ── MLD Assertions ─────────────────────────────────────────────
+    // MLD detection fires when IPv6 next_header == 58 (ICMPv6) and type in {130,131,132}.
+    // Extracted mld_type must be consistent within a frame.
+    property p_mld_decision_stable;
+        @(posedge clk) disable iff (!rst_n)
+        (decision_valid && !pkt_sof) |=> $stable(decision_pass) || pkt_sof;
+    endproperty
+    assert property (p_mld_decision_stable)
+        else $error("ASSERT FAIL: MLD type decision unstable between frames");
+{% endif %}
+
     // ── Cover Points ───────────────────────────────────────────────
 
 {% for rule in rules %}

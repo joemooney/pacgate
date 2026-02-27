@@ -2153,3 +2153,69 @@ fn random_test_includes_protocol_packets() {
     assert!(harness.contains("PacketFactory.igmp(igmp_type=_igmp_type)"), "random test should generate IGMP frames");
     assert!(harness.contains("PacketFactory.mld(mld_type=_mld_type)"), "random test should generate MLD frames");
 }
+
+// ── Phase 14 Batch 3: Formal Assertions ───────────────────────
+
+#[test]
+fn formal_gtp_assertions() {
+    let tmp = tempfile::tempdir().unwrap();
+    pacgate_bin()
+        .args(["compile", "rules/examples/gtp_5g.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    pacgate_bin()
+        .args(["formal", "rules/examples/gtp_5g.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    let sva = std::fs::read_to_string(tmp.path().join("formal/assertions.sv")).unwrap();
+    assert!(sva.contains("GTP-U TEID"), "formal assertions should include GTP-U section");
+    assert!(sva.contains("p_gtp_decision_stable"), "formal assertions should include GTP stability property");
+}
+
+#[test]
+fn formal_mpls_assertions() {
+    let tmp = tempfile::tempdir().unwrap();
+    pacgate_bin()
+        .args(["compile", "rules/examples/mpls_network.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    pacgate_bin()
+        .args(["formal", "rules/examples/mpls_network.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    let sva = std::fs::read_to_string(tmp.path().join("formal/assertions.sv")).unwrap();
+    assert!(sva.contains("MPLS Label Stack"), "formal assertions should include MPLS section");
+    assert!(sva.contains("p_mpls_decision_stable"), "formal assertions should include MPLS stability property");
+}
+
+#[test]
+fn formal_igmp_assertions() {
+    let tmp = tempfile::tempdir().unwrap();
+    pacgate_bin()
+        .args(["compile", "rules/examples/multicast.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    pacgate_bin()
+        .args(["formal", "rules/examples/multicast.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    let sva = std::fs::read_to_string(tmp.path().join("formal/assertions.sv")).unwrap();
+    assert!(sva.contains("IGMP Assertions"), "formal assertions should include IGMP section");
+    assert!(sva.contains("p_igmp_decision_stable"), "formal assertions should include IGMP stability property");
+}
+
+#[test]
+fn formal_mld_assertions() {
+    let tmp = tempfile::tempdir().unwrap();
+    pacgate_bin()
+        .args(["compile", "rules/examples/multicast.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    pacgate_bin()
+        .args(["formal", "rules/examples/multicast.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    let sva = std::fs::read_to_string(tmp.path().join("formal/assertions.sv")).unwrap();
+    assert!(sva.contains("MLD Assertions"), "formal assertions should include MLD section");
+    assert!(sva.contains("p_mld_decision_stable"), "formal assertions should include MLD stability property");
+}
