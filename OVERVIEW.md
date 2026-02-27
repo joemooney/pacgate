@@ -111,6 +111,9 @@ UVM-inspired Python verification environment with:
 - `pacgate synth rules.yaml --target yosys --part artix7` — Generate Yosys synthesis project
 - `pacgate synth rules.yaml --target vivado --part xc7a35t` — Generate Vivado TCL project
 - `pacgate mutate rules.yaml` — Generate mutation test variants (flip action, remove rule, swap priority)
+- `pacgate mutate rules.yaml --run` — Generate mutants AND run kill-rate analysis (compile + lint each)
+- `pacgate mcy rules.yaml` — Generate MCY (Mutation Cover with Yosys) config for Verilog-level mutation testing
+- `pacgate mcy rules.yaml --run` — Generate MCY config AND run MCY (requires mcy binary)
 - `pacgate template list` — List built-in rule templates (7 templates across security/access/IoT/etc.)
 - `pacgate template show <name>` — Show template details and variables
 - `pacgate template apply <name> --set key=value -o rules.yaml` — Apply template with variable substitution
@@ -139,17 +142,21 @@ UVM-inspired Python verification environment with:
 - Multicast filtering (IGMP/MLD type-based control)
 
 ## Quality
-- 214 Rust unit tests (model parsing, validation, CIDR/port overlap, IPv4/IPv6, PCAP, byte-match, HSM, Mermaid, simulation incl. byte-match, PCAP analysis, synthesis, mutation, templates, benchmarking, reachability, GTP-U, MPLS, IGMP/MLD)
-- 105 Rust integration tests (full compile pipeline, AXI, formal, lint, L3/L4, IPv6, VXLAN, counters, PCAP, report, byte-match, HSM, Mermaid, multi-port, conntrack, rate-limit, simulate, pcap-analyze, synth, mutate, template, doc, scoreboard field verification, multi-flag compile, all-examples lint, bench, diff --html, reachability, GTP-U, MPLS, multicast)
+- 218 Rust unit tests (model parsing, validation, CIDR/port overlap, IPv4/IPv6, PCAP, byte-match, HSM, Mermaid, simulation incl. byte-match, PCAP analysis, synthesis, mutation, templates, benchmarking, reachability, GTP-U, MPLS, IGMP/MLD, MCY config generation)
+- 122 Rust integration tests (full compile pipeline, AXI, formal, lint, L3/L4, IPv6, VXLAN, counters, PCAP, report, byte-match, HSM, Mermaid, multi-port, conntrack, rate-limit, simulate, pcap-analyze, synth, mutate, template, doc, scoreboard field verification, multi-flag compile, all-examples lint, bench, diff --html, reachability, GTP-U, MPLS, multicast, coverage framework, boundary tests, MCY, mutation kill-rate)
 - 23 Python scoreboard unit tests (IPv4 CIDR, IPv6 CIDR, port matching, VXLAN VNI, byte-match, multi-field L3/L4)
 - 13+ cocotb simulation tests (directed with L3/L4 headers + 500-packet random + corner cases)
 - 5 conntrack cocotb tests (new flow, return traffic, timeout, hash collision, table overflow)
 - 85%+ functional coverage with varied frame sizes and VLAN-tagged traffic
 - Rule overlap and shadow detection with CIDR containment and port range analysis
 - Best-practice linting with 12 lint rules (LINT001-012)
-- Mutation testing: 5 mutation strategies with automatic mutant generation
-- Coverage-directed test generation with targeted gap-filling
-- Property-based testing with Hypothesis for invariant verification (incl. L3/L4 determinism)
+- Mutation testing: 5 YAML mutation strategies + MCY Verilog-level mutation config generation
+- Mutation kill-rate runner: compile + lint each mutant, report kill/survived/error rates
+- Coverage-directed test generation with CoverageDirector wired into random test loop
+- Coverage XML export for CI artifact tracking
+- Boundary test generation: auto-derived CIDR boundary and port boundary test cases
+- Formally-derived negative tests: guaranteed no-match frames from unused ethertypes
+- Property-based testing with Hypothesis for invariant verification (9 property tests incl. CIDR/port/IPv6 boundary)
 - SVA formal assertions with IPv6 CIDR, port range, rate limiter, byte-match correctness checks
 
 ## Development Status
@@ -165,6 +172,7 @@ UVM-inspired Python verification environment with:
 - **Phase 10** (complete): Verification completeness — L3/L4/IPv6/VXLAN/byte-match scoreboard, directed test L3/L4 packet construction, byte-match simulation, enhanced formal assertions, conntrack cocotb tests, CI pipeline expansion
 - **Phase 11** (complete): Advanced analysis — reachability analysis, PCAP output from simulation, performance benchmarking, HTML diff visualization
 - **Phase 12** (complete): Protocol extensions — GTP-U tunnel parsing (gtp_teid), MPLS label stack (mpls_label/mpls_tc/mpls_bos), IGMP/MLD multicast (igmp_type/mld_type)
+- **Phase 13** (complete): Verification framework enhancements — Coverage wiring (L3/L4 kwargs, CoverageDirector, XML export), boundary/negative test generation, MCY Verilog mutation testing, mutation kill-rate runner, CI improvements (hypothesis, JUnit, property tests)
 
 ## Documentation
 - `README.md` — Project showcase and quick start

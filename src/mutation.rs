@@ -119,6 +119,147 @@ pub fn generate_mutation_report(config: &FilterConfig) -> serde_json::Value {
     })
 }
 
+/// Result of running a single mutant's tests
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct MutantResult {
+    pub name: String,
+    pub status: String, // "killed", "survived", "error"
+    pub description: String,
+}
+
+/// Aggregated mutation testing report
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct MutationTestReport {
+    pub total: usize,
+    pub killed: usize,
+    pub survived: usize,
+    pub errors: usize,
+    pub kill_rate: f64,
+    pub details: Vec<MutantResult>,
+}
+
+/// Run mutation tests: compile and lint each mutant, report kill rate
+///
+/// For each mutant directory in output_dir/mutants/mut_N/:
+/// - Check if iverilog is available
+/// - Run iverilog lint on generated Verilog
+/// - Track whether the mutant would be killed (lint failure = killed for now)
+/// - Return aggregated report
+pub fn run_mutation_tests(
+    config: &FilterConfig,
+    templates_dir: &std::path::Path,
+    output_dir: &std::path::Path,
+) -> MutationTestReport {
+    let mutations = generate_mutations(config);
+    let mutants_dir = output_dir.join("mutants");
+    let _ = std::fs::create_dir_all(&mutants_dir);
+
+    // Check if iverilog is available
+    let iverilog_available = std::process::Command::new("iverilog")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
+    let mut details = Vec::new();
+    let mut killed = 0usize;
+    let mut survived = 0usize;
+    let mut errors = 0usize;
+
+    for (i, (m, mutated_config)) in mutations.iter().enumerate() {
+        let mutant_dir = mutants_dir.join(format!("mut_{}", i));
+        let _ = std::fs::create_dir_all(&mutant_dir);
+
+        // Write mutated YAML
+        if let Ok(yaml) = serde_yaml::to_string(&mutated_config) {
+            let _ = std::fs::write(mutant_dir.join("rules.yaml"), &yaml);
+        }
+
+        // Generate mutated Verilog + tests
+        let verilog_ok = crate::verilog_gen::generate(mutated_config, templates_dir, &mutant_dir).is_ok();
+        let cocotb_ok = crate::cocotb_gen::generate(mutated_config, templates_dir, &mutant_dir).is_ok();
+
+        if !verilog_ok || !cocotb_ok {
+            // Generation failed — counts as error (mutation too severe)
+            errors += 1;
+            details.push(MutantResult {
+                name: m.name.clone(),
+                status: "error".to_string(),
+                description: format!("{} — generation failed", m.description),
+            });
+            continue;
+        }
+
+        // If iverilog is available, lint the mutant Verilog
+        if iverilog_available {
+            let rtl_dir = mutant_dir.join("rtl");
+            if rtl_dir.exists() {
+                let mut verilog_files: Vec<String> = Vec::new();
+                if let Ok(entries) = std::fs::read_dir(&rtl_dir) {
+                    for entry in entries.filter_map(|e| e.ok()) {
+                        if entry.path().extension().map(|x| x == "v").unwrap_or(false) {
+                            verilog_files.push(entry.path().to_string_lossy().to_string());
+                        }
+                    }
+                }
+
+                if !verilog_files.is_empty() {
+                    let lint_result = std::process::Command::new("iverilog")
+                        .arg("-g2012")
+                        .arg("-o")
+                        .arg("/dev/null")
+                        .args(&verilog_files)
+                        .arg("rtl/frame_parser.v")
+                        .output();
+
+                    match lint_result {
+                        Ok(output) if !output.status.success() => {
+                            // Lint failed — mutation killed
+                            killed += 1;
+                            details.push(MutantResult {
+                                name: m.name.clone(),
+                                status: "killed".to_string(),
+                                description: format!("{} — lint failed (killed)", m.description),
+                            });
+                            continue;
+                        }
+                        Err(_) => {
+                            errors += 1;
+                            details.push(MutantResult {
+                                name: m.name.clone(),
+                                status: "error".to_string(),
+                                description: format!("{} — lint error", m.description),
+                            });
+                            continue;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        // If we get here, mutant survived (or we can't tell without full sim)
+        survived += 1;
+        details.push(MutantResult {
+            name: m.name.clone(),
+            status: "survived".to_string(),
+            description: format!("{} — survived (needs cocotb sim to verify)", m.description),
+        });
+    }
+
+    let total = details.len();
+    let kill_rate = if total > 0 { killed as f64 / total as f64 * 100.0 } else { 0.0 };
+
+    MutationTestReport {
+        total,
+        killed,
+        survived,
+        errors,
+        kill_rate,
+        details,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

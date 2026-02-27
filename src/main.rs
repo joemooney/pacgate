@@ -13,6 +13,7 @@ mod templates_lib;
 mod reachability;
 mod pcap_writer;
 mod benchmark;
+mod mcy_gen;
 
 use std::path::{Path, PathBuf};
 use clap::{CommandFactory, Parser, Subcommand};
@@ -309,6 +310,31 @@ enum Commands {
         /// Output JSON report instead of human-readable text
         #[arg(long)]
         json: bool,
+
+        /// Run mutation tests (compile + lint each mutant, report kill rate)
+        #[arg(long)]
+        run: bool,
+    },
+    /// Generate MCY (Mutation Cover with Yosys) configuration for Verilog-level mutation testing
+    Mcy {
+        /// Path to the YAML rules file
+        rules: PathBuf,
+
+        /// Output directory for generated files
+        #[arg(short, long, default_value = "gen")]
+        output: PathBuf,
+
+        /// Templates directory
+        #[arg(short, long, default_value = "templates")]
+        templates: PathBuf,
+
+        /// Output JSON instead of human-readable text
+        #[arg(long)]
+        json: bool,
+
+        /// Run MCY after generating config (requires mcy binary in PATH)
+        #[arg(long)]
+        run: bool,
     },
     /// Manage rule templates (list, show, apply)
     Template {
@@ -879,10 +905,34 @@ fn main() -> Result<()> {
                 }
             }
         }
-        Commands::Mutate { rules, output, templates, json } => {
+        Commands::Mutate { rules, output, templates, json, run } => {
             let (config, _warnings) = loader::load_rules_with_warnings(&rules)?;
 
-            if json {
+            if run {
+                // Run mutation tests: generate + lint each mutant, report kill rate
+                let report = mutation::run_mutation_tests(&config, &templates, &output);
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&serde_json::to_value(&report)?)?);
+                } else {
+                    println!();
+                    println!("  MUTATION TEST REPORT");
+                    println!("  ====================");
+                    println!("  Total:    {}", report.total);
+                    println!("  Killed:   {}", report.killed);
+                    println!("  Survived: {}", report.survived);
+                    println!("  Errors:   {}", report.errors);
+                    println!("  Kill rate: {:.1}%", report.kill_rate);
+                    println!();
+                    for detail in &report.details {
+                        let marker = match detail.status.as_str() {
+                            "killed" => "KILLED ",
+                            "survived" => "SURVIVED",
+                            _ => "ERROR  ",
+                        };
+                        println!("  [{}] {} — {}", marker, detail.name, detail.description);
+                    }
+                }
+            } else if json {
                 let report = mutation::generate_mutation_report(&config);
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
@@ -907,6 +957,61 @@ fn main() -> Result<()> {
                 println!();
                 println!("  Generated {} mutants in {}/mutants/", mutations.len(), output.display());
                 println!("  Each mutant should fail at least one test. Surviving mutants indicate test gaps.");
+            }
+        }
+        Commands::Mcy { rules, output, templates, json, run } => {
+            let (config, _warnings) = loader::load_rules_with_warnings(&rules)?;
+
+            // First compile the rules to generate RTL + TB
+            verilog_gen::generate(&config, &templates, &output)?;
+            cocotb_gen::generate(&config, &templates, &output)?;
+
+            let rtl_dir = output.join("rtl");
+            let tb_dir = output.join("tb");
+            let result = mcy_gen::generate_mcy_config(&config, &templates, &output, &rtl_dir, &tb_dir)?;
+
+            if json {
+                let report = mcy_gen::generate_mcy_report(&result);
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!();
+                println!("  MCY Configuration Generated");
+                println!("  ===========================");
+                println!("  Config: {}", result.config_path.display());
+                println!("  Script: {}", result.script_path.display());
+                println!("  RTL files: {}", result.rtl_files.len());
+                println!("  Mutation count: {}", result.mutation_count);
+                println!();
+                println!("  To run: cd {} && mcy mcy.cfg", result.config_path.parent().unwrap().display());
+            }
+
+            if run {
+                // Try to run MCY
+                let mcy_dir = result.config_path.parent().unwrap();
+                let mcy_result = std::process::Command::new("mcy")
+                    .arg("mcy.cfg")
+                    .current_dir(mcy_dir)
+                    .output();
+                match mcy_result {
+                    Ok(out) if out.status.success() => {
+                        println!("  MCY run completed successfully.");
+                        let stdout = String::from_utf8_lossy(&out.stdout);
+                        if !stdout.is_empty() {
+                            println!("{}", stdout);
+                        }
+                    }
+                    Ok(out) => {
+                        eprintln!("  MCY run failed with exit code: {:?}", out.status.code());
+                        let stderr = String::from_utf8_lossy(&out.stderr);
+                        if !stderr.is_empty() {
+                            eprintln!("{}", stderr);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("  MCY binary not found in PATH: {}", e);
+                        eprintln!("  Install MCY: pip install mcy");
+                    }
+                }
             }
         }
         Commands::Template { action } => {

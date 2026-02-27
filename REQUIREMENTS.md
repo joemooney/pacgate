@@ -474,3 +474,55 @@
 - REQ-643: MPLS integration tests (compile, simulate, label/TC/BOS matching) [IMPLEMENTED]
 - REQ-644: IGMP/MLD integration tests (compile, simulate, multicast type matching) [IMPLEMENTED]
 - REQ-645: All 21 YAML examples compile and lint clean [IMPLEMENTED]
+
+## Phase 13 Requirements — Verification Framework Enhancements [IMPLEMENTED]
+
+### Coverage Framework Wiring
+- REQ-700: Pass L3/L4 kwargs (ip_protocol, dst_port, ipv6_src) to coverage.sample() in generated test harness [IMPLEMENTED]
+- REQ-701: Wire CoverageDirector into random test (100 closure packets after 500 random) [IMPLEMENTED]
+- REQ-702: Export coverage XML (coverage.save_xml("coverage.xml")) at end of random test [IMPLEMENTED]
+- REQ-703: GTP-U/MPLS/IGMP/MLD fields plumbed into scoreboard_rules template variable [IMPLEMENTED]
+- REQ-704: GTP-U/MPLS/IGMP/MLD fields plumbed into test_cases template variable [IMPLEMENTED]
+- REQ-705: GTP-U/MPLS/multicast fields rendered in build_scoreboard() template [IMPLEMENTED]
+
+### Enhanced Property Tests
+- REQ-710: Wire check_cidr_boundary Hypothesis test into generated test_properties.py [IMPLEMENTED]
+- REQ-711: Wire check_port_range_boundary Hypothesis test into generated test_properties.py [IMPLEMENTED]
+- REQ-712: Wire check_ipv6_cidr_match Hypothesis test into generated test_properties.py [IMPLEMENTED]
+- REQ-713: Enhanced boundary property functions with rule-aware validation [IMPLEMENTED]
+
+### Boundary + Negative Tests
+- REQ-720: Auto-generate CIDR boundary test cases (IP just outside prefix) [IMPLEMENTED]
+- REQ-721: Auto-generate port boundary test cases (port just outside range) [IMPLEMENTED]
+- REQ-722: Formally-derived negative test frame (unused ethertype selection) [IMPLEMENTED]
+- REQ-723: generate_boundary_ip_outside() helper for CIDR boundary IP calculation [IMPLEMENTED]
+- REQ-724: generate_boundary_port_outside() helper for port boundary calculation [IMPLEMENTED]
+
+### MCY Verilog Mutation Testing
+- REQ-730: `mcy` subcommand generating MCY config + test runner script [IMPLEMENTED]
+- REQ-731: mcy.cfg.tera template with [options], [script], [logic], [test], [report] sections [IMPLEMENTED]
+- REQ-732: test_mutation.sh.tera template for mutation test runner [IMPLEMENTED]
+- REQ-733: mcy_gen.rs module with generate_mcy_config() and generate_mcy_report() [IMPLEMENTED]
+- REQ-734: `--run` flag on mcy subcommand (runs MCY binary if available) [IMPLEMENTED]
+- REQ-735: `--json` flag on mcy subcommand for JSON output [IMPLEMENTED]
+
+### Mutation Kill-Rate Runner
+- REQ-736: `--run` flag on mutate subcommand (compile + lint each mutant, report kill rate) [IMPLEMENTED]
+- REQ-737: MutationTestReport struct with total/killed/survived/errors/kill_rate/details [IMPLEMENTED]
+- REQ-738: MutantResult struct per mutant (name, status, description) [IMPLEMENTED]
+- REQ-739: Mutation kill-rate: iverilog lint on each mutant's generated Verilog [IMPLEMENTED]
+
+### CI Improvements
+- REQ-740: Install hypothesis in CI (python-tests and simulate jobs) [IMPLEMENTED]
+- REQ-741: JUnit XML output for pytest invocations [IMPLEMENTED]
+- REQ-742: Property test step in simulate jobs [IMPLEMENTED]
+- REQ-743: Coverage XML artifact upload in simulate jobs [IMPLEMENTED]
+- REQ-744: requirements.txt with pinned Python dependencies [IMPLEMENTED]
+
+### Testing
+- REQ-745: 218 Rust unit tests (through Phase 13) [IMPLEMENTED]
+- REQ-746: 122 Rust integration tests (through Phase 13) [IMPLEMENTED]
+- REQ-747: Coverage framework integration tests (CoverageDirector, save_xml, kwargs) [IMPLEMENTED]
+- REQ-748: Boundary test integration tests (CIDR, port, negative derived) [IMPLEMENTED]
+- REQ-749: MCY integration tests (config generation, JSON output, script content) [IMPLEMENTED]
+- REQ-750: Mutation --run integration tests (JSON and human-readable output) [IMPLEMENTED]

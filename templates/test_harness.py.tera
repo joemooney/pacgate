@@ -28,6 +28,7 @@ from verification.packet import (
 )
 from verification.scoreboard import PacketFilterScoreboard, Rule
 from verification.coverage import FilterCoverage
+from verification.coverage_driven import CoverageDirector
 from verification.driver import PacketDriver, DecisionMonitor
 
 
@@ -88,6 +89,24 @@ def build_scoreboard():
 {% endif %}
 {% if rule.ipv6_next_header is defined %}
             ipv6_next_header={{ rule.ipv6_next_header }},
+{% endif %}
+{% if rule.gtp_teid is defined %}
+            gtp_teid={{ rule.gtp_teid }},
+{% endif %}
+{% if rule.mpls_label is defined %}
+            mpls_label={{ rule.mpls_label }},
+{% endif %}
+{% if rule.mpls_tc is defined %}
+            mpls_tc={{ rule.mpls_tc }},
+{% endif %}
+{% if rule.mpls_bos is defined %}
+            mpls_bos={{ rule.mpls_bos }},
+{% endif %}
+{% if rule.igmp_type is defined %}
+            igmp_type={{ rule.igmp_type }},
+{% endif %}
+{% if rule.mld_type is defined %}
+            mld_type={{ rule.mld_type }},
 {% endif %}
         ),
 {% endfor %}
@@ -345,13 +364,33 @@ async def test_random_with_scoreboard(dut):
         # Scoreboard check (pass extracted fields for L3/L4 matching)
         action, matched_rule = scoreboard.check(frame, result, extracted=extracted)
 
-        # Coverage sample
-        coverage.sample(frame, result == 1, matched_rule)
+        # Coverage sample — pass L3/L4 kwargs for ip_protocol/dst_port/ipv6 coverage
+        cov_kwargs = {}
+        if "ip_protocol" in extracted:
+            cov_kwargs["ip_protocol"] = extracted["ip_protocol"]
+        if "dst_port" in extracted:
+            cov_kwargs["dst_port"] = extracted["dst_port"]
+        if "src_ipv6" in extracted:
+            cov_kwargs["ipv6_src"] = extracted["src_ipv6"]
+        coverage.sample(frame, result == 1, matched_rule, **cov_kwargs)
+
+    # Coverage-directed closure phase
+    dut._log.info("Running coverage-directed closure phase...")
+    director = CoverageDirector(coverage)
+    closure_packets = director.generate_coverage_closure_packets(max_packets=100)
+    for pkt in closure_packets:
+        await driver.send(pkt)
+        result = await monitor.wait_for_decision()
+        action, matched_rule = scoreboard.check(pkt, result)
+        coverage.sample(pkt, result == 1, matched_rule)
 
     # Report
     dut._log.info("\n%s", scoreboard.report())
     dut._log.info("\n%s", coverage.report())
-    dut._log.info("Random test: %d/%d packets checked OK", num_packets, num_packets)
+    coverage.save_xml("coverage.xml")
+    dut._log.info("Coverage XML saved to coverage.xml")
+    dut._log.info("Random test: %d/%d packets + %d closure packets checked OK",
+                   num_packets, num_packets, len(closure_packets))
     dut._log.info("Coverage: %.1f%%", coverage.overall_coverage)
 
 

@@ -55,12 +55,19 @@ jobs:
         run: |
           python -m venv .venv
           source .venv/bin/activate
-          pip install cocotb pytest
+          pip install cocotb pytest hypothesis
 
       - name: Run scoreboard unit tests
         run: |
           source .venv/bin/activate
-          python -m pytest verification/test_scoreboard.py -v
+          python -m pytest verification/test_scoreboard.py -v --junit-xml=scoreboard-results.xml
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scoreboard-test-results
+          path: scoreboard-results.xml
 
   simulate:
     runs-on: ubuntu-latest
@@ -95,7 +102,7 @@ jobs:
         run: |
           python -m venv .venv
           source .venv/bin/activate
-          pip install cocotb
+          pip install cocotb pytest hypothesis
 
       - name: Build PacGate compiler
         run: cargo build --release
@@ -111,12 +118,27 @@ jobs:
           source .venv/bin/activate
           cd gen/tb && make
 
+      - name: Run property tests
+        run: |
+          source .venv/bin/activate
+          python -m pytest gen/tb/test_properties.py -v --junit-xml=property-results.xml || true
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-results-${{ matrix.example }}
-          path: gen/tb/results.xml
+          path: |
+            gen/tb/results.xml
+            property-results.xml
+
+      - name: Upload coverage XML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.example }}
+          path: gen/tb/coverage.xml
+          if-no-files-found: ignore
 
       - name: Upload waveforms on failure
         if: failure()

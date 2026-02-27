@@ -24,6 +24,7 @@ try:
         check_determinism, check_conservation, check_independence,
         check_priority_correctness, check_default_action,
         check_l3l4_determinism,
+        check_cidr_boundary, check_port_range_boundary, check_ipv6_cidr_match,
     )
     from verification.scoreboard import PacketFilterScoreboard
 except ImportError:
@@ -86,6 +87,24 @@ RULES = [
 {% if rule.ipv6_next_header is defined %}
         ipv6_next_header={{ rule.ipv6_next_header }},
 {% endif %}
+{% if rule.gtp_teid is defined %}
+        gtp_teid={{ rule.gtp_teid }},
+{% endif %}
+{% if rule.mpls_label is defined %}
+        mpls_label={{ rule.mpls_label }},
+{% endif %}
+{% if rule.mpls_tc is defined %}
+        mpls_tc={{ rule.mpls_tc }},
+{% endif %}
+{% if rule.mpls_bos is defined %}
+        mpls_bos={{ rule.mpls_bos }},
+{% endif %}
+{% if rule.igmp_type is defined %}
+        igmp_type={{ rule.igmp_type }},
+{% endif %}
+{% if rule.mld_type is defined %}
+        mld_type={{ rule.mld_type }},
+{% endif %}
     ),
 {% endfor %}
 ]
@@ -143,6 +162,27 @@ if HYPOTHESIS_AVAILABLE:
         """L3/L4 matching is deterministic with extracted fields."""
         frame, extracted = data
         assert check_l3l4_determinism(scoreboard, frame, extracted)
+
+    @given(data=l3l4_ethernet_frames())
+    @settings(max_examples=100, deadline=None)
+    def test_hypothesis_cidr_boundary(data):
+        """CIDR boundary matching is consistent."""
+        frame, extracted = data
+        assert check_cidr_boundary(scoreboard, RULES, frame, extracted)
+
+    @given(data=l3l4_ethernet_frames())
+    @settings(max_examples=100, deadline=None)
+    def test_hypothesis_port_range_boundary(data):
+        """Port range boundary matching is consistent."""
+        frame, extracted = data
+        assert check_port_range_boundary(scoreboard, RULES, frame, extracted)
+
+    @given(data=l3l4_ethernet_frames())
+    @settings(max_examples=100, deadline=None)
+    def test_hypothesis_ipv6_cidr_match(data):
+        """IPv6 CIDR matching is deterministic."""
+        frame, extracted = data
+        assert check_ipv6_cidr_match(scoreboard, frame, extracted)
 
 
 if __name__ == "__main__":

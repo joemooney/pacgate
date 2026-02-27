@@ -2,7 +2,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use tera::Tera;
 
-use crate::model::{Action, FilterConfig, Ipv6Prefix, PortMatch, parse_ethertype};
+use crate::model::{Action, FilterConfig, Ipv4Prefix, Ipv6Prefix, PortMatch, parse_ethertype};
 
 pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) -> Result<()> {
     let glob = format!("{}/**/*.tera", templates_dir.display());
@@ -78,6 +78,31 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
             tc.insert("ipv6_next_header".to_string(), nh.to_string());
         }
         tc.insert("has_ipv6".to_string(), rule.match_criteria.uses_ipv6().to_string());
+        // GTP-U fields
+        if let Some(teid) = rule.match_criteria.gtp_teid {
+            tc.insert("gtp_teid".to_string(), teid.to_string());
+            tc.insert("has_gtp".to_string(), "true".to_string());
+        }
+        // MPLS fields
+        if let Some(label) = rule.match_criteria.mpls_label {
+            tc.insert("mpls_label".to_string(), label.to_string());
+            tc.insert("has_mpls".to_string(), "true".to_string());
+        }
+        if let Some(tc_val) = rule.match_criteria.mpls_tc {
+            tc.insert("mpls_tc".to_string(), tc_val.to_string());
+        }
+        if let Some(bos) = rule.match_criteria.mpls_bos {
+            tc.insert("mpls_bos".to_string(), if bos { "1" } else { "0" }.to_string());
+        }
+        // IGMP/MLD fields
+        if let Some(igmp) = rule.match_criteria.igmp_type {
+            tc.insert("igmp_type".to_string(), format!("0x{:02X}", igmp));
+            tc.insert("has_igmp".to_string(), "true".to_string());
+        }
+        if let Some(mld) = rule.match_criteria.mld_type {
+            tc.insert("mld_type".to_string(), format!("0x{:02X}", mld));
+            tc.insert("has_mld".to_string(), "true".to_string());
+        }
         test_cases.push(tc);
     }
 
@@ -90,6 +115,90 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         tc.insert("ethertype".to_string(), "0x88B5".to_string());
         tc.insert("dst_mac".to_string(), "00:00:00:00:00:99".to_string());
         tc.insert("src_mac".to_string(), "00:00:00:00:00:88".to_string());
+        tc.insert("expect_pass".to_string(), default_pass.to_string());
+        tc.insert("has_vlan".to_string(), "false".to_string());
+        tc.insert("vlan_id".to_string(), "0".to_string());
+        tc.insert("vlan_pcp".to_string(), "0".to_string());
+        test_cases.push(tc);
+    }
+
+    // Generate boundary test cases for CIDR and port range rules
+    let mut boundary_index = 0u32;
+    for rule in rules.iter().filter(|r| !r.is_stateful()) {
+        // CIDR boundary: test IP just outside the prefix
+        if let Some(ref cidr) = rule.match_criteria.src_ip {
+            if let Some(boundary_ip) = generate_boundary_ip_outside(cidr) {
+                let ethertype = if let Some(ref et) = rule.match_criteria.ethertype {
+                    format!("0x{:04X}", parse_ethertype(et).unwrap_or(0x0800))
+                } else {
+                    "0x0800".to_string()
+                };
+                let mut tc = std::collections::HashMap::new();
+                tc.insert("name".to_string(), format!("test_boundary_cidr_{}", boundary_index));
+                tc.insert("description".to_string(), format!("CIDR boundary: src_ip={} just outside {}", boundary_ip, cidr));
+                tc.insert("ethertype".to_string(), ethertype);
+                tc.insert("dst_mac".to_string(), "de:ad:be:ef:00:01".to_string());
+                tc.insert("src_mac".to_string(), "02:00:00:00:00:01".to_string());
+                tc.insert("expect_pass".to_string(), default_pass.to_string());
+                tc.insert("has_vlan".to_string(), "false".to_string());
+                tc.insert("vlan_id".to_string(), "0".to_string());
+                tc.insert("vlan_pcp".to_string(), "0".to_string());
+                tc.insert("has_l3".to_string(), "true".to_string());
+                tc.insert("src_ip".to_string(), boundary_ip);
+                tc.insert("dst_ip".to_string(), "10.0.0.2".to_string());
+                tc.insert("ip_protocol".to_string(), rule.match_criteria.ip_protocol.unwrap_or(6).to_string());
+                test_cases.push(tc);
+                boundary_index += 1;
+            }
+        }
+        // Port boundary: test port just below range
+        if let Some(ref pm) = rule.match_criteria.dst_port {
+            if let Some(boundary_port) = generate_boundary_port_outside(pm) {
+                let ethertype = if let Some(ref et) = rule.match_criteria.ethertype {
+                    format!("0x{:04X}", parse_ethertype(et).unwrap_or(0x0800))
+                } else {
+                    "0x0800".to_string()
+                };
+                let mut tc = std::collections::HashMap::new();
+                tc.insert("name".to_string(), format!("test_boundary_port_{}", boundary_index));
+                tc.insert("description".to_string(), format!("Port boundary: dst_port={} just outside rule range", boundary_port));
+                tc.insert("ethertype".to_string(), ethertype);
+                tc.insert("dst_mac".to_string(), "de:ad:be:ef:00:01".to_string());
+                tc.insert("src_mac".to_string(), "02:00:00:00:00:01".to_string());
+                tc.insert("expect_pass".to_string(), default_pass.to_string());
+                tc.insert("has_vlan".to_string(), "false".to_string());
+                tc.insert("vlan_id".to_string(), "0".to_string());
+                tc.insert("vlan_pcp".to_string(), "0".to_string());
+                tc.insert("has_l3".to_string(), "true".to_string());
+                tc.insert("src_ip".to_string(), rule.match_criteria.src_ip.as_ref().map(|ip| generate_matching_ip(ip)).unwrap_or_else(|| "10.0.0.1".to_string()));
+                tc.insert("dst_ip".to_string(), rule.match_criteria.dst_ip.as_ref().map(|ip| generate_matching_ip(ip)).unwrap_or_else(|| "10.0.0.2".to_string()));
+                tc.insert("ip_protocol".to_string(), rule.match_criteria.ip_protocol.unwrap_or(6).to_string());
+                tc.insert("dst_port".to_string(), boundary_port.to_string());
+                tc.insert("src_port".to_string(), "12345".to_string());
+                test_cases.push(tc);
+                boundary_index += 1;
+            }
+        }
+    }
+
+    // Generate formally-derived negative test: guaranteed no-match frame
+    {
+        let used_ethertypes: std::collections::HashSet<u16> = rules.iter()
+            .filter_map(|r| r.match_criteria.ethertype.as_ref())
+            .filter_map(|et| parse_ethertype(et).ok())
+            .collect();
+        // Pick an unused ethertype for negative test
+        let neg_ethertype = [0x88B5u16, 0x88B6, 0x9000, 0x6003, 0x22F0]
+            .iter()
+            .find(|et| !used_ethertypes.contains(et))
+            .copied()
+            .unwrap_or(0x88B5);
+        let mut tc = std::collections::HashMap::new();
+        tc.insert("name".to_string(), "test_negative_derived".to_string());
+        tc.insert("description".to_string(), "Formally-derived negative: frame guaranteed to match no rule".to_string());
+        tc.insert("ethertype".to_string(), format!("0x{:04X}", neg_ethertype));
+        tc.insert("dst_mac".to_string(), "00:00:00:00:ff:ee".to_string());
+        tc.insert("src_mac".to_string(), "00:00:00:00:ff:dd".to_string());
         tc.insert("expect_pass".to_string(), default_pass.to_string());
         tc.insert("has_vlan".to_string(), "false".to_string());
         tc.insert("vlan_id".to_string(), "0".to_string());
@@ -155,6 +264,27 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         }
         if let Some(nh) = rule.match_criteria.ipv6_next_header {
             sr.insert("ipv6_next_header".to_string(), nh.to_string());
+        }
+        // GTP-U scoreboard fields
+        if let Some(teid) = rule.match_criteria.gtp_teid {
+            sr.insert("gtp_teid".to_string(), teid.to_string());
+        }
+        // MPLS scoreboard fields
+        if let Some(label) = rule.match_criteria.mpls_label {
+            sr.insert("mpls_label".to_string(), label.to_string());
+        }
+        if let Some(tc_val) = rule.match_criteria.mpls_tc {
+            sr.insert("mpls_tc".to_string(), tc_val.to_string());
+        }
+        if let Some(bos) = rule.match_criteria.mpls_bos {
+            sr.insert("mpls_bos".to_string(), if bos { "true" } else { "false" }.to_string());
+        }
+        // IGMP/MLD scoreboard fields
+        if let Some(igmp) = rule.match_criteria.igmp_type {
+            sr.insert("igmp_type".to_string(), format!("0x{:02X}", igmp));
+        }
+        if let Some(mld) = rule.match_criteria.mld_type {
+            sr.insert("mld_type".to_string(), format!("0x{:02X}", mld));
         }
         scoreboard_rules.push(sr);
     }
@@ -282,6 +412,39 @@ pub fn generate_axi_tests(_config: &FilterConfig, templates_dir: &Path, output_d
     }
 
     Ok(())
+}
+
+/// Generate an IP address just outside a CIDR prefix (for boundary testing)
+fn generate_boundary_ip_outside(cidr: &str) -> Option<String> {
+    if let Ok(prefix) = Ipv4Prefix::parse(cidr) {
+        if prefix.prefix_len == 0 || prefix.prefix_len > 30 {
+            return None; // /0 matches everything, /31+ is too narrow for meaningful boundary
+        }
+        // Compute the broadcast address + 1 (first IP outside the prefix)
+        let host_bits = 32 - prefix.prefix_len;
+        let ip_u32 = u32::from_be_bytes(prefix.addr);
+        let broadcast = ip_u32 | ((1u32 << host_bits) - 1);
+        let outside = broadcast.wrapping_add(1);
+        if outside == 0 { return None; } // wrapped around
+        let bytes = outside.to_be_bytes();
+        Some(format!("{}.{}.{}.{}", bytes[0], bytes[1], bytes[2], bytes[3]))
+    } else {
+        None
+    }
+}
+
+/// Generate a port number just outside a PortMatch range (for boundary testing)
+fn generate_boundary_port_outside(pm: &PortMatch) -> Option<u16> {
+    match pm {
+        PortMatch::Exact(p) => {
+            if *p > 1 { Some(p - 1) } else { Some(p + 1) }
+        }
+        PortMatch::Range { range } => {
+            if range[0] > 1 { Some(range[0] - 1) }
+            else if range[1] < 65535 { Some(range[1] + 1) }
+            else { None }
+        }
+    }
 }
 
 /// Generate a MAC address that matches a rule pattern (replacing * with concrete values)

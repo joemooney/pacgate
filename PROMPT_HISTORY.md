@@ -1269,3 +1269,44 @@ Implement Phase 9 with five major feature areas: PCAP traffic analysis with rule
 - Updated OVERVIEW.md: added Phase 12 protocol fields to Match Fields table, examples, quality, and Development Status sections
 - Updated REQUIREMENTS.md: added Phase 12 requirements REQ-600 through REQ-645
 - Updated PROMPT_HISTORY.md: added this session entry
+
+## Session 14: Phase 13 — Verification Framework Enhancements (2026-02-27)
+
+### Prompt
+"Phase 13: Verification Framework Enhancements (RESEARCH.md Recommendations). Close remaining gaps from RESEARCH.md Section 9: coverage framework wiring, CI improvements, boundary/negative tests, MCY Verilog mutation testing."
+
+### Phase 13 Actions
+
+**Batch 1: Coverage Framework Wiring + CI Improvements**
+1. Modified `src/cocotb_gen.rs` — Added GTP-U (gtp_teid), MPLS (mpls_label/mpls_tc/mpls_bos), and IGMP/MLD (igmp_type/mld_type) fields to both scoreboard_rules HashMap and test_cases HashMap for template rendering
+2. Modified `templates/test_harness.py.tera` — Added GTP/MPLS/multicast fields to build_scoreboard(); added CoverageDirector import; passed L3/L4 kwargs (ip_protocol, dst_port, ipv6_src) to coverage.sample(); wired CoverageDirector closure phase (100 targeted packets); added coverage.save_xml("coverage.xml") export
+3. Modified `templates/test_properties.py.tera` — Added GTP/MPLS/multicast fields to RULES definition; imported check_cidr_boundary, check_port_range_boundary, check_ipv6_cidr_match; added 3 new Hypothesis tests (cidr_boundary, port_range_boundary, ipv6_cidr_match)
+4. Modified `.github/workflows/ci.yml` — Added `hypothesis` to pip install in python-tests and simulate jobs; added `--junit-xml` to pytest; added property test step in simulate jobs; added coverage XML artifact upload
+5. Created `requirements.txt` — Pinned cocotb>=2.0, pytest, hypothesis
+6. Added 7 integration tests for Batch 1 (CoverageDirector, save_xml, L3/L4 kwargs, boundary tests, GTP/MPLS/multicast scoreboard fields)
+
+**Batch 2: Enhanced Negative Tests + Boundary Generation**
+7. Modified `src/cocotb_gen.rs` — Added generate_boundary_ip_outside() and generate_boundary_port_outside() helper functions; added CIDR boundary test generation (IP just outside prefix); added port boundary test generation (port just outside range); added formally-derived negative test (unused ethertype selection)
+8. Modified `verification/properties.py` — Enhanced check_cidr_boundary(), check_port_range_boundary(), check_ipv6_cidr_match() with actual rule-aware validation logic (verify rule matches if and only if IP/port is in range)
+9. Added 4 integration tests for Batch 2 (boundary CIDR, boundary port, negative derived, unused ethertype)
+
+**Batch 3: MCY Verilog Mutation Testing**
+10. Created `src/mcy_gen.rs` — MCY configuration generator with generate_mcy_config() (collects RTL files, renders mcy.cfg + test_mutation.sh) and generate_mcy_report() for JSON output
+11. Created `templates/mcy.cfg.tera` — MCY configuration template ([options], [script], [logic], [test], [report] sections)
+12. Created `templates/test_mutation.sh.tera` — Mutation test runner shell script template
+13. Modified `src/mutation.rs` — Added MutantResult/MutationTestReport structs and run_mutation_tests() function (generates each mutant, compiles Verilog, runs iverilog lint, reports kill/survive/error counts with kill rate)
+14. Modified `src/main.rs` — Added `mod mcy_gen;`; added Mcy subcommand (--json, --run flags); added --run flag to Mutate subcommand; implemented both match arms
+15. Added 6 integration tests for Batch 3 (mcy generates config, mcy json, mcy config content, mcy script shebang, mutate --run --json, mutate --run human-readable) + 4 unit tests in mcy_gen.rs
+
+**Batch 4: Documentation**
+16. Updated CLAUDE.md — Phase 13 features, new CLI commands, updated test counts (340 total)
+17. Updated OVERVIEW.md — Added verification framework enhancements, MCY mutation testing
+18. Updated REQUIREMENTS.md — Added Phase 13 requirements REQ-700 through REQ-745
+19. Updated PROMPT_HISTORY.md — This session entry
+20. Updated docs/RESEARCH.md — Updated Section 9 recommendations with implementation status
+
+### Test Results
+- 218 unit tests (214 + 4 mcy_gen) — all PASS
+- 122 integration tests (105 + 17 new) — all PASS
+- Total: 340 Rust tests (from 319 in Phase 12)
+- All 21 YAML examples compile unchanged

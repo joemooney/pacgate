@@ -1870,3 +1870,220 @@ fn mpls_top_level_has_parser_connections() {
     assert!(top.contains(".mpls_tc"), "top-level should connect mpls_tc to parser");
     assert!(top.contains(".mpls_bos"), "top-level should connect mpls_bos to parser");
 }
+
+// ── Phase 13 Batch 1: Coverage Framework + CI ────────────────
+
+#[test]
+fn harness_has_coverage_director() {
+    let tmp = tempfile::tempdir().unwrap();
+    pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    let harness = std::fs::read_to_string(tmp.path().join("tb/test_packet_filter.py")).unwrap();
+    assert!(harness.contains("CoverageDirector"), "harness should import CoverageDirector");
+    assert!(harness.contains("generate_coverage_closure_packets"), "harness should call coverage closure");
+}
+
+#[test]
+fn harness_has_coverage_xml_export() {
+    let tmp = tempfile::tempdir().unwrap();
+    pacgate_bin()
+        .args(["compile", "rules/examples/allow_arp.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    let harness = std::fs::read_to_string(tmp.path().join("tb/test_packet_filter.py")).unwrap();
+    assert!(harness.contains("save_xml"), "harness should call coverage.save_xml()");
+}
+
+#[test]
+fn harness_passes_l3l4_kwargs_to_coverage() {
+    let tmp = tempfile::tempdir().unwrap();
+    pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    let harness = std::fs::read_to_string(tmp.path().join("tb/test_packet_filter.py")).unwrap();
+    assert!(harness.contains("cov_kwargs"), "harness should build cov_kwargs dict");
+    assert!(harness.contains("ip_protocol"), "harness should pass ip_protocol to coverage");
+    assert!(harness.contains("ipv6_src"), "harness should pass ipv6_src to coverage");
+}
+
+#[test]
+fn properties_has_boundary_tests() {
+    let tmp = tempfile::tempdir().unwrap();
+    pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    let props = std::fs::read_to_string(tmp.path().join("tb/test_properties.py")).unwrap();
+    assert!(props.contains("check_cidr_boundary"), "properties should import check_cidr_boundary");
+    assert!(props.contains("test_hypothesis_cidr_boundary"), "properties should define cidr boundary test");
+    assert!(props.contains("test_hypothesis_port_range_boundary"), "properties should define port range boundary test");
+    assert!(props.contains("test_hypothesis_ipv6_cidr_match"), "properties should define ipv6 cidr match test");
+}
+
+#[test]
+fn gtp_scoreboard_fields_in_generated_test() {
+    let tmp = tempfile::tempdir().unwrap();
+    pacgate_bin()
+        .args(["compile", "rules/examples/gtp_5g.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    let harness = std::fs::read_to_string(tmp.path().join("tb/test_packet_filter.py")).unwrap();
+    assert!(harness.contains("gtp_teid="), "harness should include gtp_teid in scoreboard rules");
+}
+
+#[test]
+fn mpls_scoreboard_fields_in_generated_test() {
+    let tmp = tempfile::tempdir().unwrap();
+    pacgate_bin()
+        .args(["compile", "rules/examples/mpls_network.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    let harness = std::fs::read_to_string(tmp.path().join("tb/test_packet_filter.py")).unwrap();
+    assert!(harness.contains("mpls_label="), "harness should include mpls_label in scoreboard rules");
+}
+
+#[test]
+fn multicast_scoreboard_fields_in_generated_test() {
+    let tmp = tempfile::tempdir().unwrap();
+    pacgate_bin()
+        .args(["compile", "rules/examples/multicast.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    let harness = std::fs::read_to_string(tmp.path().join("tb/test_packet_filter.py")).unwrap();
+    assert!(harness.contains("igmp_type="), "harness should include igmp_type in scoreboard rules");
+}
+
+// ── Phase 13 Batch 2: Boundary + Negative Tests ─────────────
+
+#[test]
+fn boundary_cidr_test_generated() {
+    let tmp = tempfile::tempdir().unwrap();
+    pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    let harness = std::fs::read_to_string(tmp.path().join("tb/test_packet_filter.py")).unwrap();
+    assert!(harness.contains("test_boundary_cidr_"), "harness should include CIDR boundary tests");
+}
+
+#[test]
+fn boundary_port_test_generated() {
+    let tmp = tempfile::tempdir().unwrap();
+    pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    let harness = std::fs::read_to_string(tmp.path().join("tb/test_packet_filter.py")).unwrap();
+    assert!(harness.contains("test_boundary_port_"), "harness should include port boundary tests");
+}
+
+#[test]
+fn negative_derived_test_generated() {
+    let tmp = tempfile::tempdir().unwrap();
+    pacgate_bin()
+        .args(["compile", "rules/examples/allow_arp.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    let harness = std::fs::read_to_string(tmp.path().join("tb/test_packet_filter.py")).unwrap();
+    assert!(harness.contains("test_negative_derived"), "harness should include formally-derived negative test");
+}
+
+#[test]
+fn negative_derived_uses_unused_ethertype() {
+    let tmp = tempfile::tempdir().unwrap();
+    pacgate_bin()
+        .args(["compile", "rules/examples/allow_arp.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    let harness = std::fs::read_to_string(tmp.path().join("tb/test_packet_filter.py")).unwrap();
+    // allow_arp uses 0x0806, so negative test should NOT use 0x0806
+    let neg_start = harness.find("test_negative_derived").unwrap();
+    let neg_section = &harness[neg_start..neg_start + 500.min(harness.len() - neg_start)];
+    assert!(!neg_section.contains("0x0806"), "negative test should not use ARP ethertype used by rules");
+}
+
+// ── Phase 13 Batch 3: MCY Mutation Testing ───────────────────
+
+#[test]
+fn mcy_generates_config() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["mcy", "rules/examples/allow_arp.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "mcy command failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(tmp.path().join("mcy/mcy.cfg").exists(), "mcy.cfg should be generated");
+    assert!(tmp.path().join("mcy/test_mutation.sh").exists(), "test_mutation.sh should be generated");
+}
+
+#[test]
+fn mcy_json_output() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["mcy", "rules/examples/allow_arp.yaml", "-o", tmp.path().to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    assert_eq!(json["status"], "ok");
+    assert!(json["mutation_count"].as_u64().unwrap() > 0);
+    assert!(json["rtl_files_count"].as_u64().unwrap() > 0);
+}
+
+#[test]
+fn mcy_config_content() {
+    let tmp = tempfile::tempdir().unwrap();
+    pacgate_bin()
+        .args(["mcy", "rules/examples/enterprise.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    let cfg = std::fs::read_to_string(tmp.path().join("mcy/mcy.cfg")).unwrap();
+    assert!(cfg.contains("[options]"), "config should have [options] section");
+    assert!(cfg.contains("[script]"), "config should have [script] section");
+    assert!(cfg.contains("[logic]"), "config should have [logic] section");
+    assert!(cfg.contains("read_verilog"), "config should have read_verilog commands");
+    assert!(cfg.contains("packet_filter_top"), "config should reference top module");
+}
+
+#[test]
+fn mcy_script_has_shebang() {
+    let tmp = tempfile::tempdir().unwrap();
+    pacgate_bin()
+        .args(["mcy", "rules/examples/allow_arp.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    let script = std::fs::read_to_string(tmp.path().join("mcy/test_mutation.sh")).unwrap();
+    assert!(script.starts_with("#!/bin/bash"), "script should have bash shebang");
+    assert!(script.contains("make"), "script should run make for cocotb simulation");
+}
+
+#[test]
+fn mutate_run_json() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["mutate", "rules/examples/allow_arp.yaml", "-o", tmp.path().to_str().unwrap(), "--run", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "mutate --run --json failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    assert!(json["total"].as_u64().unwrap() > 0, "should report total mutations");
+    assert!(json["kill_rate"].is_number(), "should report kill_rate");
+}
+
+#[test]
+fn mutate_run_human_readable() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["mutate", "rules/examples/allow_arp.yaml", "-o", tmp.path().to_str().unwrap(), "--run"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("MUTATION TEST REPORT"), "should print mutation test report");
+    assert!(stdout.contains("Kill rate:"), "should show kill rate");
+}

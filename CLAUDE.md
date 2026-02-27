@@ -35,6 +35,11 @@
 - **Byte-match simulation**: software simulator evaluates byte_match rules with raw_bytes
 - **Enhanced formal**: SVA assertions for IPv6 CIDR, port range, rate limiter, byte-match correctness
 - **Conntrack cocotb tests**: 5 tests (new flow, return traffic, timeout, collision, overflow)
+- **MCY Verilog mutation testing**: generate MCY config for Yosys-level mutation analysis (`mcy` subcommand)
+- **Mutation kill-rate runner**: compile + lint each mutant, report kill/survived/error rates (`mutate --run`)
+- **Coverage-directed closure**: CoverageDirector wired into test loop with XML export
+- **Boundary test generation**: auto-derived CIDR/port boundary tests + formally-derived negative tests
+- **Enhanced property tests**: 9 Hypothesis-based tests including CIDR/port/IPv6 boundary checks
 - `lint` subcommand for best-practice analysis and security checks (12 lint rules)
 - FPGA resource estimation (LUTs/FFs for Artix-7) + timing/pipeline analysis
 - `--json` flag on compile/validate/estimate/diff/formal/lint for CI/scripting integration
@@ -50,7 +55,7 @@
 - Coverage-directed test generation (verification/coverage_driven.py)
 - Enhanced overlap detection with CIDR containment and port range analysis
 - 21 real-world YAML examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast)
-- 214 Rust unit tests + 105 integration tests = 319 total, 23 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
+- 218 Rust unit tests + 122 integration tests = 340 total, 23 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
 
 ## Architecture
 ```
@@ -121,7 +126,11 @@ pacgate pcap-analyze capture.pcap -m whitelist --output-yaml rules.yaml  # Gener
 pacgate synth rules.yaml --target yosys --part artix7  # Generate Yosys synthesis project
 pacgate synth rules.yaml --target vivado --part xc7a35t  # Generate Vivado project
 pacgate mutate rules.yaml              # Generate mutation test variants
+pacgate mutate rules.yaml --run        # Generate + run kill-rate analysis
 pacgate mutate rules.yaml --json       # JSON mutation report
+pacgate mcy rules.yaml                 # Generate MCY Verilog mutation config
+pacgate mcy rules.yaml --run           # Generate + run MCY (requires mcy binary)
+pacgate mcy rules.yaml --json          # JSON MCY report
 pacgate template list                  # List built-in rule templates
 pacgate template show allow_management # Show template details
 pacgate template apply web_server --set server_subnet=10.0.0.0/8 -o rules.yaml  # Apply template
@@ -148,7 +157,8 @@ pytest verification/test_scoreboard.py # 23 Python scoreboard unit tests
 - `src/templates_lib.rs` — Rule template library (7 built-in templates)
 - `src/pcap_writer.rs` — PCAP file writer for simulation output (Wireshark-compatible)
 - `src/benchmark.rs` — Performance benchmarking engine (compile time, sim throughput, LUT/FF scaling)
-- `src/main.rs` — clap CLI (27 subcommands)
+- `src/mcy_gen.rs` — MCY (Mutation Cover with Yosys) config generation
+- `src/main.rs` — clap CLI (29 subcommands)
 - `rtl/frame_parser.v` — Hand-written Ethernet/IPv4/IPv6/TCP/UDP/VXLAN/GTP-U/MPLS/IGMP/MLD parser FSM
 - `rtl/rule_counters.v` — Per-rule 64-bit packet/byte counters
 - `rtl/axi_lite_csr.v` — AXI4-Lite register interface for counters
@@ -157,7 +167,7 @@ pytest verification/test_scoreboard.py # 23 Python scoreboard unit tests
 - `rtl/packet_filter_axi_top.v` — AXI-Stream top-level integrating all modules
 - `rtl/conntrack_table.v` — Connection tracking hash table with CRC hash + timeout
 - `rtl/rate_limiter.v` — Token-bucket rate limiter (parameterized PPS, BURST)
-- `templates/*.tera` — 17 Tera templates (+ synth scripts, rate limiter TB, HTML docs, diff report)
+- `templates/*.tera` — 19 Tera templates (+ synth scripts, rate limiter TB, HTML docs, diff report, MCY config)
 - `templates/diff_report.html.tera` — HTML diff visualization template (color-coded additions/removals/modifications)
 - `verification/` — Python verification framework (packet, scoreboard, coverage, driver, properties, coverage_driven, test_scoreboard)
 - `rules/examples/` — 21 YAML examples
@@ -206,3 +216,4 @@ pytest verification/test_scoreboard.py # 23 Python scoreboard unit tests
 - **Phase 10**: Complete — Verification completeness: L3/L4/IPv6/VXLAN/byte-match scoreboard, directed L3/L4 packet construction, byte-match simulation, enhanced formal assertions (IPv6/port-range/rate-limiter/byte-match), conntrack cocotb tests, CI pipeline expansion
 - **Phase 11**: Complete — Reachability analysis, PCAP output from simulation (`--pcap-out`), performance benchmarking (`bench`), HTML diff visualization (`diff --html`)
 - **Phase 12**: Complete — GTP-U tunnel parsing (gtp_teid), MPLS label stack (mpls_label/mpls_tc/mpls_bos), IGMP/MLD multicast (igmp_type/mld_type)
+- **Phase 13**: Complete — Verification framework enhancements: coverage wiring (L3/L4 kwargs, CoverageDirector, XML export), boundary/negative test generation, MCY Verilog mutation testing, mutation kill-rate runner, CI improvements
