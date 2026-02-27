@@ -65,6 +65,12 @@ fn validate_match_criteria(mc: &crate::model::MatchCriteria, rule_name: &str) ->
     if let Some(ref pm) = mc.dst_port {
         validate_port_match(pm, "dst_port", rule_name)?;
     }
+    // VXLAN VNI (24-bit)
+    if let Some(vni) = mc.vxlan_vni {
+        if vni > 0xFFFFFF {
+            anyhow::bail!("VXLAN VNI must be 0-16777215 (24-bit), got {} in rule '{}'", vni, rule_name);
+        }
+    }
     Ok(())
 }
 
@@ -185,6 +191,7 @@ pub fn check_rule_overlaps(rules: &[crate::model::StatelessRule]) -> Vec<String>
             && mc.vlan_id.is_none() && mc.vlan_pcp.is_none()
             && mc.src_ip.is_none() && mc.dst_ip.is_none() && mc.ip_protocol.is_none()
             && mc.src_port.is_none() && mc.dst_port.is_none()
+            && mc.vxlan_vni.is_none()
         {
             warnings.push(format!(
                 "rule '{}' (priority {}) has no match criteria — matches ALL packets",
@@ -736,6 +743,24 @@ pacgate:
         );
         let config = load_rules_from_str(&yaml).unwrap();
         assert_eq!(config.pacgate.rules[0].match_criteria.ip_protocol, Some(6));
+    }
+
+    #[test]
+    fn accept_vxlan_vni() {
+        let yaml = valid_yaml(
+            "    - name: tenant\n      priority: 100\n      match:\n        vxlan_vni: 1000\n      action: pass",
+        );
+        let config = load_rules_from_str(&yaml).unwrap();
+        assert_eq!(config.pacgate.rules[0].match_criteria.vxlan_vni, Some(1000));
+    }
+
+    #[test]
+    fn reject_vxlan_vni_too_large() {
+        let yaml = valid_yaml(
+            "    - name: bad_vni\n      priority: 100\n      match:\n        vxlan_vni: 16777216\n      action: pass",
+        );
+        let err = load_rules_from_str(&yaml).unwrap_err();
+        assert!(err.to_string().contains("VXLAN VNI must be"), "got: {}", err);
     }
 
     #[test]

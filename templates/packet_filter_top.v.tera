@@ -35,6 +35,10 @@ module packet_filter_top (
     wire [15:0] dst_port;
     wire        l4_valid;
 
+    // Frame parser outputs — VXLAN
+    wire [23:0] vxlan_vni;
+    wire        vxlan_valid;
+
     wire        fields_valid;
 
     frame_parser u_parser (
@@ -57,6 +61,8 @@ module packet_filter_top (
         .src_port     (src_port),
         .dst_port     (dst_port),
         .l4_valid     (l4_valid),
+        .vxlan_vni    (vxlan_vni),
+        .vxlan_valid  (vxlan_valid),
         .fields_valid (fields_valid)
     );
 
@@ -80,6 +86,7 @@ module packet_filter_top (
         .ip_protocol  (ip_protocol),
         .src_port     (src_port),
         .dst_port     (dst_port),
+        .vxlan_vni    (vxlan_vni),
         .fields_valid (fields_valid),
         .match_hit    (match_hit_{{ rule.index }}),
         .match_action (match_action_{{ rule.index }})

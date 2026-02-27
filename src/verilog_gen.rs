@@ -93,6 +93,11 @@ fn build_condition_expr(mc: &crate::model::MatchCriteria) -> Result<String> {
         }
     }
 
+    // VXLAN VNI
+    if let Some(vni) = mc.vxlan_vni {
+        conditions.push(format!("(vxlan_vni == 24'd{})", vni));
+    }
+
     Ok(if conditions.is_empty() {
         "1'b1".to_string()
     } else {

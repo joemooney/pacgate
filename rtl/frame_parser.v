@@ -1,9 +1,11 @@
 // frame_parser.v — Ethernet frame field extractor
 // Extracts: dst_mac, src_mac, ethertype, vlan_id, vlan_pcp
 //           src_ip, dst_ip, ip_protocol, src_port, dst_port (IPv4/TCP/UDP)
+//           vxlan_vni (VXLAN Network Identifier)
 // Handles 802.1Q VLAN-tagged frames (EtherType 0x8100)
 // Handles IPv4 header parsing (20-byte fixed, IHL=5)
 // Handles TCP/UDP port extraction (first 4 bytes of L4 header)
+// Handles VXLAN tunnel detection (UDP dst port 4789)
 //
 // Interface: simple byte-stream (not AXI-Stream)
 //   pkt_data[7:0], pkt_valid, pkt_sof, pkt_eof — input
@@ -38,6 +40,10 @@ module frame_parser (
     output reg  [15:0] dst_port,
     output reg         l4_valid,    // frame had TCP/UDP header
 
+    // VXLAN fields
+    output reg  [23:0] vxlan_vni,
+    output reg         vxlan_valid, // frame is VXLAN-encapsulated
+
     output reg         fields_valid // pulse: all header fields extracted
 );
 
@@ -50,7 +56,8 @@ module frame_parser (
     localparam S_ETYPE2    = 4'd5;  // real ethertype after VLAN
     localparam S_IP_HDR    = 4'd6;  // IPv4 header (20 bytes)
     localparam S_L4_HDR    = 4'd7;  // TCP/UDP first 4 bytes
-    localparam S_PAYLOAD   = 4'd8;
+    localparam S_VXLAN_HDR = 4'd8;  // VXLAN header (8 bytes)
+    localparam S_PAYLOAD   = 4'd9;
 
     reg [3:0] state;
     reg [4:0] byte_cnt;  // counts bytes within current state (up to 20 for IPv4)
@@ -72,6 +79,8 @@ module frame_parser (
             src_port     <= 16'd0;
             dst_port     <= 16'd0;
             l4_valid     <= 1'b0;
+            vxlan_vni    <= 24'd0;
+            vxlan_valid  <= 1'b0;
             fields_valid <= 1'b0;
         end else begin
             fields_valid <= 1'b0;  // default: deassert
@@ -93,6 +102,8 @@ module frame_parser (
                 src_port <= 16'd0;
                 dst_port <= 16'd0;
                 l4_valid <= 1'b0;
+                vxlan_vni   <= 24'd0;
+                vxlan_valid <= 1'b0;
             end else if (pkt_valid) begin
                 case (state)
                     S_DST_MAC: begin
@@ -214,12 +225,46 @@ module frame_parser (
                             5'd3: begin
                                 dst_port[7:0] <= pkt_data;
                                 l4_valid     <= 1'b1;
-                                state        <= S_PAYLOAD;
-                                fields_valid <= 1'b1;
+                                // Check for VXLAN: UDP (protocol already checked) + dst port 4789
+                                if (ip_protocol == 8'd17 &&
+                                    dst_port[15:8] == 8'h12 && pkt_data == 8'hB5) begin
+                                    // dst_port == 16'd4789 (0x12B5)
+                                    // Skip 4 bytes of remaining UDP header (length + checksum)
+                                    // then parse 8-byte VXLAN header
+                                    state    <= S_VXLAN_HDR;
+                                    byte_cnt <= 5'd0;
+                                end else begin
+                                    state        <= S_PAYLOAD;
+                                    fields_valid <= 1'b1;
+                                end
                             end
                         endcase
 
                         if (byte_cnt != 5'd3) begin
+                            byte_cnt <= byte_cnt + 5'd1;
+                        end
+                    end
+
+                    S_VXLAN_HDR: begin
+                        // Parse VXLAN header: 4 bytes UDP remainder + 8 bytes VXLAN
+                        // Bytes 0-3: UDP length + checksum (skip)
+                        // Bytes 4: VXLAN flags
+                        // Bytes 5-7: Reserved
+                        // Bytes 8-10: VNI (24-bit)
+                        // Byte 11: Reserved
+                        case (byte_cnt)
+                            5'd8:  vxlan_vni[23:16] <= pkt_data;
+                            5'd9:  vxlan_vni[15:8]  <= pkt_data;
+                            5'd10: vxlan_vni[7:0]   <= pkt_data;
+                            5'd11: begin
+                                vxlan_valid  <= 1'b1;
+                                state        <= S_PAYLOAD;
+                                fields_valid <= 1'b1;
+                            end
+                            default: ;
+                        endcase
+
+                        if (byte_cnt != 5'd11) begin
                             byte_cnt <= byte_cnt + 5'd1;
                         end
                     end

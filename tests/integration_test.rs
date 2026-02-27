@@ -60,7 +60,8 @@ fn compile_json_output() {
 fn validate_all_examples() {
     for example in &["allow_arp", "enterprise", "stateful_sequence", "blacklist", "datacenter",
                      "industrial_ot", "automotive_gateway", "5g_fronthaul", "campus_access",
-                     "iot_gateway", "syn_flood_detect", "arp_spoof_detect", "l3l4_firewall"] {
+                     "iot_gateway", "syn_flood_detect", "arp_spoof_detect",
+                     "l3l4_firewall", "vxlan_datacenter"] {
         let path = format!("rules/examples/{}.yaml", example);
         let output = pacgate_bin()
             .args(["validate", &path])
@@ -417,6 +418,24 @@ fn compile_counters_json() {
     let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
     assert_eq!(json["status"], "ok");
     assert_eq!(json["counters"], true);
+}
+
+#[test]
+fn compile_vxlan_datacenter() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/vxlan_datacenter.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // Check VXLAN VNI matching in generated rule
+    let rule0 = std::fs::read_to_string(tmp.path().join("rtl/rule_match_0.v")).unwrap();
+    assert!(rule0.contains("vxlan_vni"), "VXLAN VNI matching missing from rule");
+
+    // Check top-level has VXLAN signals
+    let top = std::fs::read_to_string(tmp.path().join("rtl/packet_filter_top.v")).unwrap();
+    assert!(top.contains("vxlan_vni"), "vxlan_vni signal missing from top");
 }
 
 #[test]

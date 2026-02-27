@@ -1,0 +1,51 @@
+# VXLAN Datacenter — Tunnel-aware multi-tenant filtering
+# Demonstrates: VXLAN VNI matching for datacenter network segmentation
+# VXLAN: outer Ethernet -> IPv4 -> UDP:4789 -> VXLAN header (VNI) -> inner frame
+
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+
+  rules:
+    # Tenant A: VNI 1000 — production web
+    - name: tenant_a_prod
+      priority: 1000
+      match:
+        vxlan_vni: 1000
+      action: pass
+
+    # Tenant B: VNI 2000 — staging environment
+    - name: tenant_b_staging
+      priority: 900
+      match:
+        vxlan_vni: 2000
+      action: pass
+
+    # Tenant C: VNI 3000 — development
+    - name: tenant_c_dev
+      priority: 800
+      match:
+        vxlan_vni: 3000
+      action: pass
+
+    # Management VNI (infrastructure)
+    - name: mgmt_vni
+      priority: 700
+      match:
+        vxlan_vni: 100
+      action: pass
+
+    # Allow ARP (non-tunneled)
+    - name: allow_arp
+      priority: 200
+      match:
+        ethertype: "0x0806"
+      action: pass
+
+    # Allow LLDP (non-tunneled)
+    - name: allow_lldp
+      priority: 100
+      match:
+        ethertype: "0x88CC"
+      action: pass

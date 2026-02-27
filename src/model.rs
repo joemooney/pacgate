@@ -21,6 +21,8 @@ pub struct MatchCriteria {
     // L4 fields (TCP/UDP)
     pub src_port: Option<PortMatch>,
     pub dst_port: Option<PortMatch>,
+    // VXLAN tunnel
+    pub vxlan_vni: Option<u32>,
 }
 
 /// Port matching: exact value or range
@@ -86,6 +88,7 @@ impl MatchCriteria {
     pub fn uses_l3l4(&self) -> bool {
         self.src_ip.is_some() || self.dst_ip.is_some() || self.ip_protocol.is_some()
             || self.src_port.is_some() || self.dst_port.is_some()
+            || self.vxlan_vni.is_some()
     }
 }
 

@@ -420,6 +420,7 @@ fn generate_coverage_report(
         ("vlan_id", "L2"), ("vlan_pcp", "L2"),
         ("src_ip", "L3"), ("dst_ip", "L3"), ("ip_protocol", "L3"),
         ("src_port", "L4"), ("dst_port", "L4"),
+        ("vxlan_vni", "Tunnel"),
     ];
 
     let mut fields_info = Vec::new();
@@ -439,6 +440,7 @@ fn generate_coverage_report(
                 "ip_protocol" => mc.ip_protocol.is_some(),
                 "src_port" => mc.src_port.is_some(),
                 "dst_port" => mc.dst_port.is_some(),
+                "vxlan_vni" => mc.vxlan_vni.is_some(),
                 _ => false,
             }
         }).count();
@@ -471,6 +473,7 @@ fn generate_coverage_report(
         if mc.ip_protocol.is_some() { fields.push("ip_protocol".to_string()); }
         if mc.src_port.is_some() { fields.push("src_port".to_string()); }
         if mc.dst_port.is_some() { fields.push("dst_port".to_string()); }
+        if mc.vxlan_vni.is_some() { fields.push("vxlan_vni".to_string()); }
 
         let action = match &rule.action {
             Some(model::Action::Pass) => "pass",
@@ -583,6 +586,7 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
         if mc.ip_protocol.is_some() { uses_ip_protocol += 1; count += 1; }
         if mc.src_port.is_some() { uses_src_port += 1; count += 1; }
         if mc.dst_port.is_some() { uses_dst_port += 1; count += 1; }
+        if mc.vxlan_vni.is_some() { count += 1; }
         match_field_count.push(count);
     }
 
@@ -941,6 +945,7 @@ fn compute_resource_estimate(config: &model::FilterConfig) -> serde_json::Value 
             if mc.ip_protocol.is_some() { fields += 1; }
             if mc.src_port.is_some() { fields += 1; }
             if mc.dst_port.is_some() { fields += 1; }
+            if mc.vxlan_vni.is_some() { fields += 2; }
             rule_luts += 10 + fields * 12;
         }
     }
