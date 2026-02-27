@@ -545,14 +545,24 @@ Based on this research, here are the features ranked by impact and feasibility:
 
 > "PacGate is a specification-driven FPGA verification framework that generates both hardware and tests from YAML rules. Unlike commercial tools that generate only tests from specs (Agnisys, $100K+/seat), and unlike LLM approaches that are non-deterministic (34% accuracy), PacGate deterministically generates matched RTL and verification from a single source of truth. It then measures its own test quality through mutation testing, and can formally prove properties with SymbiYosys -- all using open-source tools. This is a novel combination that does not exist in any other open-source project."
 
-### Recommended Implementation Order — Status Update (Phase 13)
+### Recommended Implementation Order — Status Update (Phase 14)
 
 1. ~~**Now**: Add cocotb-coverage to the generated test harness (coverage model from YAML)~~ **DONE** (Phase 2, enhanced Phase 13: CoverageDirector wired into test loop, L3/L4 kwargs passed to coverage.sample(), XML export)
-2. ~~**Next**: Add constrained random + negative test generation~~ **DONE** (Phase 2: 500 random packets; Phase 13: CIDR/port boundary tests, formally-derived negative tests)
+2. ~~**Next**: Add constrained random + negative test generation~~ **DONE** (Phase 2: 500 random packets; Phase 13: CIDR/port boundary tests, formally-derived negative tests; Phase 14: GTP/MPLS/IGMP/MLD random packets in test templates)
 3. ~~**Then**: Integrate MCY for mutation testing of generated Verilog~~ **DONE** (Phase 9: YAML-level mutation; Phase 13: MCY Verilog-level config generation, mutation kill-rate runner with `mutate --run`)
-4. ~~**Then**: Add formal property generation (SVA + sby config from YAML)~~ **DONE** (Phase 4: SVA assertions + SymbiYosys task files, enhanced Phase 10: IPv6/port-range/rate-limiter/byte-match assertions)
+4. ~~**Then**: Add formal property generation (SVA + sby config from YAML)~~ **DONE** (Phase 4: SVA assertions + SymbiYosys task files; Phase 10: IPv6/port-range/rate-limiter/byte-match assertions; Phase 14: GTP-U/MPLS/IGMP/MLD formal assertions)
 5. ~~**Then**: Add GitHub Actions CI with coverage trending~~ **DONE** (Phase 10: multi-job CI pipeline; Phase 13: hypothesis install, JUnit XML reporting, property test step, coverage XML artifacts)
 6. **Later**: PyUVM architecture, ML optimization — **NOT YET IMPLEMENTED** (Hypothesis integration **DONE** in Phase 8-13 with 9 property tests)
+
+### Phase 14 Protocol Verification Completeness
+
+Phase 14 closed all verification gaps for GTP-U/MPLS/IGMP/MLD protocol fields that were added in Phase 12:
+- **Python scoreboard**: Full matching logic for all 6 fields (gtp_teid, mpls_label, mpls_tc, mpls_bos, igmp_type, mld_type)
+- **Packet factory**: Protocol-correct frame construction (GTP-U over UDP:2152, MPLS EtherType 0x8847, IGMP IPv4 proto 2, MLD ICMPv6 types 130-132)
+- **Test templates**: Directed + random test branches for all 4 protocol types
+- **Formal assertions**: SVA decision stability properties for GTP/MPLS/IGMP/MLD
+- **Analysis tools**: Shadow/overlap detection, stats, graph, diff, estimate, doc all cover new fields
+- **Bug fix**: diff_rules() was only comparing L2 fields — now compares all L3/L4/IPv6/tunnel/protocol fields
 
 ---
 

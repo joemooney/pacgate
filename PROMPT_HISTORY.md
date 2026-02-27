@@ -1310,3 +1310,55 @@ Implement Phase 9 with five major feature areas: PCAP traffic analysis with rule
 - 122 integration tests (105 + 17 new) — all PASS
 - Total: 340 Rust tests (from 319 in Phase 12)
 - All 21 YAML examples compile unchanged
+
+## Session 15: Phase 14 — Protocol Verification Completeness (2026-02-27)
+
+### Prompt
+"Phase 14: Protocol Verification Completeness. Close verification gaps for GTP-U/MPLS/IGMP/MLD fields across Python scoreboard, test templates, formal assertions, analysis tools, and documentation. Fix diff_rules() L3/L4/IPv6 field comparison bug."
+
+### Phase 14 Actions
+
+**Batch 1: Python Verification Framework**
+1. Modified `verification/scoreboard.py` — Added 6 fields to Rule dataclass (gtp_teid, mpls_label, mpls_tc, mpls_bos, igmp_type, mld_type) and matching logic in matches() method
+2. Modified `verification/packet.py` — Added 4 PacketFactory methods: gtp_u(teid), mpls(label, tc, bos), igmp(igmp_type), mld(mld_type) with proper protocol header construction
+3. Modified `verification/test_scoreboard.py` — Added TestGtpTeidMatch (4 tests), TestMplsMatch (5 tests), TestIgmpMldMatch (4 tests) = 13 new tests
+4. All 36 Python scoreboard tests pass
+
+**Batch 2: Directed + Random Test Template Branches**
+5. Modified `templates/test_harness.py.tera` — Added GTP/MPLS/IGMP/MLD directed test branches (before existing IPv6/L3/VLAN branches); added random protocol packet injection (10% probability) with random GTP-U/MPLS/IGMP/MLD frames
+6. Added 5 integration tests for template content verification
+7. 127 integration tests pass
+
+**Batch 3: Formal Assertions**
+8. Modified `src/formal_gen.rs` — Added has_gtp_rules, has_mpls_rules, has_igmp_rules, has_mld_rules feature flags + template context insertion
+9. Modified `templates/assertions.sv.tera` — Added 4 conditional SVA assertion blocks for GTP/MPLS/IGMP/MLD decision stability
+10. Added 4 integration tests for formal assertion content
+11. 131 integration tests pass
+
+**Batch 4: Analysis Tool Completeness**
+12. Modified `src/loader.rs` — Added shadow detection (criteria_shadows) and overlap detection (criteria_overlaps) for vxlan_vni, gtp_teid, mpls_label, mpls_tc, mpls_bos, igmp_type, mld_type (exact value checks)
+13. Modified `src/main.rs` — Multiple functions updated:
+    - compute_stats() + print_stats(): Added 6 field usage counters with conditional display
+    - print_dot_graph(): Added protocol fields to DOT node labels
+    - diff_rules(): **BUG FIX** — Added ALL missing L3/L4/IPv6 field comparisons (src_ip, dst_ip, ip_protocol, src_port, dst_port, vxlan_vni, src_ipv6, dst_ipv6, ipv6_next_header) plus all 6 new protocol fields
+    - generate_diff_html(): Added protocol fields to criteria_str and field change detection
+    - compute_resource_estimate() + print_resource_estimate(): Added LUT/FF costs for new fields
+    - generate_rule_documentation(): Added protocol fields to match_fields
+14. Added 6 integration tests (stats, graph, diff protocol fields, diff L3/L4 bug fix, estimate, doc)
+15. 137 integration tests pass (355 total Rust tests)
+
+**Batch 5: Documentation**
+16. Updated CLAUDE.md — Phase 14 status, test counts (355 total, 36 Python), scoreboard scope, formal assertion scope
+17. Updated OVERVIEW.md — Scoreboard description, quality metrics, development status
+18. Updated REQUIREMENTS.md — Phase 14 requirements REQ-800 through REQ-844
+19. Updated PROMPT_HISTORY.md — This session entry
+
+### Test Results
+- 218 unit tests — all PASS
+- 137 integration tests (122 + 15 new) — all PASS
+- Total: 355 Rust tests (from 340 in Phase 13)
+- 36 Python scoreboard tests (from 23 in Phase 13)
+- All 21 YAML examples compile unchanged
+
+### Git Operations
+- Commits pushed to https://github.com/joemooney/pacgate.git after each batch

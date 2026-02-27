@@ -30,10 +30,10 @@
 - **HTML diff visualization**: color-coded side-by-side HTML diff report (`diff --html`)
 - **Performance benchmarking**: compile time, simulation throughput (pkts/sec), LUT/FF scaling curves (`bench` subcommand)
 - Rule overlap and shadow detection with warnings
-- **Full-stack scoreboard**: Python reference model matches L2/L3/L4/IPv6/VXLAN/byte-match fields
+- **Full-stack scoreboard**: Python reference model matches L2/L3/L4/IPv6/VXLAN/GTP-U/MPLS/IGMP/MLD/byte-match fields
 - **Directed L3/L4 tests**: generated tests construct proper IPv4/IPv6/TCP/UDP headers
 - **Byte-match simulation**: software simulator evaluates byte_match rules with raw_bytes
-- **Enhanced formal**: SVA assertions for IPv6 CIDR, port range, rate limiter, byte-match correctness
+- **Enhanced formal**: SVA assertions for IPv6 CIDR, port range, rate limiter, byte-match, GTP-U, MPLS, IGMP/MLD correctness
 - **Conntrack cocotb tests**: 5 tests (new flow, return traffic, timeout, collision, overflow)
 - **MCY Verilog mutation testing**: generate MCY config for Yosys-level mutation analysis (`mcy` subcommand)
 - **Mutation kill-rate runner**: compile + lint each mutant, report kill/survived/error rates (`mutate --run`)
@@ -55,7 +55,7 @@
 - Coverage-directed test generation (verification/coverage_driven.py)
 - Enhanced overlap detection with CIDR containment and port range analysis
 - 21 real-world YAML examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast)
-- 218 Rust unit tests + 122 integration tests = 340 total, 23 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
+- 218 Rust unit tests + 137 integration tests = 355 total, 36 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
 
 ## Architecture
 ```
@@ -138,8 +138,8 @@ pacgate doc rules.yaml                 # Generate HTML rule documentation
 pacgate bench rules.yaml               # Benchmark compile time + simulation throughput + LUT/FF scaling
 pacgate bench rules.yaml --json        # JSON benchmark report
 pacgate diff old.yaml new.yaml --html report.html  # Generate HTML diff visualization report
-cargo test                             # 319 tests (214 unit + 105 integration)
-pytest verification/test_scoreboard.py # 23 Python scoreboard unit tests
+cargo test                             # 355 tests (218 unit + 137 integration)
+pytest verification/test_scoreboard.py # 36 Python scoreboard unit tests
 ```
 
 ## Key Files
@@ -217,3 +217,4 @@ pytest verification/test_scoreboard.py # 23 Python scoreboard unit tests
 - **Phase 11**: Complete — Reachability analysis, PCAP output from simulation (`--pcap-out`), performance benchmarking (`bench`), HTML diff visualization (`diff --html`)
 - **Phase 12**: Complete — GTP-U tunnel parsing (gtp_teid), MPLS label stack (mpls_label/mpls_tc/mpls_bos), IGMP/MLD multicast (igmp_type/mld_type)
 - **Phase 13**: Complete — Verification framework enhancements: coverage wiring (L3/L4 kwargs, CoverageDirector, XML export), boundary/negative test generation, MCY Verilog mutation testing, mutation kill-rate runner, CI improvements
+- **Phase 14**: Complete — Protocol verification completeness: GTP-U/MPLS/IGMP/MLD in Python scoreboard + packet factory + test templates (directed+random) + SVA formal assertions + shadow/overlap detection + stats/graph/diff/estimate/doc; fixed diff_rules() L3/L4/IPv6 bug

@@ -526,3 +526,44 @@
 - REQ-748: Boundary test integration tests (CIDR, port, negative derived) [IMPLEMENTED]
 - REQ-749: MCY integration tests (config generation, JSON output, script content) [IMPLEMENTED]
 - REQ-750: Mutation --run integration tests (JSON and human-readable output) [IMPLEMENTED]
+
+## Phase 14 Requirements — Protocol Verification Completeness [IMPLEMENTED]
+
+### Python Verification Framework
+- REQ-800: Scoreboard Rule dataclass extended with gtp_teid, mpls_label, mpls_tc, mpls_bos, igmp_type, mld_type fields [IMPLEMENTED]
+- REQ-801: Scoreboard matches() supports exact-value comparison for all 6 protocol fields [IMPLEMENTED]
+- REQ-802: PacketFactory.gtp_u() constructs Ethernet+IPv4+UDP(2152)+GTP header with TEID [IMPLEMENTED]
+- REQ-803: PacketFactory.mpls() constructs Ethernet(0x8847)+MPLS label entry (label/TC/BOS/TTL) [IMPLEMENTED]
+- REQ-804: PacketFactory.igmp() constructs Ethernet+IPv4(proto=2)+IGMP header with type [IMPLEMENTED]
+- REQ-805: PacketFactory.mld() constructs Ethernet+IPv6(next_header=58)+ICMPv6 MLD with type [IMPLEMENTED]
+- REQ-806: 13 Python scoreboard unit tests for GTP/MPLS/IGMP/MLD matching [IMPLEMENTED]
+
+### Test Template Branches
+- REQ-810: Directed test branches for GTP-U (teid), MPLS (label/tc/bos), IGMP, MLD in test_harness.py.tera [IMPLEMENTED]
+- REQ-811: Random test generation includes GTP-U/MPLS/IGMP/MLD protocol packets (10% probability) [IMPLEMENTED]
+- REQ-812: has_igmp and has_mld feature flags plumbed through cocotb_gen.rs to template context [IMPLEMENTED]
+
+### Formal Assertions
+- REQ-820: SVA assertion blocks for GTP-U decision stability (conditional on has_gtp_rules) [IMPLEMENTED]
+- REQ-821: SVA assertion blocks for MPLS decision stability (conditional on has_mpls_rules) [IMPLEMENTED]
+- REQ-822: SVA assertion blocks for IGMP decision stability (conditional on has_igmp_rules) [IMPLEMENTED]
+- REQ-823: SVA assertion blocks for MLD decision stability (conditional on has_mld_rules) [IMPLEMENTED]
+- REQ-824: Feature flag computation in formal_gen.rs for all 4 protocol types [IMPLEMENTED]
+
+### Analysis Tool Completeness
+- REQ-830: Shadow detection (criteria_shadows) covers gtp_teid, mpls_label, mpls_tc, mpls_bos, igmp_type, mld_type, vxlan_vni [IMPLEMENTED]
+- REQ-831: Overlap detection (criteria_overlaps) covers same 7 fields [IMPLEMENTED]
+- REQ-832: stats command reports usage of GTP/MPLS/IGMP/MLD fields [IMPLEMENTED]
+- REQ-833: graph command includes protocol fields in DOT node labels [IMPLEMENTED]
+- REQ-834: diff command detects changes to all protocol fields (GTP/MPLS/IGMP/MLD) [IMPLEMENTED]
+- REQ-835: diff command detects L3/L4/IPv6 field changes (src_ip, dst_ip, ip_protocol, src_port, dst_port, vxlan_vni, src_ipv6, dst_ipv6, ipv6_next_header) — bug fix [IMPLEMENTED]
+- REQ-836: HTML diff includes all protocol fields in criteria strings and field change detection [IMPLEMENTED]
+- REQ-837: estimate includes LUT/FF costs for GTP-U (32-bit), MPLS (label/TC/BOS), IGMP/MLD (8-bit) [IMPLEMENTED]
+- REQ-838: doc command renders protocol fields in match criteria display [IMPLEMENTED]
+
+### Testing
+- REQ-840: 218 Rust unit tests (through Phase 14) [IMPLEMENTED]
+- REQ-841: 137 Rust integration tests (through Phase 14) [IMPLEMENTED]
+- REQ-842: 36 Python scoreboard unit tests (through Phase 14) [IMPLEMENTED]
+- REQ-843: Integration tests for stats/graph/diff/estimate/doc with protocol fields [IMPLEMENTED]
+- REQ-844: Integration test verifying L3/L4 diff bug fix (src_ip, dst_port changes detected) [IMPLEMENTED]
