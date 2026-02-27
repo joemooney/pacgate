@@ -386,6 +386,40 @@ fn compile_l3l4_json_output() {
 }
 
 #[test]
+fn compile_with_counters() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/enterprise.yaml", "--counters", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile --counters failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // Counter RTL files should be copied to output
+    assert!(tmp.path().join("rtl/rule_counters.v").exists(), "rule_counters.v missing");
+    assert!(tmp.path().join("rtl/axi_lite_csr.v").exists(), "axi_lite_csr.v missing");
+
+    // Decision logic should have rule_idx output
+    let decision_v = std::fs::read_to_string(tmp.path().join("rtl/decision_logic.v")).unwrap();
+    assert!(decision_v.contains("decision_rule_idx"), "decision_rule_idx output missing");
+    assert!(decision_v.contains("decision_default"), "decision_default output missing");
+}
+
+#[test]
+fn compile_counters_json() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/allow_arp.yaml", "--counters", "--json", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    assert_eq!(json["status"], "ok");
+    assert_eq!(json["counters"], true);
+}
+
+#[test]
 fn validate_l3l4_firewall() {
     let output = pacgate_bin()
         .args(["validate", "rules/examples/l3l4_firewall.yaml", "--json"])

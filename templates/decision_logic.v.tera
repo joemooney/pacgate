@@ -12,20 +12,25 @@ module decision_logic (
 {% endfor %}
 
     output reg         decision_valid,
-    output reg         decision_pass
+    output reg         decision_pass,
+    output reg  [{{ idx_bits - 1 }}:0] decision_rule_idx,
+    output reg         decision_default  // 1 if no rule matched (default action)
 );
 
     // Combinational priority encoder: rules are ordered highest-priority first
     reg any_match;
     reg selected_action;
+    reg [{{ idx_bits - 1 }}:0] selected_idx;
 
     always @(*) begin
         any_match = 1'b0;
         selected_action = {% if default_pass %}1'b1{% else %}1'b0{% endif %};
+        selected_idx = {{ idx_bits }}'d0;
 {% for rule in rules %}
         {% if not loop.first %}else {% endif %}if (match_hit_{{ rule.index }}) begin
             any_match = 1'b1;
             selected_action = match_action_{{ rule.index }};
+            selected_idx = {{ idx_bits }}'d{{ rule.index }};
         end
 {% endfor %}
     end
@@ -33,15 +38,21 @@ module decision_logic (
     // Latch the decision: set on fields_valid, clear on next pkt_sof
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            decision_valid <= 1'b0;
-            decision_pass  <= 1'b0;
+            decision_valid    <= 1'b0;
+            decision_pass     <= 1'b0;
+            decision_rule_idx <= {{ idx_bits }}'d0;
+            decision_default  <= 1'b0;
         end else if (pkt_sof) begin
             // New frame starting — clear previous decision
-            decision_valid <= 1'b0;
-            decision_pass  <= 1'b0;
+            decision_valid    <= 1'b0;
+            decision_pass     <= 1'b0;
+            decision_rule_idx <= {{ idx_bits }}'d0;
+            decision_default  <= 1'b0;
         end else if (fields_valid) begin
             // Header parsed — latch decision
-            decision_valid <= 1'b1;
+            decision_valid    <= 1'b1;
+            decision_rule_idx <= selected_idx;
+            decision_default  <= ~any_match;
             if (any_match)
                 decision_pass <= selected_action;
             else

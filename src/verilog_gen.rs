@@ -130,6 +130,12 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         let default_pass = config.pacgate.defaults.action == Action::Pass;
         ctx.insert("default_pass", &default_pass);
 
+        // Calculate index bit width
+        let idx_bits = if rules.is_empty() { 1 } else {
+            ((rules.len() as f64).log2().ceil() as usize).max(1)
+        };
+        ctx.insert("idx_bits", &idx_bits);
+
         let rule_info: Vec<_> = rules.iter().enumerate().map(|(idx, rule)| {
             let mut map = std::collections::HashMap::new();
             map.insert("index".to_string(), idx.to_string());
@@ -183,6 +189,27 @@ pub fn copy_axi_rtl(output_dir: &Path) -> Result<()> {
     ];
 
     for filename in &axi_files {
+        let src = Path::new("rtl").join(filename);
+        let dst = rtl_dir.join(filename);
+        std::fs::copy(&src, &dst)
+            .with_context(|| format!("Failed to copy {} to output", filename))?;
+        log::info!("Copied {} to {}", filename, dst.display());
+    }
+
+    Ok(())
+}
+
+/// Copy hand-written counter + AXI-Lite CSR RTL modules to the output directory.
+pub fn copy_counter_rtl(output_dir: &Path) -> Result<()> {
+    let rtl_dir = output_dir.join("rtl");
+    std::fs::create_dir_all(&rtl_dir)?;
+
+    let counter_files = [
+        "rule_counters.v",
+        "axi_lite_csr.v",
+    ];
+
+    for filename in &counter_files {
         let src = Path::new("rtl").join(filename);
         let dst = rtl_dir.join(filename);
         std::fs::copy(&src, &dst)

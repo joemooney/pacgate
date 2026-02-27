@@ -37,6 +37,10 @@ enum Commands {
         /// Include AXI-Stream wrapper (adapter, FIFO, AXI top-level + tests)
         #[arg(long)]
         axi: bool,
+
+        /// Include per-rule counters with AXI-Lite CSR readout
+        #[arg(long)]
+        counters: bool,
     },
     /// Validate YAML rules without generating output
     Validate {
@@ -126,7 +130,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Compile { rules, output, templates, json, axi } => {
+        Commands::Compile { rules, output, templates, json, axi, counters } => {
             log::info!("Compiling rules from {}", rules.display());
             let (config, warnings) = loader::load_rules_with_warnings(&rules)?;
 
@@ -136,6 +140,11 @@ fn main() -> Result<()> {
             // Copy AXI-Stream wrapper RTL if --axi
             if axi {
                 verilog_gen::copy_axi_rtl(&output)?;
+            }
+
+            // Copy counter RTL if --counters
+            if counters {
+                verilog_gen::copy_counter_rtl(&output)?;
             }
 
             // Generate cocotb tests
@@ -154,6 +163,7 @@ fn main() -> Result<()> {
                     "default_action": match config.pacgate.defaults.action { model::Action::Pass => "pass", model::Action::Drop => "drop" },
                     "output_dir": output.to_string_lossy(),
                     "axi_stream": axi,
+                    "counters": counters,
                     "generated": {
                         "verilog_dir": format!("{}/rtl", output.display()),
                         "cocotb_dir": format!("{}/tb", output.display()),
@@ -189,6 +199,9 @@ fn main() -> Result<()> {
                 if axi {
                     println!("  Generated AXI-Stream wrapper in {}/rtl/", output.display());
                     println!("  Generated AXI-Stream tests in {}/tb-axi/", output.display());
+                }
+                if counters {
+                    println!("  Generated per-rule counters + AXI-Lite CSR in {}/rtl/", output.display());
                 }
                 println!("  Compilation complete.");
             }
