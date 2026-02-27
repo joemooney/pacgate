@@ -21,8 +21,11 @@
 - Per-rule hardware counters with AXI-Lite CSR readout (`--counters` flag)
 - PCAP import for cocotb test stimulus (`pcap` subcommand)
 - **PCAP traffic analysis**: automatic rule suggestion from captured traffic (`pcap-analyze` subcommand)
+- **PCAP output from simulation**: write Wireshark-compatible PCAP files from simulation results (`--pcap-out`)
 - HTML coverage report generation (`report` subcommand)
 - **HTML rule documentation**: styled datasheet generation (`doc` subcommand)
+- **HTML diff visualization**: color-coded side-by-side HTML diff report (`diff --html`)
+- **Performance benchmarking**: compile time, simulation throughput (pkts/sec), LUT/FF scaling curves (`bench` subcommand)
 - Rule overlap and shadow detection with warnings
 - **Full-stack scoreboard**: Python reference model matches L2/L3/L4/IPv6/VXLAN/byte-match fields
 - **Directed L3/L4 tests**: generated tests construct proper IPv4/IPv6/TCP/UDP headers
@@ -44,7 +47,7 @@
 - Coverage-directed test generation (verification/coverage_driven.py)
 - Enhanced overlap detection with CIDR containment and port range analysis
 - 18 real-world YAML examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited)
-- 181 Rust unit tests + 82 integration tests, 23 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
+- 195 Rust unit tests + 92 integration tests = 287 total, 23 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
 
 ## Architecture
 ```
@@ -106,6 +109,7 @@ pacgate pcap capture.pcap              # Import PCAP for cocotb test stimulus
 pacgate from-mermaid fsm.md --name rule --priority 100  # Mermaid → YAML
 pacgate to-mermaid rules.yaml          # YAML → Mermaid (stdout)
 pacgate simulate rules.yaml --packet "ethertype=0x0800,dst_port=80"  # Dry-run simulation
+pacgate simulate rules.yaml --packet "..." --pcap-out trace.pcap     # Write simulation results to PCAP
 pacgate pcap-analyze capture.pcap      # Analyze PCAP + suggest rules
 pacgate pcap-analyze capture.pcap -m whitelist --output-yaml rules.yaml  # Generate rules from PCAP
 pacgate synth rules.yaml --target yosys --part artix7  # Generate Yosys synthesis project
@@ -116,7 +120,10 @@ pacgate template list                  # List built-in rule templates
 pacgate template show allow_management # Show template details
 pacgate template apply web_server --set server_subnet=10.0.0.0/8 -o rules.yaml  # Apply template
 pacgate doc rules.yaml                 # Generate HTML rule documentation
-cargo test                             # 263 tests (181 unit + 82 integration)
+pacgate bench rules.yaml               # Benchmark compile time + simulation throughput + LUT/FF scaling
+pacgate bench rules.yaml --json        # JSON benchmark report
+pacgate diff old.yaml new.yaml --html report.html  # Generate HTML diff visualization report
+cargo test                             # 287 tests (195 unit + 92 integration)
 pytest verification/test_scoreboard.py # 23 Python scoreboard unit tests
 ```
 
@@ -133,7 +140,9 @@ pytest verification/test_scoreboard.py # 23 Python scoreboard unit tests
 - `src/synth_gen.rs` — Synthesis project file generation (Yosys/Vivado)
 - `src/mutation.rs` — Rule mutation engine for mutation testing
 - `src/templates_lib.rs` — Rule template library (7 built-in templates)
-- `src/main.rs` — clap CLI (24 subcommands)
+- `src/pcap_writer.rs` — PCAP file writer for simulation output (Wireshark-compatible)
+- `src/benchmark.rs` — Performance benchmarking engine (compile time, sim throughput, LUT/FF scaling)
+- `src/main.rs` — clap CLI (27 subcommands)
 - `rtl/frame_parser.v` — Hand-written Ethernet/IPv4/IPv6/TCP/UDP/VXLAN parser FSM
 - `rtl/rule_counters.v` — Per-rule 64-bit packet/byte counters
 - `rtl/axi_lite_csr.v` — AXI4-Lite register interface for counters
@@ -142,7 +151,8 @@ pytest verification/test_scoreboard.py # 23 Python scoreboard unit tests
 - `rtl/packet_filter_axi_top.v` — AXI-Stream top-level integrating all modules
 - `rtl/conntrack_table.v` — Connection tracking hash table with CRC hash + timeout
 - `rtl/rate_limiter.v` — Token-bucket rate limiter (parameterized PPS, BURST)
-- `templates/*.tera` — 16 Tera templates (+ synth scripts, rate limiter TB, HTML docs)
+- `templates/*.tera` — 17 Tera templates (+ synth scripts, rate limiter TB, HTML docs, diff report)
+- `templates/diff_report.html.tera` — HTML diff visualization template (color-coded additions/removals/modifications)
 - `verification/` — Python verification framework (packet, scoreboard, coverage, driver, properties, coverage_driven, test_scoreboard)
 - `rules/examples/` — 18 YAML examples
 - `rules/templates/` — 7 rule template YAML snippets
@@ -184,3 +194,4 @@ pytest verification/test_scoreboard.py # 23 Python scoreboard unit tests
 - **Phase 8**: Complete — IPv6 support, packet simulation, rate limiting, enhanced lint (12 rules), CIDR/port overlap detection
 - **Phase 9**: Complete — PCAP analysis, synthesis project generation, advanced test gen (IPv6/rate-limiter/mutation/coverage-driven), rule templates, HTML documentation
 - **Phase 10**: Complete — Verification completeness: L3/L4/IPv6/VXLAN/byte-match scoreboard, directed L3/L4 packet construction, byte-match simulation, enhanced formal assertions (IPv6/port-range/rate-limiter/byte-match), conntrack cocotb tests, CI pipeline expansion
+- **Phase 11**: Complete — Reachability analysis, PCAP output from simulation (`--pcap-out`), performance benchmarking (`bench`), HTML diff visualization (`diff --html`)

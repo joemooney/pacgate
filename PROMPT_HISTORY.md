@@ -1123,3 +1123,70 @@ Implement Phase 9 with five major feature areas: PCAP traffic analysis with rule
 
 ### Git Operations
 - 5 batch commits pushed to https://github.com/joemooney/pacgate.git
+
+---
+
+## Session 12: Phase 11 — Advanced Analysis (2026-02-27)
+
+### Prompt
+"Phase 11 added 4 features across 4 batches: Reachability Analysis, PCAP Output from Simulation, Performance Benchmarking, Rule Diff HTML Visualization."
+
+### Phase 11 Actions (4 batches)
+
+#### Batch 1: Reachability Analysis
+- Implemented `reachability` subcommand in `src/main.rs`
+- Added reachability engine to analyze rules for shadowed, unreachable, and redundant conditions
+- Detect fully shadowed rules where a higher-priority rule matches every packet the shadowed rule would
+- Detect redundant rules that are logically equivalent to another rule at a different priority
+- Report results with rule names and human-readable explanations
+- `--json` output for CI/scripting integration
+- Unit tests and integration tests for reachability analysis
+
+#### Batch 2: PCAP Output from Simulation
+- Created `src/pcap_writer.rs` — dedicated PCAP writer module (Wireshark-compatible)
+- PCAP global header: magic number 0xa1b2c3d4, version 2.4, link type LINKTYPE_ETHERNET (1)
+- Each simulated packet written as a proper Ethernet frame record (per-packet header + data)
+- Added `--pcap-out <file>` flag to the `simulate` subcommand in `src/main.rs`
+- Integration tests: simulate with --pcap-out produces valid PCAP file
+
+#### Batch 3: Performance Benchmarking
+- Created `src/benchmark.rs` — benchmarking engine
+  - Compile-time measurement across synthetic rule sets (10, 50, 100, 250, 500 rules)
+  - Simulation throughput measurement (packets/sec) at each rule-set size
+  - LUT/FF scaling curve derivation from resource estimates
+  - ASCII bar chart rendering for terminal output
+- Added `bench` subcommand to `src/main.rs` with `--json` flag
+- Integration tests: bench basic output, bench json output
+
+#### Batch 4: HTML Diff Visualization
+- Created `templates/diff_report.html.tera` — styled HTML diff report template
+  - Color-coded sections: green for additions, red for removals, yellow for modifications
+  - Side-by-side comparison layout showing old vs. new rule configuration
+  - Summary statistics (total added/removed/modified counts)
+- Added `--html <file>` flag to the `diff` subcommand in `src/main.rs`
+- Added `PartialEq` derive to `PortMatch` in `src/model.rs` to enable diff comparison
+- Integration tests: diff --html generates correct HTML output
+
+### New Files
+- `src/pcap_writer.rs` — PCAP file writer (Wireshark-compatible libpcap format)
+- `src/benchmark.rs` — performance benchmarking engine
+- `templates/diff_report.html.tera` — HTML diff visualization template
+
+### Modified Files
+- `src/main.rs` — 3 new subcommands/flags: `bench`, `--pcap-out` on simulate, `--html` on diff
+- `src/model.rs` — `PartialEq` derived on `PortMatch`
+- `tests/integration_test.rs` — new integration tests for all Phase 11 features
+
+### Test Results
+- 287 Rust tests pass (195 unit + 92 integration)
+- All 18 YAML examples validate and compile clean
+- All existing tests pass unmodified (backward compatible)
+
+### Git Operations
+- 4 batch commits pushed to https://github.com/joemooney/pacgate.git
+
+### Documentation Updates
+- Updated CLAUDE.md: added Phase 11 features to Feature Summary, CLI Commands, Key Files, Current Status; updated test counts to 287 (195 unit + 92 integration)
+- Updated OVERVIEW.md: added Phase 11 to CLI Commands, Quality, and Development Status sections
+- Updated REQUIREMENTS.md: added Phase 11 requirements REQ-500 through REQ-545
+- Updated PROMPT_HISTORY.md: added this session entry

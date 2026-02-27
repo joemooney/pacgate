@@ -385,3 +385,42 @@
 - REQ-415: 23 Python scoreboard unit tests [IMPLEMENTED]
 - REQ-416: CI pipeline: python-tests, conntrack-compile, multi-flag-compile jobs [IMPLEMENTED]
 - REQ-417: CI simulate matrix expanded: l3l4_firewall, ipv6_firewall examples [IMPLEMENTED]
+
+## Phase 11 Requirements — Reachability Analysis, PCAP Output, Benchmarking, HTML Diff [IMPLEMENTED]
+
+### Reachability Analysis
+- REQ-500: `reachability` subcommand analyzing all rules for shadowed/unreachable/redundant conditions [IMPLEMENTED]
+- REQ-501: Detect fully shadowed rules (a higher-priority rule matches every packet this rule would match) [IMPLEMENTED]
+- REQ-502: Detect redundant rules (logically equivalent to another rule at different priority) [IMPLEMENTED]
+- REQ-503: Report reachability results with rule names and explanations [IMPLEMENTED]
+- REQ-504: `--json` output for reachability command [IMPLEMENTED]
+
+### PCAP Output from Simulation
+- REQ-510: `--pcap-out <file>` flag on `simulate` subcommand [IMPLEMENTED]
+- REQ-511: Write Wireshark-compatible PCAP file (libpcap format, global header + per-packet records) [IMPLEMENTED]
+- REQ-512: Each simulated packet written as an Ethernet frame in the PCAP output [IMPLEMENTED]
+- REQ-513: PCAP global header: magic 0xa1b2c3d4, version 2.4, link type LINKTYPE_ETHERNET (1) [IMPLEMENTED]
+- REQ-514: `src/pcap_writer.rs` — dedicated PCAP writer module [IMPLEMENTED]
+
+### Performance Benchmarking
+- REQ-520: `bench` subcommand measuring compile time across synthetic rule sets [IMPLEMENTED]
+- REQ-521: Simulation throughput measurement (packets/sec) across rule set sizes [IMPLEMENTED]
+- REQ-522: LUT/FF scaling curves from 10 to 500 synthetic rules [IMPLEMENTED]
+- REQ-523: ASCII bar chart output for terminal visualization [IMPLEMENTED]
+- REQ-524: `--json` output for bench command with full metric tables [IMPLEMENTED]
+- REQ-525: `src/benchmark.rs` — dedicated benchmarking engine [IMPLEMENTED]
+
+### HTML Diff Visualization
+- REQ-530: `--html <file>` flag on `diff` subcommand [IMPLEMENTED]
+- REQ-531: Styled HTML diff report with color-coded additions (green), removals (red), modifications (yellow) [IMPLEMENTED]
+- REQ-532: Side-by-side comparison of old and new rule sets [IMPLEMENTED]
+- REQ-533: `templates/diff_report.html.tera` — Tera template for HTML diff rendering [IMPLEMENTED]
+- REQ-534: PartialEq derived on PortMatch in model.rs for diff comparison [IMPLEMENTED]
+
+### Testing
+- REQ-540: 195 Rust unit tests (through Phase 11) [IMPLEMENTED]
+- REQ-541: 92 Rust integration tests (through Phase 11) [IMPLEMENTED]
+- REQ-542: Reachability integration tests (basic, json output) [IMPLEMENTED]
+- REQ-543: PCAP output integration tests (simulate --pcap-out) [IMPLEMENTED]
+- REQ-544: Bench integration tests (basic, json) [IMPLEMENTED]
+- REQ-545: HTML diff integration tests (diff --html) [IMPLEMENTED]
