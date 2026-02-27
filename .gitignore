@@ -1,0 +1,11 @@
+/target/
+/gen/rtl/
+/gen/tb/
+/.venv/
+*.fst
+*.vcd
+*.o
+__pycache__/
+*.pyc
+sim_build/
+results.xml

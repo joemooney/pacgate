@@ -1,0 +1,18 @@
+[package]
+name = "flippy"
+version = "0.1.0"
+edition = "2021"
+description = "FPGA Layer 2 Packet Filter Switch — YAML rules to Verilog + cocotb"
+
+[[bin]]
+name = "flippy"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+tera = "1"
+anyhow = "1"
+log = "0.4"
+env_logger = "0.11"

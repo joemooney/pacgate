@@ -1,0 +1,11 @@
+flippy:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_arp
+      type: stateless
+      priority: 100
+      match:
+        ethertype: "0x0806"
+      action: pass
