@@ -868,6 +868,15 @@ fn print_dot_graph(config: &model::FilterConfig) {
             if let Some(ref mac) = mc.src_mac { criteria.push(format!("src={}", mac)); }
             if let Some(vid) = mc.vlan_id { criteria.push(format!("vlan={}", vid)); }
             if let Some(pcp) = mc.vlan_pcp { criteria.push(format!("pcp={}", pcp)); }
+            if let Some(ref ip) = mc.src_ip { criteria.push(format!("src_ip={}", ip)); }
+            if let Some(ref ip) = mc.dst_ip { criteria.push(format!("dst_ip={}", ip)); }
+            if let Some(proto) = mc.ip_protocol { criteria.push(format!("proto={}", proto)); }
+            if let Some(ref port) = mc.src_port { criteria.push(format!("src_port={:?}", port)); }
+            if let Some(ref port) = mc.dst_port { criteria.push(format!("dst_port={:?}", port)); }
+            if let Some(vni) = mc.vxlan_vni { criteria.push(format!("vni={}", vni)); }
+            if let Some(ref ip) = mc.src_ipv6 { criteria.push(format!("src_ipv6={}", ip)); }
+            if let Some(ref ip) = mc.dst_ipv6 { criteria.push(format!("dst_ipv6={}", ip)); }
+            if let Some(nh) = mc.ipv6_next_header { criteria.push(format!("next_hdr={}", nh)); }
         } else {
             criteria.push("(FSM states)".to_string());
         }
@@ -1670,4 +1679,27 @@ pacgate:
     #               ethertype: "0x0800"
     #             next_state: idle
     #             action: pass
+    #
+    # IPv6 CIDR matching:
+    # - name: allow_ipv6_subnet
+    #   type: stateless
+    #   priority: 85
+    #   match:
+    #     src_ipv6: "2001:db8::/32"
+    #     ipv6_next_header: 6    # TCP
+    #     dst_port: 80
+    #   action: pass
+    #
+    # Rate limiting (token bucket):
+    # - name: rate_limited_http
+    #   type: stateless
+    #   priority: 95
+    #   match:
+    #     ethertype: "0x0800"
+    #     ip_protocol: 6
+    #     dst_port: 80
+    #   action: pass
+    #   rate_limit:
+    #     pps: 10000
+    #     burst: 128
 "#;

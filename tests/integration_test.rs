@@ -791,3 +791,34 @@ fn compile_rate_limited_json() {
     assert_eq!(json["rate_limit"], true);
     assert_eq!(json["rules_count"], 4);
 }
+
+// ── Simulator IPv6 Integration Tests ───────────────────────
+
+#[test]
+fn simulate_ipv6() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/ipv6_firewall.yaml",
+               "--packet", "ethertype=0x86DD,ipv6_next_header=58"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "simulate failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("allow_icmpv6"), "expected ICMPv6 rule match, got: {}", stdout);
+}
+
+#[test]
+fn simulate_all_fields() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/l3l4_firewall.yaml",
+               "--packet", "ethertype=0x0800,src_ip=10.0.0.1,ip_protocol=6,dst_port=80",
+               "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "simulate failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    assert_eq!(json["status"], "ok");
+    assert!(!json["fields"].as_array().unwrap().is_empty(), "expected field breakdown");
+}

@@ -1,5 +1,5 @@
 use anyhow::{Result, bail};
-use crate::model::{FilterConfig, MatchCriteria, Action, PortMatch, Ipv4Prefix, MacAddress, parse_ethertype};
+use crate::model::{FilterConfig, MatchCriteria, Action, PortMatch, Ipv4Prefix, Ipv6Prefix, MacAddress, parse_ethertype};
 
 /// Represents a simulated packet with all match-field values
 #[derive(Debug, Clone, Default)]
@@ -15,6 +15,9 @@ pub struct SimPacket {
     pub src_port: Option<u16>,
     pub dst_port: Option<u16>,
     pub vxlan_vni: Option<u32>,
+    pub src_ipv6: Option<String>,
+    pub dst_ipv6: Option<String>,
+    pub ipv6_next_header: Option<u8>,
 }
 
 /// Result of simulating a packet against the rule set
@@ -84,6 +87,17 @@ pub fn parse_packet_spec(spec: &str) -> Result<SimPacket> {
             }
             "vxlan_vni" => {
                 pkt.vxlan_vni = Some(value.parse().map_err(|e| anyhow::anyhow!("Bad vxlan_vni '{}': {}", value, e))?);
+            }
+            "src_ipv6" => {
+                Ipv6Prefix::parse(value)?; // validate
+                pkt.src_ipv6 = Some(value.to_string());
+            }
+            "dst_ipv6" => {
+                Ipv6Prefix::parse(value)?; // validate
+                pkt.dst_ipv6 = Some(value.to_string());
+            }
+            "ipv6_next_header" => {
+                pkt.ipv6_next_header = Some(value.parse().map_err(|e| anyhow::anyhow!("Bad ipv6_next_header '{}': {}", value, e))?);
             }
             _ => bail!("Unknown packet field '{}'", key),
         }
@@ -282,6 +296,45 @@ pub fn match_criteria_against_packet(mc: &MatchCriteria, pkt: &SimPacket) -> (bo
         if !matches { all_match = false; }
     }
 
+    // src_ipv6 (CIDR matching)
+    if let Some(ref rule_ip) = mc.src_ipv6 {
+        let pkt_val = pkt.src_ipv6.as_deref().unwrap_or("none");
+        let matches = pkt.src_ipv6.as_ref().map(|p| ipv6_matches_cidr(p, rule_ip)).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "src_ipv6".to_string(),
+            rule_value: rule_ip.clone(),
+            packet_value: pkt_val.to_string(),
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // dst_ipv6 (CIDR matching)
+    if let Some(ref rule_ip) = mc.dst_ipv6 {
+        let pkt_val = pkt.dst_ipv6.as_deref().unwrap_or("none");
+        let matches = pkt.dst_ipv6.as_ref().map(|p| ipv6_matches_cidr(p, rule_ip)).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "dst_ipv6".to_string(),
+            rule_value: rule_ip.clone(),
+            packet_value: pkt_val.to_string(),
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // ipv6_next_header
+    if let Some(rule_nh) = mc.ipv6_next_header {
+        let pkt_val = pkt.ipv6_next_header.map(|v| v.to_string()).unwrap_or_else(|| "none".to_string());
+        let matches = pkt.ipv6_next_header.map(|v| v == rule_nh).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "ipv6_next_header".to_string(),
+            rule_value: rule_nh.to_string(),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
     (all_match, fields)
 }
 
@@ -298,6 +351,26 @@ fn ipv4_matches_cidr(addr_str: &str, cidr_str: &str) -> bool {
 
     // Apply CIDR mask to both addresses and compare
     for i in 0..4 {
+        if (addr.addr[i] & cidr.mask[i]) != (cidr.addr[i] & cidr.mask[i]) {
+            return false;
+        }
+    }
+    true
+}
+
+/// Check if an IPv6 address matches a CIDR prefix
+fn ipv6_matches_cidr(addr_str: &str, cidr_str: &str) -> bool {
+    let addr = match Ipv6Prefix::parse(addr_str) {
+        Ok(a) => a,
+        Err(_) => return false,
+    };
+    let cidr = match Ipv6Prefix::parse(cidr_str) {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+
+    // Apply CIDR mask to both addresses and compare
+    for i in 0..16 {
         if (addr.addr[i] & cidr.mask[i]) != (cidr.addr[i] & cidr.mask[i]) {
             return false;
         }
@@ -689,5 +762,101 @@ mod tests {
 
         let pkt2 = parse_packet_spec("vxlan_vni=200").unwrap();
         assert_eq!(simulate(&config, &pkt2).action, Action::Drop);
+    }
+
+    #[test]
+    fn simulate_ipv6_cidr_match() {
+        let rules = vec![
+            StatelessRule {
+                name: "allow_ipv6_subnet".to_string(),
+                priority: 100,
+                match_criteria: MatchCriteria {
+                    src_ipv6: Some("2001:db8::/32".to_string()),
+                    ..Default::default()
+                },
+                action: Some(Action::Pass),
+                rule_type: None,
+                fsm: None,
+                ports: None,
+                rate_limit: None,
+            },
+        ];
+        let config = make_config(rules, Action::Drop);
+
+        let pkt1 = parse_packet_spec("src_ipv6=2001:db8::1").unwrap();
+        assert_eq!(simulate(&config, &pkt1).action, Action::Pass);
+
+        let pkt2 = parse_packet_spec("src_ipv6=2001:db9::1").unwrap();
+        assert_eq!(simulate(&config, &pkt2).action, Action::Drop);
+    }
+
+    #[test]
+    fn simulate_ipv6_next_header() {
+        let rules = vec![
+            StatelessRule {
+                name: "allow_icmpv6".to_string(),
+                priority: 100,
+                match_criteria: MatchCriteria {
+                    ipv6_next_header: Some(58),
+                    ..Default::default()
+                },
+                action: Some(Action::Pass),
+                rule_type: None,
+                fsm: None,
+                ports: None,
+                rate_limit: None,
+            },
+        ];
+        let config = make_config(rules, Action::Drop);
+
+        let pkt1 = parse_packet_spec("ipv6_next_header=58").unwrap();
+        assert_eq!(simulate(&config, &pkt1).action, Action::Pass);
+
+        let pkt2 = parse_packet_spec("ipv6_next_header=6").unwrap();
+        assert_eq!(simulate(&config, &pkt2).action, Action::Drop);
+    }
+
+    #[test]
+    fn ipv6_cidr_matching() {
+        assert!(ipv6_matches_cidr("2001:db8::1", "2001:db8::/32"));
+        assert!(ipv6_matches_cidr("2001:db8:abcd::1", "2001:db8::/32"));
+        assert!(!ipv6_matches_cidr("2001:db9::1", "2001:db8::/32"));
+        assert!(ipv6_matches_cidr("fe80::1", "fe80::/10"));
+        assert!(ipv6_matches_cidr("::1", "::1/128"));
+        assert!(ipv6_matches_cidr("::1", "::1"));
+    }
+
+    #[test]
+    fn simulate_ipv6_all_fields() {
+        let rules = vec![
+            StatelessRule {
+                name: "ipv6_web".to_string(),
+                priority: 200,
+                match_criteria: MatchCriteria {
+                    src_ipv6: Some("2001:db8::/32".to_string()),
+                    ipv6_next_header: Some(6), // TCP
+                    dst_port: Some(PortMatch::Exact(80)),
+                    ..Default::default()
+                },
+                action: Some(Action::Pass),
+                rule_type: None,
+                fsm: None,
+                ports: None,
+                rate_limit: None,
+            },
+        ];
+        let config = make_config(rules, Action::Drop);
+
+        // All match
+        let pkt1 = parse_packet_spec("src_ipv6=2001:db8::1,ipv6_next_header=6,dst_port=80").unwrap();
+        assert_eq!(simulate(&config, &pkt1).action, Action::Pass);
+
+        // Wrong subnet
+        let pkt2 = parse_packet_spec("src_ipv6=2001:db9::1,ipv6_next_header=6,dst_port=80").unwrap();
+        assert_eq!(simulate(&config, &pkt2).action, Action::Drop);
+
+        // Wrong port
+        let pkt3 = parse_packet_spec("src_ipv6=2001:db8::1,ipv6_next_header=6,dst_port=443").unwrap();
+        assert_eq!(simulate(&config, &pkt3).action, Action::Drop);
     }
 }
