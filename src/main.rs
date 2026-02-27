@@ -11,6 +11,7 @@ mod synth_gen;
 mod mutation;
 mod templates_lib;
 mod reachability;
+mod pcap_writer;
 
 use std::path::{Path, PathBuf};
 use clap::{CommandFactory, Parser, Subcommand};
@@ -204,6 +205,10 @@ enum Commands {
         /// Output JSON instead of human-readable text
         #[arg(long)]
         json: bool,
+
+        /// Write simulation results as PCAP file (Wireshark-compatible)
+        #[arg(long)]
+        pcap_out: Option<PathBuf>,
     },
     /// Analyze PCAP traffic and suggest PacGate rules
     PcapAnalyze {
@@ -646,10 +651,35 @@ fn main() -> Result<()> {
             let mermaid_text = mermaid::from_yaml(&config);
             println!("{}", mermaid_text);
         }
-        Commands::Simulate { rules, packet, json } => {
+        Commands::Simulate { rules, packet, json, pcap_out } => {
             let config = loader::load_rules(&rules)?;
             let sim_pkt = simulator::parse_packet_spec(&packet)?;
             let result = simulator::simulate(&config, &sim_pkt);
+
+            // Write PCAP file if requested
+            if let Some(ref pcap_path) = pcap_out {
+                let action_str = match result.action { model::Action::Pass => "pass", model::Action::Drop => "drop" };
+                let frame = pcap_writer::build_frame_from_sim(
+                    sim_pkt.src_mac.as_deref().unwrap_or("02:00:00:00:00:01"),
+                    sim_pkt.dst_mac.as_deref().unwrap_or("02:00:00:00:00:02"),
+                    sim_pkt.ethertype.unwrap_or(0x0800),
+                    sim_pkt.src_ip.as_deref(),
+                    sim_pkt.dst_ip.as_deref(),
+                    sim_pkt.ip_protocol,
+                    sim_pkt.src_port,
+                    sim_pkt.dst_port,
+                );
+                let record = pcap_writer::SimPacketRecord {
+                    frame_data: frame,
+                    rule_name: result.rule_name.clone(),
+                    action: action_str.to_string(),
+                    seq: 0,
+                };
+                pcap_writer::write_pcap(pcap_path, &[record])?;
+                if !json {
+                    println!("  PCAP written to: {}", pcap_path.display());
+                }
+            }
 
             if json {
                 let fields_json: Vec<serde_json::Value> = result.fields.iter().map(|f| {
@@ -660,13 +690,19 @@ fn main() -> Result<()> {
                         "matches": f.matches,
                     })
                 }).collect();
-                let summary = serde_json::json!({
+                let mut summary = serde_json::json!({
                     "status": "ok",
                     "matched_rule": result.rule_name,
                     "action": match result.action { model::Action::Pass => "pass", model::Action::Drop => "drop" },
                     "is_default": result.is_default,
                     "fields": fields_json,
                 });
+                if let Some(ref pcap_path) = pcap_out {
+                    summary.as_object_mut().unwrap().insert(
+                        "pcap_file".to_string(),
+                        serde_json::Value::String(pcap_path.display().to_string()),
+                    );
+                }
                 println!("{}", serde_json::to_string_pretty(&summary)?);
             } else {
                 println!();

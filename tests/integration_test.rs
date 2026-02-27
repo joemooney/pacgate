@@ -1505,6 +1505,92 @@ fn reachability_json() {
     assert!(json["default_action"].is_string());
 }
 
+// ── PCAP Output from Simulation Tests ─────────────────────────
+
+#[test]
+fn simulate_pcap_out_creates_file() {
+    let tmp = tempfile::tempdir().unwrap();
+    let pcap_path = tmp.path().join("sim_output.pcap");
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/l3l4_firewall.yaml",
+               "--packet", "ethertype=0x0800,ip_protocol=6,dst_port=80,src_ip=10.0.0.1,dst_ip=10.0.1.1",
+               "--pcap-out", pcap_path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "simulate --pcap-out failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // Verify PCAP file was created
+    assert!(pcap_path.exists(), "PCAP file should be created");
+    let data = std::fs::read(&pcap_path).unwrap();
+    // Check PCAP magic number (little-endian: 0xa1b2c3d4)
+    assert!(data.len() >= 24, "PCAP should have at least global header");
+    assert_eq!(&data[0..4], &[0xd4, 0xc3, 0xb2, 0xa1], "PCAP magic number mismatch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("PCAP written to"), "should print PCAP path");
+}
+
+#[test]
+fn simulate_pcap_out_with_json() {
+    let tmp = tempfile::tempdir().unwrap();
+    let pcap_path = tmp.path().join("sim_json.pcap");
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/allow_arp.yaml",
+               "--packet", "ethertype=0x0806",
+               "--pcap-out", pcap_path.to_str().unwrap(),
+               "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "simulate --pcap-out --json failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // Verify PCAP file created
+    assert!(pcap_path.exists(), "PCAP file should be created");
+
+    // Verify JSON output includes pcap_file field
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    assert_eq!(json["status"], "ok");
+    assert!(json["pcap_file"].is_string(), "JSON should include pcap_file path");
+}
+
+#[test]
+fn simulate_pcap_out_ipv4_frame_structure() {
+    let tmp = tempfile::tempdir().unwrap();
+    let pcap_path = tmp.path().join("ipv4_frame.pcap");
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/l3l4_firewall.yaml",
+               "--packet", "ethertype=0x0800,ip_protocol=6,src_port=12345,dst_port=443,src_ip=192.168.1.1,dst_ip=10.0.0.1",
+               "--pcap-out", pcap_path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "simulate failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let data = std::fs::read(&pcap_path).unwrap();
+    // Global header (24) + packet header (16) + frame data
+    assert!(data.len() > 40, "PCAP should contain packet data");
+
+    // Check that frame contains IPv4 ethertype at offset 24+16+12 = 52
+    let frame_start = 24 + 16; // global header + first packet header
+    assert_eq!(data[frame_start + 12], 0x08, "ethertype high byte");
+    assert_eq!(data[frame_start + 13], 0x00, "ethertype low byte");
+
+    // Check IP version/IHL at frame offset 14
+    assert_eq!(data[frame_start + 14], 0x45, "IPv4 version+IHL");
+}
+
+#[test]
+fn simulate_without_pcap_out_no_file() {
+    // When --pcap-out is NOT provided, no PCAP file should be created
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/allow_arp.yaml",
+               "--packet", "ethertype=0x0806"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.contains("PCAP written"), "should not mention PCAP");
+}
+
 #[test]
 fn all_examples_lint() {
     let examples = std::fs::read_dir("rules/examples").unwrap();
