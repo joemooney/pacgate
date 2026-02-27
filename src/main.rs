@@ -7,6 +7,7 @@ mod pcap;
 mod mermaid;
 mod simulator;
 mod pcap_analyze;
+mod synth_gen;
 
 use std::path::{Path, PathBuf};
 use clap::{CommandFactory, Parser, Subcommand};
@@ -217,6 +218,59 @@ enum Commands {
         /// Maximum number of suggested rules
         #[arg(long, default_value = "20")]
         max_rules: usize,
+
+        /// Output JSON instead of human-readable text
+        #[arg(long)]
+        json: bool,
+    },
+    /// Generate synthesis project files (Yosys or Vivado)
+    Synth {
+        /// Path to the YAML rules file
+        rules: PathBuf,
+
+        /// Output directory for generated files
+        #[arg(short, long, default_value = "gen")]
+        output: PathBuf,
+
+        /// Templates directory
+        #[arg(short, long, default_value = "templates")]
+        templates: PathBuf,
+
+        /// Synthesis target: yosys or vivado
+        #[arg(long, default_value = "yosys")]
+        target: String,
+
+        /// Device/part (yosys: artix7/ice40/ecp5, vivado: part number)
+        #[arg(long, default_value = "artix7")]
+        part: String,
+
+        /// Clock frequency in MHz
+        #[arg(long, default_value = "125.0")]
+        clock_mhz: f64,
+
+        /// Include AXI-Stream wrapper
+        #[arg(long)]
+        axi: bool,
+
+        /// Include per-rule counters
+        #[arg(long)]
+        counters: bool,
+
+        /// Include connection tracking
+        #[arg(long)]
+        conntrack: bool,
+
+        /// Include rate limiter
+        #[arg(long)]
+        rate_limit: bool,
+
+        /// Multi-port count
+        #[arg(long, default_value = "1")]
+        ports: u16,
+
+        /// Parse existing synthesis log instead of generating
+        #[arg(long)]
+        parse_results: Option<PathBuf>,
 
         /// Output JSON instead of human-readable text
         #[arg(long)]
@@ -548,6 +602,94 @@ fn main() -> Result<()> {
                     }
                 }
                 println!();
+            }
+        }
+        Commands::Synth { rules, output, templates, target, part, clock_mhz, axi, counters, conntrack, rate_limit, ports, parse_results, json } => {
+            // If --parse-results, parse an existing synthesis log
+            if let Some(ref log_path) = parse_results {
+                let results = if target == "vivado" {
+                    synth_gen::parse_vivado_utilization(log_path)?
+                } else {
+                    synth_gen::parse_yosys_log(log_path)?
+                };
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&results)?);
+                } else {
+                    println!("  Synthesis Results ({})", results.tool);
+                    println!("  ════════════════════════════════════════════");
+                    if let Some(luts) = results.luts { println!("  LUTs:   {}", luts); }
+                    if let Some(ffs) = results.ffs { println!("  FFs:    {}", ffs); }
+                    if let Some(brams) = results.brams { println!("  BRAMs:  {}", brams); }
+                    if let Some(dsps) = results.dsps { println!("  DSPs:   {}", dsps); }
+                    if let Some(wns) = results.wns { println!("  WNS:    {} ns", wns); }
+                }
+            } else {
+                // First compile the design to generate RTL
+                let (config, warnings) = loader::load_rules_with_warnings(&rules)?;
+                verilog_gen::generate(&config, &templates, &output)?;
+                if ports > 1 {
+                    verilog_gen::generate_multiport(&config, &templates, &output, ports)?;
+                }
+                if axi { verilog_gen::copy_axi_rtl(&output)?; }
+                if counters { verilog_gen::copy_counter_rtl(&output)?; }
+                if conntrack { verilog_gen::copy_conntrack_rtl(&output)?; }
+                let has_rate_limit = rate_limit || config.pacgate.rules.iter().any(|r| r.rate_limit.is_some());
+                if has_rate_limit { verilog_gen::copy_rate_limiter_rtl(&output)?; }
+
+                let rtl_files = synth_gen::collect_rtl_files(&output, axi, counters, conntrack, has_rate_limit, ports);
+                let top_module = if axi { "packet_filter_axi_top".to_string() }
+                    else if ports > 1 { "packet_filter_multiport_top".to_string() }
+                    else { "packet_filter_top".to_string() };
+
+                let synth_target = if target == "vivado" {
+                    synth_gen::SynthTarget::Vivado { part: part.clone() }
+                } else {
+                    synth_gen::SynthTarget::Yosys { device: synth_gen::YosysDevice::from_str(&part)? }
+                };
+
+                let synth_config = synth_gen::SynthConfig {
+                    target: synth_target,
+                    clock_mhz,
+                    top_module: top_module.clone(),
+                    rtl_files,
+                    has_axi: axi,
+                    has_counters: counters,
+                    has_conntrack: conntrack,
+                    has_rate_limit,
+                    ports,
+                };
+
+                let generated = synth_gen::generate_synth_project(&synth_config, &templates, &output)?;
+
+                if json {
+                    let summary = serde_json::json!({
+                        "status": "ok",
+                        "rules_file": rules.to_string_lossy(),
+                        "rules_count": config.pacgate.rules.len(),
+                        "target": target,
+                        "part": part,
+                        "clock_mhz": clock_mhz,
+                        "top_module": top_module,
+                        "generated": generated,
+                        "warnings": warnings,
+                    });
+                    println!("{}", serde_json::to_string_pretty(&summary)?);
+                } else {
+                    for w in &warnings {
+                        eprintln!("Warning: {}", w);
+                    }
+                    println!("  Generated synthesis project for {} ({})", target, part);
+                    for f in &generated {
+                        println!("    {}/{}", output.display(), f);
+                    }
+                    println!();
+                    println!("  Run synthesis:");
+                    if target == "vivado" {
+                        println!("    cd {}/synth && make vivado", output.display());
+                    } else {
+                        println!("    cd {}/synth && make yosys", output.display());
+                    }
+                }
             }
         }
         Commands::PcapAnalyze { pcap_file, mode, output_yaml, max_rules, json } => {

@@ -792,6 +792,60 @@ fn compile_rate_limited_json() {
     assert_eq!(json["rules_count"], 4);
 }
 
+// ── Synthesis Project Integration Tests ────────────────────
+
+#[test]
+fn synth_yosys_artix7() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["synth", "rules/examples/enterprise.yaml",
+               "--target", "yosys", "--part", "artix7",
+               "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "synth yosys failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    assert!(tmp.path().join("synth/synth.ys").exists(), "synth.ys missing");
+    assert!(tmp.path().join("synth/constraints.xdc").exists(), "constraints.xdc missing");
+    assert!(tmp.path().join("synth/Makefile").exists(), "Makefile missing");
+
+    let ys = std::fs::read_to_string(tmp.path().join("synth/synth.ys")).unwrap();
+    assert!(ys.contains("synth_xilinx"), "should target xilinx for artix7");
+    assert!(ys.contains("packet_filter_top"), "should reference top module");
+}
+
+#[test]
+fn synth_vivado_project() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["synth", "rules/examples/allow_arp.yaml",
+               "--target", "vivado", "--part", "xc7a35tcpg236-1",
+               "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "synth vivado failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    assert!(tmp.path().join("synth/synth.tcl").exists(), "synth.tcl missing");
+    let tcl = std::fs::read_to_string(tmp.path().join("synth/synth.tcl")).unwrap();
+    assert!(tcl.contains("xc7a35tcpg236-1"), "should contain part number");
+}
+
+#[test]
+fn synth_json_output() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["synth", "rules/examples/allow_arp.yaml",
+               "--json", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "synth --json failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    assert_eq!(json["status"], "ok");
+    assert!(json["generated"].is_array());
+}
+
 // ── PCAP Analyze Integration Tests ─────────────────────────
 
 /// Helper: create a PCAP file with IPv4 TCP packets for analysis tests
