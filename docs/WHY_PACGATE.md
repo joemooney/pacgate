@@ -41,7 +41,7 @@ P4 is excellent for programming switch ASICs (Tofino, memory-mapped). But P4:
 - **Is overkill for Layer 2** — P4 is designed for L3/L4 processing pipelines
 - **Has no formal verification path** — no SVA, no bounded model checking
 
-PacGate targets a different niche: **dedicated L2 FPGA filters with built-in verification**. If you're building a Tofino-based datacenter switch, use P4. If you're building an FPGA-based security boundary, OT gateway, or SmartNIC filter — PacGate is purpose-built.
+PacGate targets a different niche: **dedicated L2-L4 FPGA filters with built-in verification**. It handles Ethernet through TCP/UDP, plus tunnels (VXLAN, GTP-U), MPLS, multicast (IGMP/MLD), IPv6, byte-offset matching, and stateful connection tracking. If you're building a Tofino-based datacenter switch, use P4. If you're building an FPGA-based security boundary, OT gateway, 5G filter, or SmartNIC — PacGate is purpose-built.
 
 Future roadmap includes P4 import/export for interoperability.
 
@@ -77,23 +77,29 @@ PacGate's scoreboard checks 500+ random packets per run. If your filter disagree
 | Both from one spec | **Yes** | No | No | No |
 | Formal verification | Yes (SVA+SBY) | No | No | Yes |
 | Open-source toolchain | Yes | No | No | No |
-| L2 packet filtering | Purpose-built | General | Register-focused | General |
+| L2-L4 packet filtering | Purpose-built | General | Register-focused | General |
 
 PacGate doesn't compete with Questa on general-purpose verification. It competes on **developer velocity** for a specific, high-value problem domain.
 
 ## "Is it production-ready?"
 
-PacGate is well beyond prototype stage:
+PacGate is well beyond prototype stage — through 16 development phases:
 
-- **63 Rust tests** (44 unit + 19 integration) — compiler correctness
-- **13+ cocotb tests** with 500 random packets — hardware simulation
-- **85%+ functional coverage** — coverage-driven verification
-- **SVA formal assertions** — mathematical proof of correctness
-- **Property-based testing** with Hypothesis — invariant verification
-- **12 real-world examples** spanning data centers, industrial OT, automotive, 5G, IoT
-- **AXI-Stream interface** — standard FPGA integration
-- **Yosys synthesis** verified — maps to Xilinx 7-series
-- **Rule overlap detection** — compile-time safety warnings
+- **388 Rust tests** (237 unit + 151 integration) — compiler correctness across all features
+- **47 Python scoreboard tests** — full-stack L2/L3/L4/IPv6/tunnel/multicast/byte-match reference model
+- **13+ cocotb simulation tests** + **5 conntrack tests** with 500 random packets — hardware simulation
+- **85%+ functional coverage** — coverage-driven verification with XML export and CoverageDirector
+- **20+ SVA formal assertions** — protocol prerequisites, bounds checking, cover statements
+- **9 Hypothesis property tests** with 4 protocol-specific strategies (GTP-U, MPLS, IGMP, MLD)
+- **21 real-world examples** spanning data centers, industrial OT, automotive, 5G, IoT, MPLS, GTP-U, multicast
+- **L2-L4 + tunnel matching** — IPv4/IPv6 CIDR, TCP/UDP ports, VXLAN VNI, GTP-U TEID, MPLS labels, IGMP/MLD
+- **AXI-Stream interface** — standard FPGA integration with store-and-forward FIFO
+- **Multi-port switch fabric** — N independent filter instances (`--ports N`)
+- **Connection tracking** — CRC-based hash table with timeout (`--conntrack`)
+- **Rate limiting** — per-rule token-bucket rate limiter (`--rate-limit`)
+- **15 lint rules** — security, performance, maintainability, protocol prerequisite checks
+- **11 mutation strategies** + MCY Verilog-level mutation testing with kill-rate analysis
+- **29 CLI subcommands** — compile, simulate, lint, formal, reachability, bench, pcap-analyze, and more
 
 The verification depth exceeds what most hand-written FPGA filters achieve.
 
@@ -101,13 +107,12 @@ The verification depth exceeds what most hand-written FPGA filters achieve.
 
 Honest limitations:
 
-1. **Layer 2 only** (currently) — no IP/TCP/UDP matching yet. Roadmap includes L3/L4.
-2. **Stateless + simple FSM** — complex stateful logic (connection tracking, deep packet inspection) is out of scope.
-3. **Single-port filter** — one ingress, one egress. Multi-port switch fabric is on the roadmap.
-4. **Xilinx-focused** — synthesis scripts target 7-series. The Verilog is portable, but constraints and synthesis need adaptation for Intel/Lattice.
-5. **No byte-offset matching yet** — arbitrary protocol field matching (REQ-015) is planned for Phase 5.
+1. **L2-L4 scope** — handles Ethernet through TCP/UDP, plus tunnels (VXLAN, GTP-U), MPLS, and multicast (IGMP/MLD). No L7/application-layer deep packet inspection.
+2. **Xilinx-focused** — synthesis scripts target 7-series. The Verilog is portable, but constraints and synthesis need adaptation for Intel/Lattice.
+3. **No P4 interop yet** — P4 import/export is on the roadmap for protocol compatibility.
+4. **No dynamic rule updates** — rules are compiled statically. Runtime reconfiguration via RISC-V co-processor is planned.
 
-These are **scope boundaries**, not bugs. PacGate solves L2 packet filtering extremely well. If you need L7 DPI, use a different tool.
+These are **scope boundaries**, not bugs. PacGate solves L2-L4 packet filtering with tunnel and multicast support extremely well. If you need L7 DPI, use a different tool.
 
 ## "Who is this for?"
 
@@ -149,15 +154,15 @@ Latency:     16 cycles = 128 ns
 
 ### Code Quality
 ```
-Compiler:    3,000+ lines of Rust (type-safe, memory-safe)
-Templates:   6 Tera templates (Verilog, cocotb, SVA, Hypothesis)
-RTL:         4 hand-written modules + generated per-rule matchers
-Tests:       63 Rust tests + 13+ cocotb tests + formal + property
+Compiler:    10,000+ lines of Rust (type-safe, memory-safe)
+Templates:   19 Tera templates (Verilog, cocotb, SVA, Hypothesis, HTML, synthesis, MCY)
+RTL:         8 hand-written modules + generated per-rule matchers/FSMs
+Tests:       388 Rust + 47 Python + 18+ cocotb + formal + property
 ```
 
 ## The Bottom Line
 
-PacGate is the only tool that generates both synthesizable FPGA hardware and a complete verification environment from a single YAML specification. It's not trying to replace Vivado, P4, or general-purpose verification tools. It's solving a specific, well-defined problem — L2 packet filtering — with a level of verification depth that most hand-coded solutions never achieve.
+PacGate is the only tool that generates both synthesizable FPGA hardware and a complete verification environment from a single YAML specification. It's not trying to replace Vivado, P4, or general-purpose verification tools. It's solving a specific, well-defined problem — L2-L4 packet filtering with tunnel and multicast support — with a level of verification depth that most hand-coded solutions never achieve.
 
 **Try it:**
 ```bash

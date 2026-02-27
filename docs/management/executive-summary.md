@@ -98,12 +98,15 @@ The **killer feature** is not the hardware generation — it's the test harness:
 
 ## Current Status
 
-| Phase | Description | Status | ETA |
-|-------|-------------|--------|-----|
-| Phase 1 | Single rule, basic test | Complete | Done |
-| Phase 2 | Multi-rule, coverage, random | Complete | Done |
-| Phase 3 | Stateful FSM, sequence tests | Complete | Done |
-| Phase 4 | Synthesis (Artix-7 FPGA) | Planned | TBD |
+| Phase | Description | Status |
+|-------|-------------|--------|
+| Phase 1-3 | L2 matching, multi-rule, stateful FSM | Complete |
+| Phase 4-5 | AXI-Stream, synthesis, formal, lint, 12 examples, docs | Complete |
+| Phase 6-7 | L3/L4, counters, PCAP, VXLAN, byte-match, HSM, multi-port, conntrack | Complete |
+| Phase 8-9 | IPv6, simulation, rate limiting, PCAP analysis, synthesis projects, templates | Complete |
+| Phase 10-11 | Full-stack verification, reachability, benchmarking, HTML diff | Complete |
+| Phase 12-13 | GTP-U, MPLS, IGMP/MLD, coverage-directed closure, MCY, boundary tests | Complete |
+| Phase 14-16 | Protocol verification, formal assertion strengthening, stateful simulation | Complete |
 
 ## Demo
 
@@ -122,15 +125,23 @@ make sim RULES=rules/examples/enterprise.yaml
 
 ## Recommendation
 
-Adopt PacGate as the standard tool for Layer 2 FPGA packet filter development. The auto-generated verification approach:
+Adopt PacGate as the standard tool for L2-L4 FPGA packet filter development. The auto-generated verification approach:
 - Eliminates the #1 source of FPGA bugs (spec-test mismatch)
 - Reduces verification time by >90%
 - Enables rapid prototyping and rule iteration
 - Creates a complete audit trail for compliance
+- Supports full protocol stack: Ethernet, IPv4/IPv6, TCP/UDP, VXLAN, GTP-U, MPLS, IGMP/MLD
+
+## Key Metrics
+
+- **388 Rust tests** (237 unit + 151 integration) + **47 Python tests** + **18+ cocotb tests**
+- **21 production-quality examples** across data center, industrial, automotive, 5G, IoT
+- **29 CLI subcommands** covering compile, simulate, lint, formal, reachability, bench, and more
+- **GitHub Actions CI pipeline** with 10+ parallel jobs
 
 ## Next Steps
 
 1. **Pilot deployment** on the next packet filter project
-2. **Extend to Layer 3** (IP header matching) — 2-3 week effort
-3. **Synthesis integration** with Vivado for Artix-7 targets
-4. **CI pipeline** for continuous verification on rule changes
+2. **P4 interoperability** — import/export for protocol compatibility
+3. **RISC-V co-processor** for dynamic rule updates at runtime
+4. **Multi-vendor FPGA** support (Intel, Lattice)

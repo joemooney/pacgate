@@ -156,13 +156,29 @@ pacgate:
 
 ### Match Fields
 
-| Field | Description | Example |
-|-------|------------|---------|
-| `dst_mac` | Destination MAC (exact or wildcard) | `"ff:ff:ff:ff:ff:ff"`, `"01:80:c2:*:*:*"` |
-| `src_mac` | Source MAC (exact or wildcard) | `"00:1a:2b:*:*:*"` |
-| `ethertype` | EtherType (16-bit hex) | `"0x0800"` (IPv4), `"0x0806"` (ARP) |
-| `vlan_id` | VLAN ID (0–4095) | `100` |
-| `vlan_pcp` | VLAN Priority Code Point (0–7) | `7` |
+| Layer | Field | Description | Example |
+|-------|-------|------------|---------|
+| L2 | `dst_mac` | Destination MAC (exact or wildcard) | `"ff:ff:ff:ff:ff:ff"`, `"01:80:c2:*:*:*"` |
+| L2 | `src_mac` | Source MAC (exact or wildcard) | `"00:1a:2b:*:*:*"` |
+| L2 | `ethertype` | EtherType (16-bit hex) | `"0x0800"` (IPv4), `"0x0806"` (ARP) |
+| L2 | `vlan_id` | VLAN ID (0–4095) | `100` |
+| L2 | `vlan_pcp` | VLAN Priority Code Point (0–7) | `7` |
+| L3 | `src_ip` | IPv4 source (exact or CIDR) | `"10.0.0.0/8"` |
+| L3 | `dst_ip` | IPv4 destination (exact or CIDR) | `"192.168.1.1"` |
+| L3 | `ip_protocol` | IP protocol number (8-bit) | `6` (TCP), `17` (UDP) |
+| L3 | `src_ipv6` | IPv6 source (CIDR prefix) | `"2001:db8::/32"` |
+| L3 | `dst_ipv6` | IPv6 destination (CIDR prefix) | `"fe80::/10"` |
+| L3 | `ipv6_next_header` | IPv6 next header (8-bit) | `58` (ICMPv6) |
+| L4 | `src_port` | TCP/UDP source port (exact or range) | `80` or `{range: [1024, 65535]}` |
+| L4 | `dst_port` | TCP/UDP destination port (exact or range) | `443` |
+| Tunnel | `vxlan_vni` | VXLAN Network Identifier (24-bit) | `1000` |
+| Tunnel | `gtp_teid` | GTP-U Tunnel Endpoint ID (32-bit) | `12345` |
+| L2.5 | `mpls_label` | MPLS label (20-bit) | `1000` |
+| L2.5 | `mpls_tc` | MPLS Traffic Class (3-bit) | `5` |
+| L2.5 | `mpls_bos` | MPLS Bottom of Stack (1-bit) | `1` |
+| L3 | `igmp_type` | IGMP message type (8-bit hex) | `"0x11"` (query) |
+| L3 | `mld_type` | MLD message type (8-bit) | `130` (query) |
+| Raw | `byte_match` | Byte-offset match with mask | `{offset: 14, value: "45", mask: "F0"}` |
 
 ### Stateful Rules (FSM)
 
@@ -205,15 +221,18 @@ AXI-Stream In ──► AXI Adapter ──► Frame Parser ──► Rule Matche
                                                        └─────┘
 ```
 
-- **Frame Parser**: Hand-written, extracts Ethernet header fields byte-by-byte (handles 802.1Q VLAN tags)
-- **Rule Matchers**: Generated per-rule, combinational evaluation in O(1) cycles
+- **Frame Parser**: Hand-written, extracts L2/L3/L4/IPv6/VXLAN/GTP-U/MPLS/IGMP/MLD fields byte-by-byte
+- **Rule Matchers**: Generated per-rule, combinational evaluation in O(1) cycles (stateless) or registered FSM (stateful)
 - **Priority Encoder**: Generated if/else chain, highest priority match wins
 - **Store-Forward FIFO**: Buffers frames until decision is ready, then forwards or discards
 - **AXI-Stream Wrapper**: Standard interface for integration with existing FPGA designs
+- **Rate Limiter**: Per-rule token-bucket rate limiting (`--rate-limit`)
+- **Connection Tracking**: CRC-based hash table with timeout (`--conntrack`)
+- **Rule Counters**: Per-rule 64-bit packet/byte counters with AXI-Lite readout (`--counters`)
 
 ## Examples
 
-PacGate ships with real-world examples covering common deployment scenarios:
+PacGate ships with 21 production-quality examples covering real-world deployment scenarios:
 
 | Example | Scenario | Rules | Mode |
 |---------|----------|-------|------|
@@ -229,6 +248,15 @@ PacGate ships with real-world examples covering common deployment scenarios:
 | [`iot_gateway.yaml`](rules/examples/iot_gateway.yaml) | IoT edge gateway | 7 | Whitelist |
 | [`syn_flood_detect.yaml`](rules/examples/syn_flood_detect.yaml) | SYN flood detection (stateful) | 3 | Whitelist |
 | [`arp_spoof_detect.yaml`](rules/examples/arp_spoof_detect.yaml) | ARP spoofing detection (stateful) | 3 | Whitelist |
+| [`l3l4_firewall.yaml`](rules/examples/l3l4_firewall.yaml) | L3/L4 firewall (SSH, HTTP/S, DNS) | 7 | Whitelist |
+| [`byte_match.yaml`](rules/examples/byte_match.yaml) | Byte-offset matching | 3 | Whitelist |
+| [`hsm_conntrack.yaml`](rules/examples/hsm_conntrack.yaml) | Hierarchical FSM + connection tracking | 3 | Whitelist |
+| [`ipv6_firewall.yaml`](rules/examples/ipv6_firewall.yaml) | IPv6 firewall (ICMPv6, CIDR) | 6 | Whitelist |
+| [`rate_limited.yaml`](rules/examples/rate_limited.yaml) | Rate-limited rules (token-bucket) | 5 | Whitelist |
+| [`vxlan_datacenter.yaml`](rules/examples/vxlan_datacenter.yaml) | VXLAN datacenter (VNI isolation) | 6 | Whitelist |
+| [`gtp_5g.yaml`](rules/examples/gtp_5g.yaml) | GTP-U 5G mobile core (TEID) | 5 | Whitelist |
+| [`mpls_network.yaml`](rules/examples/mpls_network.yaml) | MPLS provider network (label stack) | 5 | Whitelist |
+| [`multicast.yaml`](rules/examples/multicast.yaml) | IGMP/MLD multicast filtering | 5 | Whitelist |
 
 ### Try an Example
 
@@ -255,20 +283,44 @@ pacgate stats rules/examples/5g_fronthaul.yaml
 USAGE: pacgate <COMMAND>
 
 COMMANDS:
-  compile      Generate Verilog RTL + cocotb test bench from YAML rules
-  validate     Validate YAML rules without generating output
-  init         Create a starter rules file with comments
-  estimate     FPGA resource estimation (LUTs/FFs) + timing analysis
-  diff         Compare two rule sets (added/removed/modified rules)
-  graph        Output DOT graph of rule set for Graphviz
-  stats        Rule set analytics (field usage, priority spacing)
-  formal       Generate SVA assertions + SymbiYosys task files
-  completions  Generate shell completions (bash/zsh/fish)
+  compile        Generate Verilog RTL + cocotb test bench from YAML rules
+  validate       Validate YAML rules without generating output
+  init           Create a starter rules file with comments
+  estimate       FPGA resource estimation (LUTs/FFs) + timing analysis
+  diff           Compare two rule sets (added/removed/modified rules)
+  graph          Output DOT graph of rule set for Graphviz
+  stats          Rule set analytics (field usage, priority spacing)
+  formal         Generate SVA assertions + SymbiYosys task files
+  lint           Best-practice analysis (security, performance, 15 rules)
+  report         Generate HTML coverage report
+  pcap           Import PCAP capture for cocotb test stimulus
+  pcap-analyze   Analyze PCAP traffic + auto-suggest rules
+  simulate       Software dry-run simulation (no hardware needed)
+  synth          Generate Yosys/Vivado synthesis project files
+  mutate         Mutation testing (generate + optional kill-rate analysis)
+  mcy            MCY (Mutation Cover with Yosys) config generation
+  template       Built-in rule templates (list/show/apply)
+  doc            Generate styled HTML rule documentation
+  bench          Benchmark compile time, sim throughput, LUT/FF scaling
+  from-mermaid   Import Mermaid stateDiagram to YAML rules
+  to-mermaid     Export YAML FSM rules to Mermaid stateDiagram-v2
+  reachability   Analyze rule reachability (shadowed, redundant rules)
+  completions    Generate shell completions (bash/zsh/fish)
 
-FLAGS:
-  --json       Machine-readable JSON output (compile/validate/estimate/diff/stats/formal)
-  --axi        Include AXI-Stream wrapper + store-forward FIFO (compile only)
-  -o <DIR>     Output directory (default: gen/)
+COMPILE FLAGS:
+  --axi          Include AXI-Stream wrapper + store-forward FIFO
+  --counters     Include per-rule 64-bit packet/byte counters + AXI-Lite CSR
+  --ports N      Generate multi-port switch fabric (N parallel filters)
+  --conntrack    Include connection tracking hash table RTL
+  --rate-limit   Include per-rule token-bucket rate limiter RTL
+
+SIMULATE FLAGS:
+  --stateful     Enable rate-limit + connection tracking in software simulation
+  --pcap-out F   Write simulation results to Wireshark-compatible PCAP file
+
+GLOBAL FLAGS:
+  --json         Machine-readable JSON output (most commands)
+  -o <DIR>       Output directory (default: gen/)
 ```
 
 ## Verification
@@ -276,16 +328,20 @@ FLAGS:
 PacGate generates a comprehensive verification environment inspired by UVM methodology:
 
 ### Simulation (cocotb)
-- **Directed tests**: Specific frames targeting each rule
-- **Random tests**: 500+ constrained-random Ethernet frames with scoreboard checking
+- **Directed tests**: Specific frames targeting each rule with proper L3/L4/IPv6 headers
+- **Random tests**: 500+ constrained-random frames with full-stack scoreboard checking
 - **Corner cases**: Runt frames, jumbo frames, back-to-back, broadcast MAC, VLAN PCP extremes
-- **Property tests**: Hypothesis-based invariant testing (determinism, priority, conservation)
-- **Coverage**: Functional coverage with cover points, bins, cross coverage, XML export
+- **Property tests**: 9 Hypothesis-based tests including protocol-specific strategies (GTP-U, MPLS, IGMP, MLD)
+- **Coverage**: Functional coverage with cover points, bins, cross coverage, XML export, coverage-directed closure
+- **Boundary tests**: Auto-derived CIDR boundary and port boundary test cases
+- **Mutation testing**: YAML-level (11 strategies + kill-rate runner) and Verilog-level (MCY)
+- **Software simulation**: `simulate` command for dry-run testing without hardware toolchain
 
 ### Formal Verification (SymbiYosys)
-- **SVA assertions** generated from rules: reset correctness, completeness, latency bounds
+- **SVA assertions** generated from rules: reset correctness, completeness, latency bounds, protocol prerequisites
 - **Bounded model checking**: Mathematical proof that rules behave correctly
-- **Cover mode**: Verify all rules are reachable
+- **Cover mode**: Verify all rules and protocol paths are reachable
+- **Protocol assertions**: GTP-U/MPLS/IGMP/MLD prerequisite and bounds checking
 
 ### Results
 ```
@@ -329,19 +385,27 @@ make synth RULES=rules/examples/enterprise.yaml
 
 ```
 pacgate/
-├── src/                    # Rust compiler
-│   ├── main.rs             # CLI (clap) — compile/validate/init/estimate/diff/graph/stats/formal
-│   ├── model.rs            # Data model + 21 unit tests
-│   ├── loader.rs           # YAML loader + validation + overlap detection + 23 unit tests
-│   ├── verilog_gen.rs      # Tera-based Verilog generation
-│   ├── cocotb_gen.rs       # cocotb test harness generation
-│   └── formal_gen.rs       # SVA + SymbiYosys generation
-├── templates/              # Tera templates for code generation
-├── rtl/                    # Hand-written Verilog (parser, AXI adapter, FIFO)
-├── rules/examples/         # 12+ YAML rule examples
-├── verification/           # Python verification framework
+├── src/                    # Rust compiler (29 subcommands)
+│   ├── main.rs             # CLI (clap)
+│   ├── model.rs            # Data model (L2/L3/L4/IPv6/tunnel/multicast/byte_match/HSM)
+│   ├── loader.rs           # YAML loader + validation + CIDR/port overlap detection
+│   ├── verilog_gen.rs      # Tera-based Verilog generation (all match fields + multi-port)
+│   ├── cocotb_gen.rs       # cocotb test harness + property test generation
+│   ├── formal_gen.rs       # SVA assertion + SymbiYosys generation
+│   ├── simulator.rs        # Software simulation (stateless + stateful rate-limit/conntrack)
+│   ├── pcap_analyze.rs     # PCAP traffic analysis + rule suggestion engine
+│   ├── synth_gen.rs        # Yosys/Vivado synthesis project generation
+│   ├── mutation.rs         # Rule mutation engine (11 strategies)
+│   ├── mcy_gen.rs          # MCY Verilog-level mutation config generation
+│   ├── benchmark.rs        # Performance benchmarking engine
+│   └── ...                 # mermaid, pcap, templates_lib, pcap_writer
+├── templates/              # 19 Tera templates (Verilog, cocotb, SVA, HTML, synthesis)
+├── rtl/                    # Hand-written Verilog (parser, AXI, FIFO, counters, conntrack, rate limiter)
+├── rules/examples/         # 21 YAML rule examples
+├── rules/templates/        # 7 built-in rule templates
+├── verification/           # Python verification framework (scoreboard, coverage, properties)
 ├── synth/                  # Synthesis files (XDC constraints, Yosys script)
-├── tests/                  # 19 Rust integration tests
+├── tests/                  # 151 Rust integration tests
 ├── gen/                    # Generated output directory
 └── docs/                   # Full documentation suite
 ```
@@ -350,14 +414,19 @@ pacgate/
 
 | Metric | Value |
 |--------|-------|
-| Rust unit tests | 44 |
-| Rust integration tests | 19 |
+| Rust unit tests | 237 |
+| Rust integration tests | 151 |
+| Python scoreboard tests | 47 |
 | cocotb simulation tests | 13+ |
+| Conntrack cocotb tests | 5 |
 | Random packet scoreboard | 500/500 matches |
 | Functional coverage | 85%+ |
-| Property-based tests | 500/500 pass |
-| SVA formal assertions | 7+ properties |
-| Rule overlap detection | Compile-time warnings |
+| Hypothesis property tests | 9 strategies (incl. GTP-U/MPLS/IGMP/MLD) |
+| SVA formal assertions | 20+ properties (protocol prerequisites, bounds, cover) |
+| Lint rules | 15 (LINT001-015) |
+| Mutation strategies | 11 YAML-level + MCY Verilog-level |
+| Rule overlap detection | Compile-time CIDR/port range analysis |
+| YAML examples | 21 production-quality |
 
 ## Technology Stack
 

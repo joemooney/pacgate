@@ -61,10 +61,10 @@ Generated: 1 rule matcher, decision logic, cocotb tests
 ```
 
 **Result:**
-- Synthesizable Verilog (Artix-7 compatible)
-- 13+ cocotb tests (directed + 500 random packets)
-- SVA formal assertions
-- Property-based invariant tests
+- Synthesizable Verilog (Artix-7 compatible) with L2/L3/L4/IPv6/tunnel/multicast matching
+- 13+ cocotb tests (directed + 500 random packets) + 5 conntrack tests
+- 20+ SVA formal assertions with protocol prerequisites and cover statements
+- 9 Hypothesis property-based tests with protocol strategies
 
 ---
 
@@ -99,7 +99,7 @@ Generated: 1 rule matcher, decision logic, cocotb tests
 | **IoT** | Edge gateway isolation | Sensor/actuator VLAN filtering |
 | **Security** | Threat detection | SYN flood, ARP spoofing (stateful FSM) |
 
-**12 production-quality examples included.**
+**21 production-quality examples included** spanning L2-L4, IPv6, VXLAN, GTP-U, MPLS, IGMP/MLD, rate-limiting, and connection tracking.
 
 ---
 
@@ -125,11 +125,14 @@ Generated: 1 rule matcher, decision logic, cocotb tests
            └──────────────────┘
 ```
 
-- **44 Rust unit tests** + **19 integration tests** (compiler)
-- **13+ cocotb simulation tests** (hardware)
-- **500/500 scoreboard matches** (random verification)
-- **85%+ functional coverage** (cover points + cross coverage)
-- **SVA formal assertions** (mathematical proof of correctness)
+- **237 Rust unit tests** + **151 integration tests** + **47 Python tests** (compiler + scoreboard)
+- **13+ cocotb simulation tests** + **5 conntrack tests** (hardware)
+- **500/500 scoreboard matches** (full L2/L3/L4/IPv6/tunnel/multicast/byte-match verification)
+- **85%+ functional coverage** (cover points + cross coverage + XML export)
+- **9 Hypothesis property tests** with protocol-specific strategies (GTP-U, MPLS, IGMP, MLD)
+- **20+ SVA formal assertions** (protocol prerequisites, bounds, cover statements)
+- **15 lint rules** (security, performance, maintainability, protocol prerequisites)
+- **11 mutation strategies** + MCY Verilog-level mutation testing
 
 ---
 
@@ -258,19 +261,24 @@ No EDA vendor lock-in. Built on proven open-source simulation and synthesis tool
 
 ---
 
-## Slide 12: Roadmap
+## Slide 12: Development Status
+
+### Completed Through Phase 16
+
+All core features are implemented and verified:
+
+- **Phase 1-3**: L2 matching, multi-rule, stateful FSM
+- **Phase 4-5**: AXI-Stream, synthesis, formal verification, lint, 12 examples, docs
+- **Phase 6-7**: L3/L4 matching, counters, PCAP import, VXLAN, byte-match, HSM, multi-port, conntrack
+- **Phase 8-9**: IPv6, simulation, rate limiting, PCAP analysis, synthesis projects, mutation testing, templates
+- **Phase 10-11**: Full-stack verification, reachability analysis, PCAP output, benchmarking, HTML diff
+- **Phase 12-13**: GTP-U, MPLS, IGMP/MLD, coverage-directed closure, MCY, boundary tests
+- **Phase 14-16**: Protocol verification completeness, formal assertion strengthening, stateful simulation
 
 ### What's Next
 
-**Near-term (Q2 2026):**
-- L3/L4 matching (IP address, TCP/UDP ports)
-- Byte-offset matching (arbitrary protocol fields)
-- Multi-port filter (switch fabric)
-- Coverage-driven test generation
-
-**Mid-term (Q3-Q4 2026):**
+**Near-term:**
 - P4 program import/export
-- Mutation testing (MCY integration)
 - RISC-V co-processor for dynamic rule updates
 - Multi-vendor FPGA support (Intel, Lattice)
 
@@ -294,8 +302,8 @@ pacgate compile rules/examples/enterprise.yaml -o gen/
 
 **Resources:**
 - GitHub: github.com/joemooney/pacgate
-- 12 production-quality examples included
-- Full documentation suite
-- User guide, test guide, and workshops
+- 21 production-quality examples included
+- Full documentation suite (user guide, test guide, 8 workshops)
+- 388 Rust tests + 47 Python tests + 18+ cocotb tests
 
 **PacGate — Where rules become hardware, and tests prove it works.**
