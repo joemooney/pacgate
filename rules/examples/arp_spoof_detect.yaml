@@ -1,0 +1,66 @@
+# PacGate — ARP Spoofing Detection (Stateful)
+#
+# Scenario: Detect ARP spoofing by monitoring for rapid ARP replies
+# without a preceding ARP request. Legitimate ARP follows a
+# request-reply pattern; spoofing often sends unsolicited replies.
+#
+# The FSM tracks: normal ARP request/reply pairs are passed.
+# Unsolicited ARP (reply without request) triggers the default drop.
+#
+# This example also demonstrates combining stateful detection with
+# a MAC vendor whitelist — only known gateway MACs are trusted.
+#
+# Real-world deployment: Access layer switch protecting against
+# ARP cache poisoning attacks (man-in-the-middle).
+
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+
+  rules:
+    # Trust traffic from known gateway (Cisco OUI)
+    - name: trust_gateway
+      type: stateless
+      priority: 300
+      match:
+        src_mac: "00:26:cb:*:*:*"
+      action: pass
+
+    # Allow LLDP for switch management
+    - name: allow_lldp
+      type: stateless
+      priority: 250
+      match:
+        ethertype: "0x88CC"
+      action: pass
+
+    # Stateful ARP pattern monitor
+    # Normal flow: ARP broadcast (request) -> ARP unicast (reply)
+    # Tracks ARP frame sequences. If ARP is seen from broadcast dst
+    # (request), moves to "request_seen". The reply (unicast ARP) is
+    # then allowed. Rapid ARP without the request pattern stays dropped.
+    - name: arp_pattern_monitor
+      type: stateful
+      priority: 100
+      fsm:
+        initial_state: idle
+        states:
+          idle:
+            transitions:
+              - match:
+                  ethertype: "0x0806"
+                  dst_mac: "ff:ff:ff:ff:ff:ff"
+                next_state: request_seen
+                action: pass
+          request_seen:
+            timeout_cycles: 2000
+            transitions:
+              - match:
+                  ethertype: "0x0806"
+                next_state: idle
+                action: pass
+              - match:
+                  ethertype: "0x0800"
+                next_state: idle
+                action: pass

@@ -1,0 +1,70 @@
+# PacGate — SYN Flood Detection (Stateful)
+#
+# Scenario: Detect potential SYN flood attacks by monitoring the sequence
+# of ARP resolution followed by a burst of IPv4 traffic from the same
+# network segment. If ARP is seen but no valid IPv4 exchange follows
+# within the timeout, the state machine flags the pattern.
+#
+# This demonstrates PacGate's stateful FSM capability for detecting
+# suspicious traffic patterns at the Ethernet layer.
+#
+# Real-world deployment: Edge switch or SmartNIC protecting a server
+# farm. The FSM watches for ARP (attacker resolving target MAC) followed
+# by IPv4 traffic (the actual flood). Legitimate hosts complete the
+# handshake; attackers often don't respond to ARP themselves.
+
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+
+  rules:
+    # Always allow ARP (but FSM watches the pattern)
+    - name: allow_arp
+      type: stateless
+      priority: 200
+      match:
+        ethertype: "0x0806"
+      action: pass
+
+    # Always allow LLDP for management
+    - name: allow_lldp
+      type: stateless
+      priority: 150
+      match:
+        ethertype: "0x88CC"
+      action: pass
+
+    # Stateful: ARP followed by IPv4 within 5000 cycles = legitimate
+    # If IPv4 arrives after ARP within the window, pass it.
+    # Otherwise, timeout resets (default drop applies).
+    - name: arp_then_ipv4_flow
+      type: stateful
+      priority: 100
+      fsm:
+        initial_state: idle
+        states:
+          idle:
+            transitions:
+              - match:
+                  ethertype: "0x0806"
+                next_state: arp_seen
+                action: pass
+          arp_seen:
+            timeout_cycles: 5000
+            transitions:
+              - match:
+                  ethertype: "0x0800"
+                next_state: ipv4_active
+                action: pass
+          ipv4_active:
+            timeout_cycles: 10000
+            transitions:
+              - match:
+                  ethertype: "0x0800"
+                next_state: ipv4_active
+                action: pass
+              - match:
+                  ethertype: "0x0806"
+                next_state: arp_seen
+                action: pass

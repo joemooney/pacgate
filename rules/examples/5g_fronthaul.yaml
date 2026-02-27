@@ -1,0 +1,75 @@
+# PacGate — 5G Fronthaul Filter
+#
+# Scenario: O-RAN fronthaul switch connecting Radio Units (O-RU) to
+# Distributed Units (O-DU) over Ethernet. Only eCPRI and synchronization
+# traffic should traverse the fronthaul. All other traffic is blocked.
+#
+# Protocols: eCPRI (0xAEFE), PTP/IEEE 1588 (0x88F7), Sync-E (via ESMC),
+# LLDP for discovery, management VLAN for OAM.
+#
+# Real-world deployment: Cell-site switch or SmartNIC filtering fronthaul
+# traffic in an Open RAN deployment. Microsecond-level latency requirements
+# make FPGA filtering essential.
+
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop              # Fronthaul: only whitelisted protocols
+
+  rules:
+    # Allow eCPRI (O-RAN fronthaul user/control plane)
+    - name: allow_ecpri
+      type: stateless
+      priority: 1000
+      match:
+        ethertype: "0xAEFE"
+      action: pass
+
+    # Allow PTP/IEEE 1588 (timing is everything in 5G)
+    - name: allow_ptp
+      type: stateless
+      priority: 900
+      match:
+        ethertype: "0x88F7"
+      action: pass
+
+    # Allow Sync-E ESMC (Ethernet Synchronization Messaging Channel)
+    # ESMC uses the slow protocol multicast address
+    - name: allow_sync_e
+      type: stateless
+      priority: 800
+      match:
+        dst_mac: "01:80:c2:00:00:02"
+      action: pass
+
+    # Allow LLDP for topology discovery
+    - name: allow_lldp
+      type: stateless
+      priority: 700
+      match:
+        ethertype: "0x88CC"
+      action: pass
+
+    # Allow management VLAN (OAM access)
+    - name: allow_mgmt_vlan
+      type: stateless
+      priority: 600
+      match:
+        vlan_id: 1
+      action: pass
+
+    # Allow ARP (needed for IP-based management)
+    - name: allow_arp
+      type: stateless
+      priority: 500
+      match:
+        ethertype: "0x0806"
+      action: pass
+
+    # Block all broadcast (fronthaul must be clean)
+    - name: block_broadcast
+      type: stateless
+      priority: 1100
+      match:
+        dst_mac: "ff:ff:ff:ff:ff:ff"
+      action: drop

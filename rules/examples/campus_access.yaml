@@ -1,0 +1,82 @@
+# PacGate — Campus Access Layer Filter
+#
+# Scenario: University or enterprise campus access switch connecting
+# end-user devices, VoIP phones, printers, and access points.
+# Traffic is segmented by VLAN and filtered by protocol.
+#
+# VLANs: 10 (staff), 20 (students), 30 (VoIP), 40 (printers), 50 (guests)
+# Policies: VoIP gets priority, guest VLAN isolated, STP/BPDU blocked from
+# user ports, only known vendor equipment in staff VLAN.
+#
+# Real-world deployment: Layer 2 access switch in a campus wiring closet.
+
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop              # Zero trust: explicit allow only
+
+  rules:
+    # Block STP BPDU from user ports (prevent spanning tree attacks)
+    - name: block_stp_bpdu
+      type: stateless
+      priority: 1000
+      match:
+        dst_mac: "01:80:c2:00:00:00"
+      action: drop
+
+    # Block PVST+ (Cisco proprietary spanning tree)
+    - name: block_pvst
+      type: stateless
+      priority: 950
+      match:
+        dst_mac: "01:00:0c:cc:cc:cd"
+      action: drop
+
+    # Allow VoIP VLAN (highest priority for voice quality)
+    - name: allow_voip_vlan
+      type: stateless
+      priority: 900
+      match:
+        vlan_id: 30
+      action: pass
+
+    # Allow staff VLAN (only HP/Aruba OUI 00:1a:1e)
+    - name: allow_staff_hp
+      type: stateless
+      priority: 800
+      match:
+        vlan_id: 10
+        src_mac: "00:1a:1e:*:*:*"
+      action: pass
+
+    # Allow student VLAN
+    - name: allow_student_vlan
+      type: stateless
+      priority: 700
+      match:
+        vlan_id: 20
+      action: pass
+
+    # Allow printer VLAN
+    - name: allow_printer_vlan
+      type: stateless
+      priority: 600
+      match:
+        vlan_id: 40
+      action: pass
+
+    # Allow ARP (essential for all VLANs)
+    - name: allow_arp
+      type: stateless
+      priority: 500
+      match:
+        ethertype: "0x0806"
+      action: pass
+
+    # Allow LLDP for switch-to-switch discovery
+    - name: allow_lldp
+      type: stateless
+      priority: 400
+      match:
+        ethertype: "0x88CC"
+      action: pass

@@ -1,0 +1,74 @@
+# PacGate — Automotive Ethernet Gateway Filter
+#
+# Scenario: Central gateway ECU in an automotive Ethernet backbone (100BASE-T1).
+# Filters traffic between vehicle domains: powertrain, ADAS, infotainment, body.
+# Only authorized protocols and VLANs may cross domain boundaries.
+#
+# Protocols: AVB/TSN audio/video (0x22F0), SOME/IP service discovery over IPv4,
+# ARP for IP resolution, PTP for time sync, diagnostic DoIP (over IPv4).
+#
+# Real-world deployment: Ethernet gateway in next-gen vehicles connecting
+# domain controllers (zonal architecture). Prevents infotainment from
+# reaching safety-critical ADAS or powertrain networks.
+
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop              # Automotive: whitelist only authorized traffic
+
+  rules:
+    # Allow PTP time sync (TSN requires precise timing across domains)
+    - name: allow_ptp_sync
+      type: stateless
+      priority: 1000
+      match:
+        ethertype: "0x88F7"
+      action: pass
+
+    # Allow AVB/TSN audio-video bridging (camera feeds, lidar data)
+    - name: allow_avb_stream
+      type: stateless
+      priority: 900
+      match:
+        ethertype: "0x22F0"
+      action: pass
+
+    # ADAS domain (VLAN 100) — safety critical, allow all within domain
+    - name: allow_adas_domain
+      type: stateless
+      priority: 800
+      match:
+        vlan_id: 100
+      action: pass
+
+    # Powertrain domain (VLAN 200)
+    - name: allow_powertrain_domain
+      type: stateless
+      priority: 700
+      match:
+        vlan_id: 200
+      action: pass
+
+    # Allow ARP for IP address resolution
+    - name: allow_arp
+      type: stateless
+      priority: 600
+      match:
+        ethertype: "0x0806"
+      action: pass
+
+    # Allow IPv4 (SOME/IP, DoIP diagnostics)
+    - name: allow_ipv4
+      type: stateless
+      priority: 500
+      match:
+        ethertype: "0x0800"
+      action: pass
+
+    # Block broadcast storms (infotainment can be noisy)
+    - name: block_broadcast
+      type: stateless
+      priority: 1100
+      match:
+        dst_mac: "ff:ff:ff:ff:ff:ff"
+      action: drop

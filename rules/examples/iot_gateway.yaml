@@ -1,0 +1,77 @@
+# PacGate — IoT Edge Gateway Filter
+#
+# Scenario: Edge gateway in a smart building or industrial IoT deployment.
+# IoT devices are on dedicated VLANs and may only communicate via
+# specific protocols. Blocks lateral movement between IoT segments.
+#
+# VLANs: 100 (sensors), 200 (actuators), 300 (cameras), 400 (building mgmt)
+# Only IPv4 and ARP are allowed for cloud connectivity.
+# All broadcast is suppressed to protect low-power devices.
+#
+# Real-world deployment: FPGA-based gateway at building distribution layer.
+
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop              # IoT: strict isolation
+
+  rules:
+    # Block broadcast (protect battery-powered sensors from storms)
+    - name: block_broadcast
+      type: stateless
+      priority: 1000
+      match:
+        dst_mac: "ff:ff:ff:ff:ff:ff"
+      action: drop
+
+    # Allow sensor VLAN (MQTT over IPv4)
+    - name: allow_sensor_vlan
+      type: stateless
+      priority: 900
+      match:
+        vlan_id: 100
+        ethertype: "0x0800"
+      action: pass
+
+    # Allow actuator VLAN
+    - name: allow_actuator_vlan
+      type: stateless
+      priority: 800
+      match:
+        vlan_id: 200
+        ethertype: "0x0800"
+      action: pass
+
+    # Allow camera VLAN
+    - name: allow_camera_vlan
+      type: stateless
+      priority: 700
+      match:
+        vlan_id: 300
+        ethertype: "0x0800"
+      action: pass
+
+    # Allow building management VLAN (BACnet/IP)
+    - name: allow_bms_vlan
+      type: stateless
+      priority: 600
+      match:
+        vlan_id: 400
+        ethertype: "0x0800"
+      action: pass
+
+    # Allow ARP on all segments (needed for DHCP/IP resolution)
+    - name: allow_arp
+      type: stateless
+      priority: 500
+      match:
+        ethertype: "0x0806"
+      action: pass
+
+    # Allow LLDP for topology mapping
+    - name: allow_lldp
+      type: stateless
+      priority: 400
+      match:
+        ethertype: "0x88CC"
+      action: pass

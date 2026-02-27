@@ -1,0 +1,82 @@
+# PacGate — Industrial OT/SCADA Boundary Filter
+#
+# Scenario: Protecting an industrial control network (OT) from unauthorized
+# IT traffic. Only known industrial protocols are allowed through.
+# This is a critical safety boundary — the default is DROP.
+#
+# Protocols: EtherCAT (0x88A4), PROFINET (0x8892), PTP/IEEE 1588 (0x88F7),
+# GOOSE/IEC 61850 (0x88B8), LLDP for topology (0x88CC), ARP for addressing.
+#
+# Real-world deployment: Factory floor Ethernet switch connecting PLCs,
+# SCADA servers, and HMI panels. Blocks all IT traffic (HTTP, DNS, etc.)
+# from reaching the control network.
+
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop              # OT boundary: block everything by default
+
+  rules:
+    # Allow EtherCAT real-time control (Beckhoff, high priority)
+    - name: allow_ethercat
+      type: stateless
+      priority: 1000
+      match:
+        ethertype: "0x88A4"
+      action: pass
+
+    # Allow PROFINET real-time (Siemens PLCs)
+    - name: allow_profinet
+      type: stateless
+      priority: 900
+      match:
+        ethertype: "0x8892"
+      action: pass
+
+    # Allow PTP/IEEE 1588 time synchronization (critical for motion control)
+    - name: allow_ptp
+      type: stateless
+      priority: 800
+      match:
+        ethertype: "0x88F7"
+      action: pass
+
+    # Allow GOOSE messages (IEC 61850 substation automation)
+    - name: allow_goose
+      type: stateless
+      priority: 700
+      match:
+        ethertype: "0x88B8"
+      action: pass
+
+    # Allow LLDP for network topology discovery
+    - name: allow_lldp
+      type: stateless
+      priority: 600
+      match:
+        ethertype: "0x88CC"
+      action: pass
+
+    # Allow ARP (needed for IP-based SCADA polling)
+    - name: allow_arp
+      type: stateless
+      priority: 500
+      match:
+        ethertype: "0x0806"
+      action: pass
+
+    # Allow control VLAN only (VLAN 10 = control network)
+    - name: allow_control_vlan
+      type: stateless
+      priority: 400
+      match:
+        vlan_id: 10
+      action: pass
+
+    # Block known IT multicast (mDNS, SSDP can cause storms on OT networks)
+    - name: block_it_multicast
+      type: stateless
+      priority: 1100
+      match:
+        dst_mac: "01:00:5e:*:*:*"
+      action: drop
