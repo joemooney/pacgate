@@ -14,6 +14,79 @@ pub struct MatchCriteria {
     pub ethertype: Option<String>,
     pub vlan_id: Option<u16>,
     pub vlan_pcp: Option<u8>,
+    // L3 fields (IPv4)
+    pub src_ip: Option<String>,
+    pub dst_ip: Option<String>,
+    pub ip_protocol: Option<u8>,
+    // L4 fields (TCP/UDP)
+    pub src_port: Option<PortMatch>,
+    pub dst_port: Option<PortMatch>,
+}
+
+/// Port matching: exact value or range
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum PortMatch {
+    Exact(u16),
+    Range { range: [u16; 2] },
+}
+
+/// Parsed IPv4 address with prefix length for CIDR matching
+#[derive(Debug, Clone)]
+pub struct Ipv4Prefix {
+    pub addr: [u8; 4],
+    pub prefix_len: u8,
+    pub mask: [u8; 4],
+}
+
+impl Ipv4Prefix {
+    /// Parse "10.0.0.0/8" or "192.168.1.1" (implies /32)
+    pub fn parse(s: &str) -> anyhow::Result<Self> {
+        let (addr_str, prefix_len) = if let Some(idx) = s.find('/') {
+            let plen: u8 = s[idx+1..].parse()
+                .map_err(|e| anyhow::anyhow!("Bad prefix length in '{}': {}", s, e))?;
+            if plen > 32 {
+                anyhow::bail!("Prefix length must be 0-32, got {} in '{}'", plen, s);
+            }
+            (&s[..idx], plen)
+        } else {
+            (s, 32)
+        };
+
+        let parts: Vec<&str> = addr_str.split('.').collect();
+        if parts.len() != 4 {
+            anyhow::bail!("IPv4 address must have 4 octets: {}", s);
+        }
+        let mut addr = [0u8; 4];
+        for (i, part) in parts.iter().enumerate() {
+            addr[i] = part.parse()
+                .map_err(|e| anyhow::anyhow!("Bad IPv4 octet '{}': {}", part, e))?;
+        }
+
+        // Build mask from prefix length
+        let mask_u32 = if prefix_len == 0 { 0u32 } else { !0u32 << (32 - prefix_len) };
+        let mask = mask_u32.to_be_bytes();
+
+        Ok(Ipv4Prefix { addr, prefix_len, mask })
+    }
+
+    pub fn to_verilog_value(&self) -> String {
+        format!("32'h{:02x}{:02x}{:02x}{:02x}",
+            self.addr[0], self.addr[1], self.addr[2], self.addr[3])
+    }
+
+    pub fn to_verilog_mask(&self) -> String {
+        format!("32'h{:02x}{:02x}{:02x}{:02x}",
+            self.mask[0], self.mask[1], self.mask[2], self.mask[3])
+    }
+}
+
+impl MatchCriteria {
+    /// Returns true if this criteria uses any L3/L4 fields
+    pub fn uses_l3l4(&self) -> bool {
+        self.src_ip.is_some() || self.dst_ip.is_some() || self.ip_protocol.is_some()
+            || self.src_port.is_some() || self.dst_port.is_some()
+    }
 }
 
 // --- Stateful FSM types ---
@@ -223,6 +296,91 @@ mod tests {
     #[test]
     fn ethertype_no_prefix() {
         assert_eq!(parse_ethertype("0806").unwrap(), 0x0806);
+    }
+
+    // --- Ipv4Prefix parsing ---
+
+    #[test]
+    fn ipv4_exact_host() {
+        let p = Ipv4Prefix::parse("192.168.1.1").unwrap();
+        assert_eq!(p.addr, [192, 168, 1, 1]);
+        assert_eq!(p.prefix_len, 32);
+        assert_eq!(p.mask, [0xff, 0xff, 0xff, 0xff]);
+    }
+
+    #[test]
+    fn ipv4_class_a_cidr() {
+        let p = Ipv4Prefix::parse("10.0.0.0/8").unwrap();
+        assert_eq!(p.addr, [10, 0, 0, 0]);
+        assert_eq!(p.prefix_len, 8);
+        assert_eq!(p.mask, [0xff, 0, 0, 0]);
+    }
+
+    #[test]
+    fn ipv4_slash_24() {
+        let p = Ipv4Prefix::parse("172.16.0.0/24").unwrap();
+        assert_eq!(p.addr, [172, 16, 0, 0]);
+        assert_eq!(p.prefix_len, 24);
+        assert_eq!(p.mask, [0xff, 0xff, 0xff, 0]);
+    }
+
+    #[test]
+    fn ipv4_slash_0() {
+        let p = Ipv4Prefix::parse("0.0.0.0/0").unwrap();
+        assert_eq!(p.prefix_len, 0);
+        assert_eq!(p.mask, [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn ipv4_reject_prefix_33() {
+        assert!(Ipv4Prefix::parse("10.0.0.0/33").is_err());
+    }
+
+    #[test]
+    fn ipv4_reject_5_octets() {
+        assert!(Ipv4Prefix::parse("10.0.0.0.1").is_err());
+    }
+
+    #[test]
+    fn ipv4_reject_bad_octet() {
+        assert!(Ipv4Prefix::parse("256.0.0.0").is_err());
+    }
+
+    #[test]
+    fn ipv4_verilog_value() {
+        let p = Ipv4Prefix::parse("10.20.30.40").unwrap();
+        assert_eq!(p.to_verilog_value(), "32'h0a141e28");
+    }
+
+    #[test]
+    fn ipv4_verilog_mask_slash16() {
+        let p = Ipv4Prefix::parse("10.0.0.0/16").unwrap();
+        assert_eq!(p.to_verilog_mask(), "32'hffff0000");
+    }
+
+    // --- PortMatch deserialization ---
+
+    #[test]
+    fn port_exact_deserialize() {
+        let yaml = "22";
+        let pm: PortMatch = serde_yaml::from_str(yaml).unwrap();
+        match pm {
+            PortMatch::Exact(v) => assert_eq!(v, 22),
+            _ => panic!("expected Exact"),
+        }
+    }
+
+    #[test]
+    fn port_range_deserialize() {
+        let yaml = "range: [1024, 65535]";
+        let pm: PortMatch = serde_yaml::from_str(yaml).unwrap();
+        match pm {
+            PortMatch::Range { range } => {
+                assert_eq!(range[0], 1024);
+                assert_eq!(range[1], 65535);
+            }
+            _ => panic!("expected Range"),
+        }
     }
 
     // --- Action and StatelessRule ---

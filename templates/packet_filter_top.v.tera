@@ -16,13 +16,25 @@ module packet_filter_top (
     output wire        decision_pass
 );
 
-    // Frame parser outputs
+    // Frame parser outputs — L2
     wire [47:0] dst_mac;
     wire [47:0] src_mac;
     wire [15:0] ethertype;
     wire [11:0] vlan_id;
     wire [2:0]  vlan_pcp;
     wire        vlan_valid;
+
+    // Frame parser outputs — L3 (IPv4)
+    wire [31:0] src_ip;
+    wire [31:0] dst_ip;
+    wire [7:0]  ip_protocol;
+    wire        l3_valid;
+
+    // Frame parser outputs — L4 (TCP/UDP)
+    wire [15:0] src_port;
+    wire [15:0] dst_port;
+    wire        l4_valid;
+
     wire        fields_valid;
 
     frame_parser u_parser (
@@ -38,6 +50,13 @@ module packet_filter_top (
         .vlan_id      (vlan_id),
         .vlan_pcp     (vlan_pcp),
         .vlan_valid   (vlan_valid),
+        .src_ip       (src_ip),
+        .dst_ip       (dst_ip),
+        .ip_protocol  (ip_protocol),
+        .l3_valid     (l3_valid),
+        .src_port     (src_port),
+        .dst_port     (dst_port),
+        .l4_valid     (l4_valid),
         .fields_valid (fields_valid)
     );
 
@@ -56,6 +75,11 @@ module packet_filter_top (
         .ethertype    (ethertype),
         .vlan_id      (vlan_id),
         .vlan_pcp     (vlan_pcp),
+        .src_ip       (src_ip),
+        .dst_ip       (dst_ip),
+        .ip_protocol  (ip_protocol),
+        .src_port     (src_port),
+        .dst_port     (dst_port),
         .fields_valid (fields_valid),
         .match_hit    (match_hit_{{ rule.index }}),
         .match_action (match_action_{{ rule.index }})

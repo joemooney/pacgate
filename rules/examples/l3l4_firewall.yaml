@@ -1,0 +1,77 @@
+# L3/L4 Firewall — IPv4 + TCP/UDP port matching
+# Demonstrates: IP address matching (exact + CIDR), protocol, port exact + range
+
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+
+  rules:
+    # Allow SSH from management subnet
+    - name: allow_ssh_mgmt
+      priority: 1000
+      match:
+        ethertype: "0x0800"
+        src_ip: "10.0.0.0/8"
+        ip_protocol: 6        # TCP
+        dst_port: 22
+      action: pass
+
+    # Allow HTTP/HTTPS from any source
+    - name: allow_http
+      priority: 900
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 80
+      action: pass
+
+    - name: allow_https
+      priority: 890
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 443
+      action: pass
+
+    # Allow DNS (UDP)
+    - name: allow_dns
+      priority: 800
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17       # UDP
+        dst_port: 53
+      action: pass
+
+    # Allow ICMP (ping)
+    - name: allow_icmp
+      priority: 700
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 1        # ICMP
+      action: pass
+
+    # Block traffic to private subnets from outside
+    - name: block_rfc1918_172
+      priority: 600
+      match:
+        ethertype: "0x0800"
+        dst_ip: "172.16.0.0/12"
+      action: drop
+
+    # Allow high ports (ephemeral) for return traffic
+    - name: allow_ephemeral
+      priority: 500
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port:
+          range: [1024, 65535]
+      action: pass
+
+    # Allow ARP
+    - name: allow_arp
+      priority: 100
+      match:
+        ethertype: "0x0806"
+      action: pass

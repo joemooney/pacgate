@@ -60,7 +60,7 @@ fn compile_json_output() {
 fn validate_all_examples() {
     for example in &["allow_arp", "enterprise", "stateful_sequence", "blacklist", "datacenter",
                      "industrial_ot", "automotive_gateway", "5g_fronthaul", "campus_access",
-                     "iot_gateway", "syn_flood_detect", "arp_spoof_detect"] {
+                     "iot_gateway", "syn_flood_detect", "arp_spoof_detect", "l3l4_firewall"] {
         let path = format!("rules/examples/{}.yaml", example);
         let output = pacgate_bin()
             .args(["validate", &path])
@@ -340,4 +340,61 @@ fn lint_clean_blacklist() {
         f["code"].as_str().map(|c| c.starts_with("LINT")).unwrap_or(false)
     }).collect();
     assert!(lint_findings.is_empty(), "blacklist should have no lint findings (only overlap warnings if any)");
+}
+
+// ── L3/L4 Integration Tests ──────────────────────────────────
+
+#[test]
+fn compile_l3l4_firewall() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // Should generate rule matchers for all 8 rules
+    let top_v = std::fs::read_to_string(tmp.path().join("rtl/packet_filter_top.v")).unwrap();
+    assert!(top_v.contains("rule_match_0"), "missing rule_match_0");
+    assert!(top_v.contains("rule_match_7"), "missing rule_match_7 (8th rule)");
+
+    // Check that L3/L4 signals are wired
+    assert!(top_v.contains("src_ip"), "missing src_ip signal in top");
+    assert!(top_v.contains("dst_ip"), "missing dst_ip signal in top");
+    assert!(top_v.contains("ip_protocol"), "missing ip_protocol signal in top");
+    assert!(top_v.contains("src_port"), "missing src_port signal in top");
+    assert!(top_v.contains("dst_port"), "missing dst_port signal in top");
+
+    // Check generated rule matcher has IP/port conditions
+    let rule0 = std::fs::read_to_string(tmp.path().join("rtl/rule_match_0.v")).unwrap();
+    assert!(rule0.contains("src_ip") || rule0.contains("dst_port"), "L3/L4 conditions missing from rule matcher");
+}
+
+#[test]
+fn compile_l3l4_json_output() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml", "--json", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    assert_eq!(json["status"], "ok");
+    assert_eq!(json["rules_count"], 8);
+}
+
+#[test]
+fn validate_l3l4_firewall() {
+    let output = pacgate_bin()
+        .args(["validate", "rules/examples/l3l4_firewall.yaml", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    assert_eq!(json["status"], "valid");
+    assert_eq!(json["rules_count"], 8);
 }

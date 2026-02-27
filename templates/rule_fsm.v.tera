@@ -9,6 +9,11 @@ module rule_match_{{ rule_index }} (
     input  wire [15:0] ethertype,
     input  wire [11:0] vlan_id,
     input  wire [2:0]  vlan_pcp,
+    input  wire [31:0] src_ip,
+    input  wire [31:0] dst_ip,
+    input  wire [7:0]  ip_protocol,
+    input  wire [15:0] src_port,
+    input  wire [15:0] dst_port,
     input  wire        fields_valid,
 
     output reg         match_hit,

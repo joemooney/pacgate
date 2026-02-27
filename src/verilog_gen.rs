@@ -2,7 +2,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use tera::Tera;
 
-use crate::model::{Action, FilterConfig, MacAddress, parse_ethertype};
+use crate::model::{Action, FilterConfig, Ipv4Prefix, MacAddress, PortMatch, parse_ethertype};
 
 fn build_condition_expr(mc: &crate::model::MatchCriteria) -> Result<String> {
     let mut conditions: Vec<String> = Vec::new();
@@ -30,6 +30,67 @@ fn build_condition_expr(mc: &crate::model::MatchCriteria) -> Result<String> {
     }
     if let Some(pcp) = mc.vlan_pcp {
         conditions.push(format!("(vlan_pcp == 3'd{})", pcp));
+    }
+
+    // L3: IPv4 source IP (CIDR prefix matching)
+    if let Some(ref ip) = mc.src_ip {
+        let prefix = Ipv4Prefix::parse(ip)?;
+        if prefix.prefix_len == 32 {
+            conditions.push(format!("(src_ip == {})", prefix.to_verilog_value()));
+        } else {
+            conditions.push(format!(
+                "((src_ip & {}) == ({} & {}))",
+                prefix.to_verilog_mask(), prefix.to_verilog_value(), prefix.to_verilog_mask()
+            ));
+        }
+    }
+
+    // L3: IPv4 destination IP (CIDR prefix matching)
+    if let Some(ref ip) = mc.dst_ip {
+        let prefix = Ipv4Prefix::parse(ip)?;
+        if prefix.prefix_len == 32 {
+            conditions.push(format!("(dst_ip == {})", prefix.to_verilog_value()));
+        } else {
+            conditions.push(format!(
+                "((dst_ip & {}) == ({} & {}))",
+                prefix.to_verilog_mask(), prefix.to_verilog_value(), prefix.to_verilog_mask()
+            ));
+        }
+    }
+
+    // L3: IP protocol
+    if let Some(proto) = mc.ip_protocol {
+        conditions.push(format!("(ip_protocol == 8'd{})", proto));
+    }
+
+    // L4: Source port (exact or range)
+    if let Some(ref pm) = mc.src_port {
+        match pm {
+            PortMatch::Exact(port) => {
+                conditions.push(format!("(src_port == 16'd{})", port));
+            }
+            PortMatch::Range { range } => {
+                conditions.push(format!(
+                    "(src_port >= 16'd{} && src_port <= 16'd{})",
+                    range[0], range[1]
+                ));
+            }
+        }
+    }
+
+    // L4: Destination port (exact or range)
+    if let Some(ref pm) = mc.dst_port {
+        match pm {
+            PortMatch::Exact(port) => {
+                conditions.push(format!("(dst_port == 16'd{})", port));
+            }
+            PortMatch::Range { range } => {
+                conditions.push(format!(
+                    "(dst_port >= 16'd{} && dst_port <= 16'd{})",
+                    range[0], range[1]
+                ));
+            }
+        }
     }
 
     Ok(if conditions.is_empty() {

@@ -2,7 +2,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use tera::Tera;
 
-use crate::model::{Action, FilterConfig, parse_ethertype};
+use crate::model::{Action, FilterConfig, PortMatch, parse_ethertype};
 
 pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) -> Result<()> {
     let glob = format!("{}/**/*.tera", templates_dir.display());
@@ -50,6 +50,23 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         tc.insert("has_vlan".to_string(), rule.match_criteria.vlan_id.is_some().to_string());
         tc.insert("vlan_id".to_string(), rule.match_criteria.vlan_id.unwrap_or(0).to_string());
         tc.insert("vlan_pcp".to_string(), rule.match_criteria.vlan_pcp.unwrap_or(0).to_string());
+        // L3/L4 fields
+        tc.insert("has_l3".to_string(), rule.match_criteria.uses_l3l4().to_string());
+        if let Some(ref ip) = rule.match_criteria.src_ip {
+            tc.insert("src_ip".to_string(), generate_matching_ip(ip));
+        }
+        if let Some(ref ip) = rule.match_criteria.dst_ip {
+            tc.insert("dst_ip".to_string(), generate_matching_ip(ip));
+        }
+        if let Some(proto) = rule.match_criteria.ip_protocol {
+            tc.insert("ip_protocol".to_string(), proto.to_string());
+        }
+        if let Some(ref pm) = rule.match_criteria.src_port {
+            tc.insert("src_port".to_string(), generate_matching_port(pm));
+        }
+        if let Some(ref pm) = rule.match_criteria.dst_port {
+            tc.insert("dst_port".to_string(), generate_matching_port(pm));
+        }
         test_cases.push(tc);
     }
 
@@ -91,6 +108,28 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         }
         if let Some(pcp) = rule.match_criteria.vlan_pcp {
             sr.insert("vlan_pcp".to_string(), pcp.to_string());
+        }
+        // L3/L4 scoreboard fields
+        if let Some(ref ip) = rule.match_criteria.src_ip {
+            sr.insert("src_ip".to_string(), ip.clone());
+        }
+        if let Some(ref ip) = rule.match_criteria.dst_ip {
+            sr.insert("dst_ip".to_string(), ip.clone());
+        }
+        if let Some(proto) = rule.match_criteria.ip_protocol {
+            sr.insert("ip_protocol".to_string(), proto.to_string());
+        }
+        if let Some(ref pm) = rule.match_criteria.src_port {
+            match pm {
+                PortMatch::Exact(p) => { sr.insert("src_port".to_string(), p.to_string()); }
+                PortMatch::Range { range } => { sr.insert("src_port_range".to_string(), format!("{}-{}", range[0], range[1])); }
+            }
+        }
+        if let Some(ref pm) = rule.match_criteria.dst_port {
+            match pm {
+                PortMatch::Exact(p) => { sr.insert("dst_port".to_string(), p.to_string()); }
+                PortMatch::Range { range } => { sr.insert("dst_port_range".to_string(), format!("{}-{}", range[0], range[1])); }
+            }
         }
         scoreboard_rules.push(sr);
     }
@@ -232,4 +271,22 @@ fn generate_matching_mac(pattern: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join(":")
+}
+
+/// Generate an IP address that matches a CIDR pattern
+fn generate_matching_ip(cidr: &str) -> String {
+    if let Ok(prefix) = crate::model::Ipv4Prefix::parse(cidr) {
+        // Return the network address itself (valid match for any prefix)
+        format!("{}.{}.{}.{}", prefix.addr[0], prefix.addr[1], prefix.addr[2], prefix.addr[3])
+    } else {
+        "10.0.0.1".to_string()
+    }
+}
+
+/// Generate a port number that matches a PortMatch
+fn generate_matching_port(pm: &PortMatch) -> String {
+    match pm {
+        PortMatch::Exact(p) => p.to_string(),
+        PortMatch::Range { range } => range[0].to_string(),
+    }
 }

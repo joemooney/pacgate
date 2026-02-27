@@ -336,6 +336,11 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
     let mut uses_src_mac = 0;
     let mut uses_vlan_id = 0;
     let mut uses_vlan_pcp = 0;
+    let mut uses_src_ip = 0;
+    let mut uses_dst_ip = 0;
+    let mut uses_ip_protocol = 0;
+    let mut uses_src_port = 0;
+    let mut uses_dst_port = 0;
     let mut match_field_count = Vec::new();
 
     for rule in rules.iter().filter(|r| !r.is_stateful()) {
@@ -346,6 +351,11 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
         if mc.src_mac.is_some() { uses_src_mac += 1; count += 1; }
         if mc.vlan_id.is_some() { uses_vlan_id += 1; count += 1; }
         if mc.vlan_pcp.is_some() { uses_vlan_pcp += 1; count += 1; }
+        if mc.src_ip.is_some() { uses_src_ip += 1; count += 1; }
+        if mc.dst_ip.is_some() { uses_dst_ip += 1; count += 1; }
+        if mc.ip_protocol.is_some() { uses_ip_protocol += 1; count += 1; }
+        if mc.src_port.is_some() { uses_src_port += 1; count += 1; }
+        if mc.dst_port.is_some() { uses_dst_port += 1; count += 1; }
         match_field_count.push(count);
     }
 
@@ -376,6 +386,11 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
             "src_mac": uses_src_mac,
             "vlan_id": uses_vlan_id,
             "vlan_pcp": uses_vlan_pcp,
+            "src_ip": uses_src_ip,
+            "dst_ip": uses_dst_ip,
+            "ip_protocol": uses_ip_protocol,
+            "src_port": uses_src_port,
+            "dst_port": uses_dst_port,
         },
         "match_complexity": {
             "avg_fields_per_rule": format!("{:.1}", avg_fields),
@@ -667,8 +682,12 @@ fn compute_resource_estimate(config: &model::FilterConfig) -> serde_json::Value 
     let num_stateful = rules.iter().filter(|r| r.is_stateful()).count();
     let total = rules.len();
 
-    let parser_luts = 120;
-    let parser_ffs = 90;
+    // Check if any rule uses L3/L4 fields (affects parser complexity)
+    let has_l3l4 = rules.iter().any(|r| r.match_criteria.uses_l3l4());
+
+    // Parser: base L2 + additional for L3/L4 (IPv4 header + TCP/UDP port parsing)
+    let parser_luts = if has_l3l4 { 180 } else { 120 };
+    let parser_ffs = if has_l3l4 { 160 } else { 90 };
 
     let mut rule_luts = 0usize;
     let mut rule_ffs = 0usize;
@@ -689,6 +708,12 @@ fn compute_resource_estimate(config: &model::FilterConfig) -> serde_json::Value 
             if mc.src_mac.is_some() { fields += 3; }
             if mc.vlan_id.is_some() { fields += 1; }
             if mc.vlan_pcp.is_some() { fields += 1; }
+            // L3/L4 fields cost more LUTs (wider comparators)
+            if mc.src_ip.is_some() { fields += 2; }
+            if mc.dst_ip.is_some() { fields += 2; }
+            if mc.ip_protocol.is_some() { fields += 1; }
+            if mc.src_port.is_some() { fields += 1; }
+            if mc.dst_port.is_some() { fields += 1; }
             rule_luts += 10 + fields * 12;
         }
     }
@@ -732,10 +757,11 @@ fn compute_resource_estimate(config: &model::FilterConfig) -> serde_json::Value 
         },
         "timing": {
             "clock_mhz": 125,
-            "parser_cycles": 14,
+            "parser_cycles": if has_l3l4 { 38 } else { 14 },
             "match_decision_cycles": 2,
-            "total_cycles": 16,
-            "latency_ns": 128,
+            "total_cycles": if has_l3l4 { 40 } else { 16 },
+            "latency_ns": if has_l3l4 { 320 } else { 128 },
+            "note": if has_l3l4 { "Includes IPv4 header (20B) + TCP/UDP port (4B) parsing" } else { "L2 header parsing only" },
         },
         "rule_limit_warning": rule_limit_warning,
     })

@@ -34,6 +34,55 @@ pub fn load_rules_from_str_with_warnings(contents: &str) -> Result<(FilterConfig
     Ok((config, warnings))
 }
 
+fn validate_match_criteria(mc: &crate::model::MatchCriteria, rule_name: &str) -> Result<()> {
+    if let Some(ref et) = mc.ethertype {
+        crate::model::parse_ethertype(et)?;
+    }
+    if let Some(ref mac) = mc.dst_mac {
+        crate::model::MacAddress::parse(mac)?;
+    }
+    if let Some(ref mac) = mc.src_mac {
+        crate::model::MacAddress::parse(mac)?;
+    }
+    if let Some(pcp) = mc.vlan_pcp {
+        if pcp > 7 {
+            anyhow::bail!("VLAN PCP must be 0-7, got {} in rule '{}'", pcp, rule_name);
+        }
+    }
+    // L3: Validate IP addresses
+    if let Some(ref ip) = mc.src_ip {
+        crate::model::Ipv4Prefix::parse(ip)
+            .with_context(|| format!("Bad src_ip in rule '{}'", rule_name))?;
+    }
+    if let Some(ref ip) = mc.dst_ip {
+        crate::model::Ipv4Prefix::parse(ip)
+            .with_context(|| format!("Bad dst_ip in rule '{}'", rule_name))?;
+    }
+    // L4: Validate port ranges
+    if let Some(ref pm) = mc.src_port {
+        validate_port_match(pm, "src_port", rule_name)?;
+    }
+    if let Some(ref pm) = mc.dst_port {
+        validate_port_match(pm, "dst_port", rule_name)?;
+    }
+    Ok(())
+}
+
+fn validate_port_match(pm: &crate::model::PortMatch, field: &str, rule_name: &str) -> Result<()> {
+    match pm {
+        crate::model::PortMatch::Exact(_) => {} // u16 is always valid (0-65535)
+        crate::model::PortMatch::Range { range } => {
+            if range[0] > range[1] {
+                anyhow::bail!(
+                    "{} range start ({}) must be <= end ({}) in rule '{}'",
+                    field, range[0], range[1], rule_name
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 fn validate(config: &FilterConfig) -> Result<()> {
     if config.pacgate.rules.is_empty() {
         anyhow::bail!("No rules defined");
@@ -61,27 +110,13 @@ fn validate(config: &FilterConfig) -> Result<()> {
                             state_name, transition.next_state, rule.name);
                     }
                     // Validate match criteria in transitions
-                    if let Some(ref et) = transition.match_criteria.ethertype {
-                        crate::model::parse_ethertype(et)?;
-                    }
+                    validate_match_criteria(&transition.match_criteria,
+                        &format!("{}(state {})", rule.name, state_name))?;
                 }
             }
         } else {
             // Stateless rule validation
-            if let Some(ref et) = rule.match_criteria.ethertype {
-                crate::model::parse_ethertype(et)?;
-            }
-            if let Some(ref mac) = rule.match_criteria.dst_mac {
-                crate::model::MacAddress::parse(mac)?;
-            }
-            if let Some(ref mac) = rule.match_criteria.src_mac {
-                crate::model::MacAddress::parse(mac)?;
-            }
-            if let Some(pcp) = rule.match_criteria.vlan_pcp {
-                if pcp > 7 {
-                    anyhow::bail!("VLAN PCP must be 0-7, got {}", pcp);
-                }
-            }
+            validate_match_criteria(&rule.match_criteria, &rule.name)?;
         }
     }
 
@@ -148,6 +183,8 @@ pub fn check_rule_overlaps(rules: &[crate::model::StatelessRule]) -> Vec<String>
         let mc = &rule.match_criteria;
         if mc.dst_mac.is_none() && mc.src_mac.is_none() && mc.ethertype.is_none()
             && mc.vlan_id.is_none() && mc.vlan_pcp.is_none()
+            && mc.src_ip.is_none() && mc.dst_ip.is_none() && mc.ip_protocol.is_none()
+            && mc.src_port.is_none() && mc.dst_port.is_none()
         {
             warnings.push(format!(
                 "rule '{}' (priority {}) has no match criteria — matches ALL packets",
@@ -213,6 +250,28 @@ fn criteria_shadows(a: &crate::model::MatchCriteria, b: &crate::model::MatchCrit
         }
     }
 
+    // L3/L4 shadow checks (simple equality — CIDR containment is complex, skip for now)
+    if let Some(ref a_ip) = a.src_ip {
+        match &b.src_ip {
+            Some(b_ip) if a_ip == b_ip => {},
+            Some(_) => return false,
+            None => return false,
+        }
+    }
+    if let Some(ref a_ip) = a.dst_ip {
+        match &b.dst_ip {
+            Some(b_ip) if a_ip == b_ip => {},
+            Some(_) => return false,
+            None => return false,
+        }
+    }
+    if let Some(a_proto) = a.ip_protocol {
+        match b.ip_protocol {
+            Some(b_proto) if a_proto == b_proto => {},
+            _ => return false,
+        }
+    }
+
     true
 }
 
@@ -249,6 +308,17 @@ fn criteria_overlaps(a: &crate::model::MatchCriteria, b: &crate::model::MatchCri
         if a_pcp != b_pcp {
             return false;
         }
+    }
+
+    // L3/L4 overlap checks
+    if let (Some(ref a_ip), Some(ref b_ip)) = (&a.src_ip, &b.src_ip) {
+        if a_ip != b_ip { return false; }
+    }
+    if let (Some(ref a_ip), Some(ref b_ip)) = (&a.dst_ip, &b.dst_ip) {
+        if a_ip != b_ip { return false; }
+    }
+    if let (Some(a_proto), Some(b_proto)) = (a.ip_protocol, b.ip_protocol) {
+        if a_proto != b_proto { return false; }
     }
 
     true
@@ -383,7 +453,7 @@ pacgate:
             "    - name: bad_pcp\n      priority: 100\n      match:\n        vlan_pcp: 8\n      action: pass",
         );
         let err = load_rules_from_str(&yaml).unwrap_err();
-        assert!(err.to_string().contains("VLAN PCP must be 0-7"));
+        assert!(err.to_string().contains("VLAN PCP must be 0-7"), "got: {}", err);
     }
 
     #[test]
@@ -594,6 +664,78 @@ pacgate:
         assert!(!mac_patterns_overlap("aa:bb:cc:dd:ee:ff", "11:22:33:44:55:66"));
         assert!(mac_patterns_overlap("00:1a:2b:*:*:*", "00:1a:2b:cc:dd:ee"));
         assert!(!mac_patterns_overlap("00:1a:2b:*:*:*", "00:1a:3c:*:*:*"));
+    }
+
+    // --- L3/L4 validation tests ---
+
+    #[test]
+    fn accept_ipv4_exact() {
+        let yaml = valid_yaml(
+            "    - name: web\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n        dst_ip: \"192.168.1.1\"\n      action: pass",
+        );
+        let config = load_rules_from_str(&yaml).unwrap();
+        assert_eq!(config.pacgate.rules[0].match_criteria.dst_ip.as_deref(), Some("192.168.1.1"));
+    }
+
+    #[test]
+    fn accept_ipv4_cidr() {
+        let yaml = valid_yaml(
+            "    - name: subnet\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n        src_ip: \"10.0.0.0/8\"\n      action: pass",
+        );
+        let config = load_rules_from_str(&yaml).unwrap();
+        assert_eq!(config.pacgate.rules[0].match_criteria.src_ip.as_deref(), Some("10.0.0.0/8"));
+    }
+
+    #[test]
+    fn reject_bad_ipv4() {
+        let yaml = valid_yaml(
+            "    - name: bad_ip\n      priority: 100\n      match:\n        dst_ip: \"999.999.999.999\"\n      action: pass",
+        );
+        assert!(load_rules_from_str(&yaml).is_err());
+    }
+
+    #[test]
+    fn reject_bad_cidr_prefix() {
+        let yaml = valid_yaml(
+            "    - name: bad_cidr\n      priority: 100\n      match:\n        src_ip: \"10.0.0.0/33\"\n      action: pass",
+        );
+        assert!(load_rules_from_str(&yaml).is_err());
+    }
+
+    #[test]
+    fn accept_port_exact() {
+        let yaml = valid_yaml(
+            "    - name: ssh\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n        ip_protocol: 6\n        dst_port: 22\n      action: pass",
+        );
+        let config = load_rules_from_str(&yaml).unwrap();
+        assert!(config.pacgate.rules[0].match_criteria.dst_port.is_some());
+    }
+
+    #[test]
+    fn accept_port_range() {
+        let yaml = valid_yaml(
+            "    - name: high_ports\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n        ip_protocol: 6\n        dst_port:\n          range: [1024, 65535]\n      action: pass",
+        );
+        let config = load_rules_from_str(&yaml).unwrap();
+        assert!(config.pacgate.rules[0].match_criteria.dst_port.is_some());
+    }
+
+    #[test]
+    fn reject_port_range_inverted() {
+        let yaml = valid_yaml(
+            "    - name: bad_range\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n        dst_port:\n          range: [8080, 80]\n      action: pass",
+        );
+        let err = load_rules_from_str(&yaml).unwrap_err();
+        assert!(err.to_string().contains("range start"), "got: {}", err);
+    }
+
+    #[test]
+    fn accept_ip_protocol() {
+        let yaml = valid_yaml(
+            "    - name: tcp\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n        ip_protocol: 6\n      action: pass",
+        );
+        let config = load_rules_from_str(&yaml).unwrap();
+        assert_eq!(config.pacgate.rules[0].match_criteria.ip_protocol, Some(6));
     }
 
     #[test]
