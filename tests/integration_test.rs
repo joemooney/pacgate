@@ -1477,6 +1477,35 @@ fn multi_flag_compile() {
 }
 
 #[test]
+fn reachability_basic() {
+    let output = pacgate_bin()
+        .args(["reachability", "rules/examples/l3l4_firewall.yaml"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "reachability failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("REACHABILITY ANALYSIS"), "missing report header");
+    assert!(stdout.contains("allow_http"), "missing rule in report");
+    assert!(stdout.contains("port 80"), "missing port 80 query");
+}
+
+#[test]
+fn reachability_json() {
+    let output = pacgate_bin()
+        .args(["reachability", "rules/examples/l3l4_firewall.yaml", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "reachability json failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    assert!(json["entries"].is_array());
+    assert!(json["queries"].is_array());
+    assert!(json["default_action"].is_string());
+}
+
+#[test]
 fn all_examples_lint() {
     let examples = std::fs::read_dir("rules/examples").unwrap();
     for entry in examples {

@@ -10,6 +10,7 @@ mod pcap_analyze;
 mod synth_gen;
 mod mutation;
 mod templates_lib;
+mod reachability;
 
 use std::path::{Path, PathBuf};
 use clap::{CommandFactory, Parser, Subcommand};
@@ -299,6 +300,15 @@ enum Commands {
     Template {
         #[command(subcommand)]
         action: TemplateAction,
+    },
+    /// Analyze rule set reachability (which traffic reaches which action)
+    Reachability {
+        /// Path to the YAML rules file
+        rules: PathBuf,
+
+        /// Output JSON instead of human-readable text
+        #[arg(long)]
+        json: bool,
     },
     /// Generate HTML documentation for a rule set
     Doc {
@@ -911,6 +921,15 @@ fn main() -> Result<()> {
                     std::fs::write(&output, &yaml)?;
                     println!("  Applied template '{}' -> {}", name, output.display());
                 }
+            }
+        }
+        Commands::Reachability { rules, json } => {
+            let (config, _warnings) = loader::load_rules_with_warnings(&rules)?;
+            let report = reachability::analyze(&config);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!("{}", reachability::format_report(&report));
             }
         }
         Commands::Doc { rules, output, templates } => {
