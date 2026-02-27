@@ -682,3 +682,162 @@ Implement commercially-viable features identified through market research: L3/L4
 ### Git Operations
 - 5 feature commits: L3/L4 (316240f), counters (e979f32), PCAP (33d6390), HTML report (5fdf19d), VXLAN (aa88919)
 - All pushed to https://github.com/joemooney/pacgate.git
+
+## Session 9 — 2026-02-27: Phase 7 — Advanced Stateful Logic, Byte Matching, Multi-Port, Mermaid
+
+### Goal
+Implement Phase 7: byte-offset matching, hierarchical state machines, Mermaid import/export, multi-port switch fabric, and connection tracking — addressing documented limitations from Phases 1-6.
+
+### Actions Taken
+
+#### Batch 1: Byte-Offset Matching
+
+1. **Data model** (`src/model.rs`)
+   - Added `ByteMatch` struct with `offset: u16`, `value: String`, `mask: Option<String>`
+   - Helper methods: `parse_hex_value()`, `byte_len()`, `to_verilog_value()`, `to_verilog_mask()`
+   - Added `byte_match: Option<Vec<ByteMatch>>` and `uses_byte_match()` to `MatchCriteria`
+   - 7 unit tests
+
+2. **Validation** (`src/loader.rs`)
+   - Max 4 byte_match per rule, offset <= 1500, value <= 4 bytes, mask length == value length
+   - 4 validation unit tests
+
+3. **Verilog generation** (`src/verilog_gen.rs`)
+   - `collect_byte_match_offsets()` — gathers unique (offset, length) pairs across all rules
+   - Extended `build_condition_expr()` with `(byte_cap_N & mask) == (value & mask)` patterns
+
+4. **New template**: `templates/byte_capture.v.tera` — byte counter + per-offset capture registers
+
+5. **Template updates**: packet_filter_top, rule_match, rule_fsm — byte_cap port wiring
+
+6. **Example**: `rules/examples/byte_match.yaml` — IPv4 version nibble, TCP SYN flag
+
+7. **Integration test**: `compile_byte_match`
+
+#### Batch 2: Hierarchical State Machines
+
+8. **Model extensions** (`src/model.rs`)
+   - `FsmVariable { name, width, reset_value }` with default width 16
+   - `FsmTransition` += `guard`, `on_transition`
+   - `FsmState` += `substates`, `initial_substate`, `on_entry`, `on_exit`, `history`
+   - `FsmDefinition` += `variables`
+
+9. **HSM flattening** (`src/verilog_gen.rs`)
+   - `flatten_fsm()` — recursive conversion of composite states to flat "parent.child" dot-notation
+   - `resolve_initial_state()` — resolves through composite hierarchy
+   - Sibling state references prefixed with parent path during flattening
+
+10. **Guard/action parsing** (`src/verilog_gen.rs`)
+    - `guard_to_verilog()` — replaces variable names with `var_` prefix
+    - `parse_fsm_action()` — converts `"counter += 1"` to `var_counter <= var_counter + 16'd1;`
+    - Supported ops: `=`, `+=`, `-=`, `|=`; comparators: `>`, `>=`, `<`, `<=`, `==`, `!=`
+
+11. **Template update** (`templates/rule_fsm.v.tera`)
+    - Variable register declarations + reset values
+    - Guard conditions as `&&` terms in transition conditions
+    - Entry/exit action blocks (fire on state != next_state)
+    - Per-transition action blocks
+
+12. **Validation** (`src/loader.rs`)
+    - `validate_fsm_hierarchy()`: nesting depth <= 4, composite states need initial_substate
+    - `validate_state_transitions_with_siblings()`: sibling resolution for nested states
+    - Variable validation: width 1-32, valid identifiers
+
+13. **Example**: `rules/examples/hsm_conntrack.yaml` — TCP flow tracker with nested burst substates
+
+14. **Integration test**: `compile_hsm_conntrack`
+
+#### Batch 3: Mermaid Import/Export
+
+15. **New module**: `src/mermaid.rs` (~300 lines)
+    - `parse_mermaid()` — line-based parser with regex for stateDiagram-v2
+    - `to_yaml()` — converts parsed diagram to FilterConfig YAML
+    - `from_yaml()` — converts FilterConfig to Mermaid text
+    - Transition label syntax: `[guard: expr][field=value,...]/action{actions}`
+    - 8 unit tests
+
+16. **CLI commands** (`src/main.rs`)
+    - `from-mermaid` subcommand: reads .md, parses, converts to YAML
+    - `to-mermaid` subcommand: loads YAML, exports Mermaid to stdout
+
+17. **Added `regex = "1"` to Cargo.toml**
+
+18. **Added `Serialize` derive to all model types** for YAML round-trip
+
+19. **2 integration tests**: `from_mermaid_generates_yaml`, `to_mermaid_outputs_diagram`
+
+#### Batch 4: Multi-Port Switch Fabric
+
+20. **CLI `--ports N` flag** (default 1) on compile command
+
+21. **`generate_multiport()`** in verilog_gen.rs — generates wrapper with N filter instances
+
+22. **New template**: `templates/packet_filter_multiport_top.v.tera` — per-port arrayed interfaces
+
+23. **Validation**: reject empty ports list
+
+24. **2 integration tests**: `compile_multiport`, `compile_multiport_json`
+
+#### Batch 5: Connection Tracking
+
+25. **`rtl/conntrack_table.v`** (~150 lines, hand-written)
+    - CRC-based hash table with open-addressing linear probing
+    - Parameterized TABLE_SIZE, KEY_WIDTH (104-bit 5-tuple), TIMEOUT
+    - Lookup/insert interfaces, max 8 probes, timestamp-based expiry
+
+26. **Model**: `ConntrackConfig { table_size, timeout_cycles, fields }` in PacgateConfig
+
+27. **CLI `--conntrack` flag** copies conntrack RTL to output
+
+28. **Validation**: table_size power of 2, timeout > 0
+
+29. **1 integration test**: `compile_with_conntrack`
+
+#### Batch 6: Documentation + Final Integration
+
+30. **Updated `validate_all_examples`** to include byte_match and hsm_conntrack (16 examples)
+
+31. **Updated CLAUDE.md** — Phase 7 features, new commands, architecture, 125 tests
+
+32. **Updated OVERVIEW.md** — byte_match field, HSM, multi-port, conntrack, Mermaid commands, 16 examples
+
+33. **Updated REQUIREMENTS.md** — Phase 7 requirements (REQ-210 through REQ-263)
+
+34. **Updated PROMPT_HISTORY.md** — This session (Session 9)
+
+### Errors and Fixes
+- **Duplicate `#[test]` attribute**: stray attribute on compile_byte_match — removed
+- **HSM sibling state resolution**: substates referenced siblings by local name but validation expected dot-notation — fixed with `validate_state_transitions_with_siblings()`
+- **HSM sibling resolution in flattening**: `flatten_fsm()` needed to prefix siblings with parent path
+- **Duplicate derive on ConntrackConfig**: removed duplicate `#[derive]` line
+- **Missing `ports: None` in test constructors**: added to all StatelessRule instances in tests
+
+### New Files Created
+- `src/mermaid.rs`
+- `templates/byte_capture.v.tera`
+- `templates/packet_filter_multiport_top.v.tera`
+- `rtl/conntrack_table.v`
+- `rules/examples/byte_match.yaml`
+- `rules/examples/hsm_conntrack.yaml`
+
+### Modified Files
+- `src/model.rs` — ByteMatch, HSM types, ports, ConntrackConfig, Serialize derives
+- `src/loader.rs` — Validation for byte_match, HSM, ports, conntrack
+- `src/verilog_gen.rs` — byte_match conditions, flatten_fsm, multiport, conntrack
+- `src/main.rs` — from-mermaid, to-mermaid, --ports, --conntrack
+- `src/mermaid.rs` — New Mermaid parser/converter module
+- `templates/rule_match.v.tera` — byte_cap input ports
+- `templates/rule_fsm.v.tera` — byte_cap, variables, guards, entry/exit actions
+- `templates/packet_filter_top.v.tera` — byte_capture instantiation
+- `Cargo.toml` — Added regex dependency
+- `tests/integration_test.rs` — 7 new integration tests
+
+### Test Results
+- 125 Rust tests pass (89 unit + 36 integration)
+- All 16 YAML examples validate clean
+- All Verilog lints pass
+
+### Git Operations
+- 5 batch commits: byte-match (3f0d1e0), HSM (073c145), Mermaid (7fd26c9), multi-port (b434cfe), conntrack (33d4c2f)
+- Documentation commit for Batch 6
+- All pushed to https://github.com/joemooney/pacgate.git

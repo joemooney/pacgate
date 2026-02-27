@@ -604,6 +604,7 @@ dependencies = [
  "clap_complete",
  "env_logger",
  "log",
+ "regex",
  "serde",
  "serde_json",
  "serde_yaml",

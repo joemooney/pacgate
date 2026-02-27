@@ -61,7 +61,8 @@ fn validate_all_examples() {
     for example in &["allow_arp", "enterprise", "stateful_sequence", "blacklist", "datacenter",
                      "industrial_ot", "automotive_gateway", "5g_fronthaul", "campus_access",
                      "iot_gateway", "syn_flood_detect", "arp_spoof_detect",
-                     "l3l4_firewall", "vxlan_datacenter"] {
+                     "l3l4_firewall", "vxlan_datacenter",
+                     "byte_match", "hsm_conntrack"] {
         let path = format!("rules/examples/{}.yaml", example);
         let output = pacgate_bin()
             .args(["validate", &path])
