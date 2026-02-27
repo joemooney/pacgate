@@ -28,7 +28,7 @@
 - REQ-026: `estimate` reports FPGA resource estimates (LUTs, FFs) + timing analysis for Artix-7 [IMPLEMENTED]
 - REQ-027: Rule overlap and shadow detection with compile-time warnings [IMPLEMENTED]
 - REQ-028: Duplicate rule name and priority validation [IMPLEMENTED]
-- REQ-029: 44 Rust unit tests covering model, loader, and validation [IMPLEMENTED]
+- REQ-029: 58 Rust tests (44 unit + 14 integration) covering model, loader, validation, and full CLI [IMPLEMENTED]
 - REQ-030b: `--json` flag for machine-readable output on compile/validate/estimate/diff [IMPLEMENTED]
 - REQ-030c: `diff` subcommand compares two rule files (added/removed/modified rules) [IMPLEMENTED]
 - REQ-030d: Compile output includes formatted rule summary table [IMPLEMENTED]
@@ -37,6 +37,8 @@
 - REQ-030g: Overlap warnings captured in JSON output (not just stderr) [IMPLEMENTED]
 - REQ-030h: `graph` subcommand outputs DOT (Graphviz) representation of rule set [IMPLEMENTED]
 - REQ-030i: `stats` subcommand shows rule set analytics (field usage, action balance, priority spacing) [IMPLEMENTED]
+- REQ-030j: Shell completions for bash/zsh/fish via `completions` subcommand [IMPLEMENTED]
+- REQ-030k: 14 integration tests covering full CLI pipeline (compile, validate, estimate, diff, stats, graph, init) [IMPLEMENTED]
 
 ### Verilog Architecture
 - REQ-030: Hand-written frame parser extracts Ethernet header fields [IMPLEMENTED]

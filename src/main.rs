@@ -4,7 +4,7 @@ mod verilog_gen;
 mod cocotb_gen;
 
 use std::path::PathBuf;
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 use anyhow::Result;
 
 #[derive(Parser)]
@@ -61,6 +61,12 @@ enum Commands {
     Graph {
         /// Path to the YAML rules file
         rules: PathBuf,
+    },
+    /// Generate shell completions
+    #[command(hide = true)]
+    Completions {
+        /// Shell type (bash, zsh, fish, elvish, powershell)
+        shell: clap_complete::Shell,
     },
     /// Show analytics about a rule set
     Stats {
@@ -180,6 +186,10 @@ fn main() -> Result<()> {
             std::fs::write(&output, INIT_TEMPLATE)?;
             println!("Created starter rules file: {}", output.display());
             println!("Edit it, then run: pacgate compile {}", output.display());
+        }
+        Commands::Completions { shell } => {
+            let mut cmd = Cli::command();
+            clap_complete::generate(shell, &mut cmd, "pacgate", &mut std::io::stdout());
         }
         Commands::Graph { rules } => {
             let config = loader::load_rules_with_warnings(&rules)?.0;

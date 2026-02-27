@@ -70,7 +70,8 @@ UVM-inspired Python verification environment with:
 
 ## Quality
 - 44 Rust unit tests (model parsing, validation, overlap detection)
-- 13 cocotb simulation tests (directed + 500-packet random + corner cases)
+- 14 Rust integration tests (full compile pipeline, JSON output, diff, stats, graph)
+- 13+ cocotb simulation tests (directed + 500-packet random + corner cases)
 - 85%+ functional coverage with varied frame sizes and VLAN-tagged traffic
 - Rule overlap and shadow detection with compile-time warnings
 

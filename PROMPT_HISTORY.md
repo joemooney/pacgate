@@ -277,6 +277,24 @@ Continue from previous session (context window continuation). Complete pending -
 
 8. **Datacenter example verified** — 14/14 PASS in cocotb simulation
 
+9. **Shell completions** — Added `clap_complete` for bash/zsh/fish completion generation via hidden `completions` subcommand
+
+10. **14 integration tests** (`tests/integration_test.rs`)
+    - compile_allow_arp: full pipeline, verify output files exist and contain module declaration
+    - compile_enterprise: verify 7 rule matchers generated
+    - compile_stateful_rules: verify FSM modules generated
+    - compile_json_output: verify JSON output is valid with correct status/count
+    - validate_all_examples: all 5 YAML examples validate clean
+    - validate_json_output: verify JSON validation output
+    - validate_rejects_invalid: empty rules rejected
+    - estimate_json_output: verify resource/timing JSON
+    - diff_detects_changes: added rules detected between files
+    - diff_no_changes: same file shows no differences
+    - stats_json_output: analytics JSON correct
+    - graph_outputs_dot: DOT format with rule names
+    - init_creates_file: creates valid starter YAML
+    - init_refuses_overwrite: rejects existing file
+
 ### Git Operations
-- Committed all CLI enhancements
+- Committed all CLI enhancements, integration tests, and shell completions
 - Pushed to GitHub

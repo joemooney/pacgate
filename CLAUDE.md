@@ -12,7 +12,8 @@
 - FPGA resource estimation (LUTs/FFs for Artix-7) + timing/pipeline analysis
 - `--json` flag on compile/validate/estimate/diff for CI/scripting integration
 - `diff` subcommand for rule set change management
-- 44 Rust unit tests, 13 cocotb simulation tests, 85%+ functional coverage
+- Shell completions (bash/zsh/fish) via hidden `completions` subcommand
+- 44 Rust unit tests + 14 integration tests, 13+ cocotb simulation tests, 85%+ functional coverage
 
 ## Architecture
 ```
@@ -49,7 +50,7 @@ pacgate stats rules.yaml               # Rule set analytics
 pacgate stats rules.yaml --json        # JSON analytics
 make sim RULES=rules/examples/enterprise.yaml   # Full simulation
 make lint                                        # Icarus Verilog lint
-cargo test                                       # 44 Rust unit tests
+cargo test                                       # 58 tests (44 unit + 14 integration)
 ```
 
 ## Key Files
