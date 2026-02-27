@@ -19,16 +19,22 @@
 - REQ-016: MAC wildcard octets ("*") generate mask-based comparison [IMPLEMENTED]
 
 ### Compiler
-- REQ-020: Rust CLI with `compile`, `validate`, `init`, and `estimate` subcommands [IMPLEMENTED]
+- REQ-020: Rust CLI with `compile`, `validate`, `init`, `estimate`, and `diff` subcommands [IMPLEMENTED]
 - REQ-021: `compile` generates Verilog RTL and cocotb test bench from YAML [IMPLEMENTED]
 - REQ-022: `validate` checks YAML without generating output [IMPLEMENTED]
 - REQ-023: Generated Verilog passes Icarus Verilog lint (`-g2012`) [IMPLEMENTED]
 - REQ-024: Generated cocotb tests include positive, negative, random, and corner-case tests [IMPLEMENTED]
 - REQ-025: `init` creates a well-commented starter rules file [IMPLEMENTED]
-- REQ-026: `estimate` reports FPGA resource estimates (LUTs, FFs) for Artix-7 [IMPLEMENTED]
+- REQ-026: `estimate` reports FPGA resource estimates (LUTs, FFs) + timing analysis for Artix-7 [IMPLEMENTED]
 - REQ-027: Rule overlap and shadow detection with compile-time warnings [IMPLEMENTED]
 - REQ-028: Duplicate rule name and priority validation [IMPLEMENTED]
 - REQ-029: 44 Rust unit tests covering model, loader, and validation [IMPLEMENTED]
+- REQ-030b: `--json` flag for machine-readable output on compile/validate/estimate/diff [IMPLEMENTED]
+- REQ-030c: `diff` subcommand compares two rule files (added/removed/modified rules) [IMPLEMENTED]
+- REQ-030d: Compile output includes formatted rule summary table [IMPLEMENTED]
+- REQ-030e: Estimate includes pipeline timing analysis (cycles, latency at 125 MHz) [IMPLEMENTED]
+- REQ-030f: Rule count limit warnings for Artix-7 targets (>32 note, >64 warning) [IMPLEMENTED]
+- REQ-030g: Overlap warnings captured in JSON output (not just stderr) [IMPLEMENTED]
 
 ### Verilog Architecture
 - REQ-030: Hand-written frame parser extracts Ethernet header fields [IMPLEMENTED]

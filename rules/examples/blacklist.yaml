@@ -1,0 +1,51 @@
+# PacGate — Blacklist Mode Example
+#
+# Scenario: A permissive network that blocks specific threats.
+# Default action is PASS (everything allowed unless explicitly blocked).
+# Rules block known-bad traffic patterns.
+
+pacgate:
+  version: "1.0"
+  defaults:
+    action: pass              # Blacklist mode: everything allowed by default
+
+  rules:
+    # Block broadcast storms
+    - name: block_broadcast
+      type: stateless
+      priority: 200
+      match:
+        dst_mac: "ff:ff:ff:ff:ff:ff"
+      action: drop
+
+    # Block STP BPDU (prevent spanning tree attacks)
+    - name: block_stp
+      type: stateless
+      priority: 190
+      match:
+        dst_mac: "01:80:c2:00:00:00"
+      action: drop
+
+    # Block PVST+ (Cisco proprietary STP)
+    - name: block_pvst
+      type: stateless
+      priority: 180
+      match:
+        dst_mac: "01:00:0c:cc:cc:cd"
+      action: drop
+
+    # Block 802.1X EAPoL (prevent unauthorized authentication)
+    - name: block_eapol
+      type: stateless
+      priority: 170
+      match:
+        ethertype: "0x888E"
+      action: drop
+
+    # Block known-bad vendor (rogue equipment with OUI aa:bb:cc)
+    - name: block_rogue_vendor
+      type: stateless
+      priority: 160
+      match:
+        src_mac: "aa:bb:cc:*:*:*"
+      action: drop

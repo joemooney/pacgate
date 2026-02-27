@@ -1,0 +1,79 @@
+# PacGate — Data Center Access Switch Example
+#
+# Scenario: A ToR (Top of Rack) switch in a multi-tenant data center.
+# Each tenant is assigned a VLAN. Management traffic uses VLAN 1.
+# Only known vendor equipment is allowed. All broadcast is rate-limited
+# (here: dropped) to prevent storms.
+
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+
+  rules:
+    # Block all broadcast (highest priority — storm prevention)
+    - name: block_broadcast
+      type: stateless
+      priority: 1000
+      match:
+        dst_mac: "ff:ff:ff:ff:ff:ff"
+      action: drop
+
+    # Allow management VLAN (network ops)
+    - name: allow_mgmt_vlan
+      type: stateless
+      priority: 900
+      match:
+        vlan_id: 1
+      action: pass
+
+    # Tenant A: VLAN 100, only Cisco switches (OUI 00:26:cb)
+    - name: tenant_a_cisco
+      type: stateless
+      priority: 800
+      match:
+        vlan_id: 100
+        src_mac: "00:26:cb:*:*:*"
+      action: pass
+
+    # Tenant B: VLAN 200, only Arista switches (OUI 00:1c:73)
+    - name: tenant_b_arista
+      type: stateless
+      priority: 700
+      match:
+        vlan_id: 200
+        src_mac: "00:1c:73:*:*:*"
+      action: pass
+
+    # Tenant C: VLAN 300, any vendor (less restrictive)
+    - name: tenant_c_any
+      type: stateless
+      priority: 600
+      match:
+        vlan_id: 300
+      action: pass
+
+    # Allow ARP on all VLANs (needed for address resolution)
+    - name: allow_arp
+      type: stateless
+      priority: 500
+      match:
+        ethertype: "0x0806"
+      action: pass
+
+    # Allow LLDP for topology discovery
+    - name: allow_lldp
+      type: stateless
+      priority: 400
+      match:
+        ethertype: "0x88CC"
+      action: pass
+
+    # Allow LACP for link aggregation
+    - name: allow_lacp
+      type: stateless
+      priority: 300
+      match:
+        dst_mac: "01:80:c2:00:00:02"
+        ethertype: "0x8809"
+      action: pass

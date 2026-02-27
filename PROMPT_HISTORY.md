@@ -226,3 +226,41 @@ Research 8 topics for building an innovative FPGA packet filter verification fra
 ### Git Operations
 - Committed all rename, tests, features, and CI
 - Pushed to GitHub
+
+## Session 5 — 2026-02-26: CLI Enhancements & Machine-Readable Output
+
+### Prompt
+Continue from previous session (context window continuation). Complete pending --json implementation and add more product features.
+
+### Actions Taken
+
+1. **`--json` flag implementation** (compile, validate, estimate)
+   - Compile: JSON with status, rule count, default action, output dirs, warnings
+   - Validate: JSON with rule list (name, type, priority, action), warnings
+   - Estimate: JSON with components, totals, utilization, timing, warnings
+   - Clean action formatting: "pass"/"drop"/"default" instead of "Some(Drop)"
+
+2. **Overlap warnings in JSON**
+   - Refactored `check_rule_overlaps()` to return warnings as `Vec<String>` (no stderr printing)
+   - Added `load_rules_with_warnings()` and `load_rules_from_str_with_warnings()` to loader
+   - JSON mode: warnings appear in `"warnings"` array; text mode: printed to stderr with "Warning:" prefix
+
+3. **`pacgate diff` subcommand**
+   - Compares two YAML rule files, shows added/removed/modified/unchanged rules
+   - Detects changes in priority, action, match criteria (ethertype, MAC, VLAN), and rule type
+   - Detects default action changes
+   - Supports `--json` output
+
+4. **Compile output rule summary table**
+   - Non-JSON compile now prints a formatted table: #, name, type, priority, action
+   - Shows default action below the table
+
+5. **Timing analysis in estimate**
+   - Parser latency: 14 cycles (6 dst + 6 src + 2 ethertype)
+   - Match + decision: 2 cycles
+   - Total: 16 cycles (128 ns at 125 MHz)
+   - Rule count warnings: >32 suggests pipelining, >64 warns about Fmax
+
+### Git Operations
+- Committed all CLI enhancements
+- Pushed to GitHub

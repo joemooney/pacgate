@@ -3,18 +3,35 @@ use anyhow::{Context, Result};
 use crate::model::FilterConfig;
 
 pub fn load_rules(path: &Path) -> Result<FilterConfig> {
+    let (config, warnings) = load_rules_with_warnings(path)?;
+    for w in &warnings {
+        eprintln!("Warning: {}", w);
+    }
+    Ok(config)
+}
+
+pub fn load_rules_with_warnings(path: &Path) -> Result<(FilterConfig, Vec<String>)> {
     let contents = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read rules file: {}", path.display()))?;
 
-    load_rules_from_str(&contents)
+    load_rules_from_str_with_warnings(&contents)
 }
 
 pub fn load_rules_from_str(contents: &str) -> Result<FilterConfig> {
+    let (config, warnings) = load_rules_from_str_with_warnings(contents)?;
+    for w in &warnings {
+        eprintln!("Warning: {}", w);
+    }
+    Ok(config)
+}
+
+pub fn load_rules_from_str_with_warnings(contents: &str) -> Result<(FilterConfig, Vec<String>)> {
     let config: FilterConfig = serde_yaml::from_str(contents)
         .with_context(|| "Failed to parse YAML")?;
 
     validate(&config)?;
-    Ok(config)
+    let warnings = check_rule_overlaps(&config.pacgate.rules);
+    Ok((config, warnings))
 }
 
 fn validate(config: &FilterConfig) -> Result<()> {
@@ -86,15 +103,12 @@ fn validate(config: &FilterConfig) -> Result<()> {
         }
     }
 
-    // Rule overlap analysis (warnings only — printed to stderr)
-    check_rule_overlaps(&config.pacgate.rules);
-
     Ok(())
 }
 
-/// Analyze rules for overlaps and shadowing. Prints warnings to stderr.
-/// Returns a list of warning strings (for testing).
-fn check_rule_overlaps(rules: &[crate::model::StatelessRule]) -> Vec<String> {
+/// Analyze rules for overlaps and shadowing.
+/// Returns a list of warning strings.
+pub fn check_rule_overlaps(rules: &[crate::model::StatelessRule]) -> Vec<String> {
     let mut warnings = Vec::new();
 
     // Only analyze stateless rules
@@ -111,23 +125,19 @@ fn check_rule_overlaps(rules: &[crate::model::StatelessRule]) -> Vec<String> {
             let low = sorted[j];
 
             if criteria_shadows(&high.match_criteria, &low.match_criteria) {
-                let msg = format!(
-                    "Warning: rule '{}' (priority {}) shadows '{}' (priority {}) — '{}' can never match",
+                warnings.push(format!(
+                    "rule '{}' (priority {}) shadows '{}' (priority {}) — '{}' can never match",
                     high.name, high.priority, low.name, low.priority, low.name
-                );
-                eprintln!("{}", msg);
-                warnings.push(msg);
+                ));
             } else if criteria_overlaps(&high.match_criteria, &low.match_criteria) {
                 let action_high = high.action.as_ref().map(|a| format!("{:?}", a)).unwrap_or("N/A".to_string());
                 let action_low = low.action.as_ref().map(|a| format!("{:?}", a)).unwrap_or("N/A".to_string());
                 if action_high != action_low {
-                    let msg = format!(
-                        "Warning: rules '{}' (priority {}, {}) and '{}' (priority {}, {}) overlap with different actions",
+                    warnings.push(format!(
+                        "rules '{}' (priority {}, {}) and '{}' (priority {}, {}) overlap with different actions",
                         high.name, high.priority, action_high,
                         low.name, low.priority, action_low,
-                    );
-                    eprintln!("{}", msg);
-                    warnings.push(msg);
+                    ));
                 }
             }
         }
@@ -139,12 +149,10 @@ fn check_rule_overlaps(rules: &[crate::model::StatelessRule]) -> Vec<String> {
         if mc.dst_mac.is_none() && mc.src_mac.is_none() && mc.ethertype.is_none()
             && mc.vlan_id.is_none() && mc.vlan_pcp.is_none()
         {
-            let msg = format!(
-                "Warning: rule '{}' (priority {}) has no match criteria — matches ALL packets",
+            warnings.push(format!(
+                "rule '{}' (priority {}) has no match criteria — matches ALL packets",
                 rule.name, rule.priority
-            );
-            eprintln!("{}", msg);
-            warnings.push(msg);
+            ));
         }
     }
 

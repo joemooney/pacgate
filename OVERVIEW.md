@@ -59,10 +59,12 @@ UVM-inspired Python verification environment with:
 - **Target FPGA**: Xilinx 7-series (Artix-7) — future phase
 
 ## CLI Commands
-- `pacgate compile rules.yaml` — Generate Verilog + cocotb tests
+- `pacgate compile rules.yaml` — Generate Verilog + cocotb tests (with rule summary table)
 - `pacgate validate rules.yaml` — Validate YAML only
 - `pacgate init` — Create a well-commented starter rules file
-- `pacgate estimate rules.yaml` — FPGA resource estimation (LUTs/FFs)
+- `pacgate estimate rules.yaml` — FPGA resource estimation (LUTs/FFs) + timing analysis
+- `pacgate diff old.yaml new.yaml` — Compare two rule sets (added/removed/modified)
+- All commands except `init` support `--json` for machine-readable output
 
 ## Quality
 - 44 Rust unit tests (model parsing, validation, overlap detection)

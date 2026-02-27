@@ -28,11 +28,19 @@ enum Commands {
         /// Templates directory
         #[arg(short, long, default_value = "templates")]
         templates: PathBuf,
+
+        /// Output JSON summary instead of human-readable text
+        #[arg(long)]
+        json: bool,
     },
     /// Validate YAML rules without generating output
     Validate {
         /// Path to the YAML rules file
         rules: PathBuf,
+
+        /// Output JSON summary instead of human-readable text
+        #[arg(long)]
+        json: bool,
     },
     /// Create a starter rules file
     Init {
@@ -44,6 +52,21 @@ enum Commands {
     Estimate {
         /// Path to the YAML rules file
         rules: PathBuf,
+
+        /// Output JSON instead of human-readable text
+        #[arg(long)]
+        json: bool,
+    },
+    /// Compare two rule files and show differences
+    Diff {
+        /// Original rules file
+        old: PathBuf,
+        /// Updated rules file
+        new: PathBuf,
+
+        /// Output JSON instead of human-readable text
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -52,24 +75,89 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Compile { rules, output, templates } => {
+        Commands::Compile { rules, output, templates, json } => {
             log::info!("Compiling rules from {}", rules.display());
-            let config = loader::load_rules(&rules)?;
-            println!("Loaded {} rules from {}", config.pacgate.rules.len(), rules.display());
+            let (config, warnings) = loader::load_rules_with_warnings(&rules)?;
 
             // Generate Verilog
             verilog_gen::generate(&config, &templates, &output)?;
-            println!("Generated Verilog RTL in {}/rtl/", output.display());
 
             // Generate cocotb tests
             cocotb_gen::generate(&config, &templates, &output)?;
-            println!("Generated cocotb tests in {}/tb/", output.display());
 
-            println!("Compilation complete.");
+            if json {
+                let summary = serde_json::json!({
+                    "status": "ok",
+                    "rules_file": rules.to_string_lossy(),
+                    "rules_count": config.pacgate.rules.len(),
+                    "default_action": match config.pacgate.defaults.action { model::Action::Pass => "pass", model::Action::Drop => "drop" },
+                    "output_dir": output.to_string_lossy(),
+                    "generated": {
+                        "verilog_dir": format!("{}/rtl", output.display()),
+                        "cocotb_dir": format!("{}/tb", output.display()),
+                    },
+                    "warnings": warnings,
+                });
+                println!("{}", serde_json::to_string_pretty(&summary)?);
+            } else {
+                for w in &warnings {
+                    eprintln!("Warning: {}", w);
+                }
+                println!("Loaded {} rules from {}", config.pacgate.rules.len(), rules.display());
+                println!();
+                println!("  # Name                    Type       Pri   Action");
+                println!("  — ——————————————————————— —————————— ————— ——————");
+                for (i, r) in config.pacgate.rules.iter().enumerate() {
+                    let rtype = if r.is_stateful() { "stateful" } else { "stateless" };
+                    let action = match &r.action {
+                        Some(model::Action::Pass) => "pass",
+                        Some(model::Action::Drop) => "drop",
+                        None => "default",
+                    };
+                    println!("  {} {:<27} {:<10} {:>5} {}", i + 1, r.name, rtype, r.priority, action);
+                }
+                println!();
+                let default_str = match config.pacgate.defaults.action {
+                    model::Action::Pass => "pass",
+                    model::Action::Drop => "drop",
+                };
+                println!("  Default action: {}", default_str);
+                println!("  Generated Verilog RTL in {}/rtl/", output.display());
+                println!("  Generated cocotb tests in {}/tb/", output.display());
+                println!("  Compilation complete.");
+            }
         }
-        Commands::Validate { rules } => {
-            let config = loader::load_rules(&rules)?;
-            println!("Valid: {} rules loaded from {}", config.pacgate.rules.len(), rules.display());
+        Commands::Validate { rules, json } => {
+            let (config, warnings) = loader::load_rules_with_warnings(&rules)?;
+            if json {
+                let rules_info: Vec<serde_json::Value> = config.pacgate.rules.iter().map(|r| {
+                    let action_str = match &r.action {
+                        Some(model::Action::Pass) => "pass",
+                        Some(model::Action::Drop) => "drop",
+                        None => "default",
+                    };
+                    serde_json::json!({
+                        "name": r.name,
+                        "type": if r.is_stateful() { "stateful" } else { "stateless" },
+                        "priority": r.priority,
+                        "action": action_str,
+                    })
+                }).collect();
+                let summary = serde_json::json!({
+                    "status": "valid",
+                    "rules_file": rules.to_string_lossy(),
+                    "rules_count": config.pacgate.rules.len(),
+                    "default_action": match config.pacgate.defaults.action { model::Action::Pass => "pass", model::Action::Drop => "drop" },
+                    "rules": rules_info,
+                    "warnings": warnings,
+                });
+                println!("{}", serde_json::to_string_pretty(&summary)?);
+            } else {
+                for w in &warnings {
+                    eprintln!("Warning: {}", w);
+                }
+                println!("Valid: {} rules loaded from {}", config.pacgate.rules.len(), rules.display());
+            }
         }
         Commands::Init { output } => {
             if output.exists() {
@@ -79,13 +167,242 @@ fn main() -> Result<()> {
             println!("Created starter rules file: {}", output.display());
             println!("Edit it, then run: pacgate compile {}", output.display());
         }
-        Commands::Estimate { rules } => {
-            let config = loader::load_rules(&rules)?;
-            print_resource_estimate(&config);
+        Commands::Diff { old, new, json } => {
+            let old_config = loader::load_rules_with_warnings(&old)?.0;
+            let new_config = loader::load_rules_with_warnings(&new)?.0;
+            diff_rules(&old_config, &new_config, json)?;
+        }
+        Commands::Estimate { rules, json } => {
+            let (config, warnings) = loader::load_rules_with_warnings(&rules)?;
+            if json {
+                let mut estimate = compute_resource_estimate(&config);
+                estimate.as_object_mut().unwrap().insert("warnings".to_string(), serde_json::json!(warnings));
+                println!("{}", serde_json::to_string_pretty(&estimate)?);
+            } else {
+                for w in &warnings {
+                    eprintln!("Warning: {}", w);
+                }
+                print_resource_estimate(&config);
+            }
         }
     }
 
     Ok(())
+}
+
+fn diff_rules(old: &model::FilterConfig, new: &model::FilterConfig, json: bool) -> Result<()> {
+    use std::collections::HashMap;
+
+    let old_map: HashMap<&str, &model::StatelessRule> = old.pacgate.rules.iter()
+        .map(|r| (r.name.as_str(), r)).collect();
+    let new_map: HashMap<&str, &model::StatelessRule> = new.pacgate.rules.iter()
+        .map(|r| (r.name.as_str(), r)).collect();
+
+    let mut added = Vec::new();
+    let mut removed = Vec::new();
+    let mut modified = Vec::new();
+    let mut unchanged = Vec::new();
+
+    // Check for removed and modified rules
+    for (name, old_rule) in &old_map {
+        match new_map.get(name) {
+            None => removed.push(*name),
+            Some(new_rule) => {
+                let mut changes = Vec::new();
+                if old_rule.priority != new_rule.priority {
+                    changes.push(format!("priority: {} -> {}", old_rule.priority, new_rule.priority));
+                }
+                if old_rule.action != new_rule.action {
+                    changes.push(format!("action: {:?} -> {:?}", old_rule.action, new_rule.action));
+                }
+                if old_rule.match_criteria.ethertype != new_rule.match_criteria.ethertype {
+                    changes.push(format!("ethertype: {:?} -> {:?}",
+                        old_rule.match_criteria.ethertype, new_rule.match_criteria.ethertype));
+                }
+                if old_rule.match_criteria.dst_mac != new_rule.match_criteria.dst_mac {
+                    changes.push(format!("dst_mac: {:?} -> {:?}",
+                        old_rule.match_criteria.dst_mac, new_rule.match_criteria.dst_mac));
+                }
+                if old_rule.match_criteria.src_mac != new_rule.match_criteria.src_mac {
+                    changes.push(format!("src_mac: {:?} -> {:?}",
+                        old_rule.match_criteria.src_mac, new_rule.match_criteria.src_mac));
+                }
+                if old_rule.match_criteria.vlan_id != new_rule.match_criteria.vlan_id {
+                    changes.push(format!("vlan_id: {:?} -> {:?}",
+                        old_rule.match_criteria.vlan_id, new_rule.match_criteria.vlan_id));
+                }
+                if old_rule.match_criteria.vlan_pcp != new_rule.match_criteria.vlan_pcp {
+                    changes.push(format!("vlan_pcp: {:?} -> {:?}",
+                        old_rule.match_criteria.vlan_pcp, new_rule.match_criteria.vlan_pcp));
+                }
+                if old_rule.is_stateful() != new_rule.is_stateful() {
+                    changes.push(format!("type: {} -> {}",
+                        if old_rule.is_stateful() { "stateful" } else { "stateless" },
+                        if new_rule.is_stateful() { "stateful" } else { "stateless" }));
+                }
+
+                if changes.is_empty() {
+                    unchanged.push(*name);
+                } else {
+                    modified.push((*name, changes));
+                }
+            }
+        }
+    }
+
+    // Check for added rules
+    for name in new_map.keys() {
+        if !old_map.contains_key(name) {
+            added.push(*name);
+        }
+    }
+
+    // Sort for deterministic output
+    added.sort();
+    removed.sort();
+    modified.sort_by_key(|(name, _)| *name);
+
+    // Check default action change
+    let default_changed = old.pacgate.defaults.action != new.pacgate.defaults.action;
+
+    if json {
+        let summary = serde_json::json!({
+            "added": added,
+            "removed": removed,
+            "modified": modified.iter().map(|(name, changes)| {
+                serde_json::json!({ "name": name, "changes": changes })
+            }).collect::<Vec<_>>(),
+            "unchanged": unchanged.len(),
+            "default_action_changed": default_changed,
+        });
+        println!("{}", serde_json::to_string_pretty(&summary)?);
+    } else {
+        if default_changed {
+            println!("  Default action: {:?} -> {:?}",
+                old.pacgate.defaults.action, new.pacgate.defaults.action);
+            println!();
+        }
+
+        if added.is_empty() && removed.is_empty() && modified.is_empty() && !default_changed {
+            println!("No differences found.");
+            return Ok(());
+        }
+
+        if !added.is_empty() {
+            println!("  Added ({}):", added.len());
+            for name in &added {
+                let r = new_map[name];
+                println!("    + {} (priority {}, {:?})", name, r.priority,
+                    r.action.as_ref().map(|a| format!("{:?}", a)).unwrap_or("default".to_string()));
+            }
+            println!();
+        }
+
+        if !removed.is_empty() {
+            println!("  Removed ({}):", removed.len());
+            for name in &removed {
+                let r = old_map[name];
+                println!("    - {} (priority {})", name, r.priority);
+            }
+            println!();
+        }
+
+        if !modified.is_empty() {
+            println!("  Modified ({}):", modified.len());
+            for (name, changes) in &modified {
+                println!("    ~ {}", name);
+                for change in changes {
+                    println!("      {}", change);
+                }
+            }
+            println!();
+        }
+
+        println!("  Summary: {} added, {} removed, {} modified, {} unchanged",
+            added.len(), removed.len(), modified.len(), unchanged.len());
+    }
+
+    Ok(())
+}
+
+fn compute_resource_estimate(config: &model::FilterConfig) -> serde_json::Value {
+    let rules = &config.pacgate.rules;
+    let num_stateless = rules.iter().filter(|r| !r.is_stateful()).count();
+    let num_stateful = rules.iter().filter(|r| r.is_stateful()).count();
+    let total = rules.len();
+
+    let parser_luts = 120;
+    let parser_ffs = 90;
+
+    let mut rule_luts = 0usize;
+    let mut rule_ffs = 0usize;
+
+    for rule in rules {
+        if rule.is_stateful() {
+            let fsm = rule.fsm.as_ref().unwrap();
+            let num_states = fsm.states.len();
+            let num_transitions: usize = fsm.states.values().map(|s| s.transitions.len()).sum();
+            let has_timeout = fsm.states.values().any(|s| s.timeout_cycles.is_some());
+            rule_luts += 40 + num_transitions * 30 + if has_timeout { 40 } else { 0 };
+            rule_ffs += 4 + num_states * 2 + if has_timeout { 32 } else { 0 };
+        } else {
+            let mc = &rule.match_criteria;
+            let mut fields = 0;
+            if mc.ethertype.is_some() { fields += 1; }
+            if mc.dst_mac.is_some() { fields += 3; }
+            if mc.src_mac.is_some() { fields += 3; }
+            if mc.vlan_id.is_some() { fields += 1; }
+            if mc.vlan_pcp.is_some() { fields += 1; }
+            rule_luts += 10 + fields * 12;
+        }
+    }
+
+    let decision_luts = 10 * total + 8;
+    let decision_ffs = 4;
+    let io_luts = 20;
+    let total_luts = parser_luts + rule_luts + decision_luts + io_luts;
+    let total_ffs = parser_ffs + rule_ffs + decision_ffs;
+
+    let rule_limit_warning = if total > 64 {
+        Some(format!("{} rules exceeds recommended limit of 64 for Artix-7", total))
+    } else if total > 32 {
+        Some(format!("{} rules — consider pipelining the priority encoder for Fmax > 200 MHz", total))
+    } else {
+        None
+    };
+
+    serde_json::json!({
+        "rules": {
+            "stateless": num_stateless,
+            "stateful": num_stateful,
+            "total": total,
+        },
+        "components": {
+            "frame_parser": { "luts": parser_luts, "ffs": parser_ffs },
+            "rule_matchers": { "luts": rule_luts, "ffs": rule_ffs },
+            "decision_logic": { "luts": decision_luts, "ffs": decision_ffs },
+            "io_logic": { "luts": io_luts, "ffs": 0 },
+        },
+        "total": { "luts": total_luts, "ffs": total_ffs },
+        "utilization": {
+            "xc7a35t": {
+                "lut_percent": format!("{:.1}", total_luts as f64 / 20800.0 * 100.0),
+                "ff_percent": format!("{:.1}", total_ffs as f64 / 41600.0 * 100.0),
+            },
+            "xc7a100t": {
+                "lut_percent": format!("{:.1}", total_luts as f64 / 63400.0 * 100.0),
+                "ff_percent": format!("{:.1}", total_ffs as f64 / 126800.0 * 100.0),
+            },
+        },
+        "timing": {
+            "clock_mhz": 125,
+            "parser_cycles": 14,
+            "match_decision_cycles": 2,
+            "total_cycles": 16,
+            "latency_ns": 128,
+        },
+        "rule_limit_warning": rule_limit_warning,
+    })
 }
 
 fn print_resource_estimate(config: &model::FilterConfig) {
@@ -156,6 +473,37 @@ fn print_resource_estimate(config: &model::FilterConfig) {
     println!("  Artix-7 XC7A100T: {:.1}% LUTs, {:.1}% FFs",
              total_luts as f64 / 63400.0 * 100.0,
              total_ffs as f64 / 126800.0 * 100.0);
+    println!();
+
+    // Timing estimates
+    // Frame parser: 14 cycles (6 dst + 6 src + 2 ethertype), plus 4 if VLAN tagged
+    // Rule matching: 1 cycle (combinational, parallel)
+    // Decision logic: 1 cycle (registered output)
+    // Total pipeline: ~16-20 cycles per frame header
+    let parser_cycles = 14; // base Ethernet header
+    let match_cycles = 1;   // combinational parallel evaluation
+    let decision_cycles = 1; // registered output
+    let total_cycles = parser_cycles + match_cycles + decision_cycles;
+
+    // At 125 MHz (common for GbE), clock period = 8ns
+    // Decision latency = total_cycles * 8ns
+    let clock_mhz = 125.0;
+    let latency_ns = total_cycles as f64 * (1000.0 / clock_mhz);
+
+    println!("  Timing (at {:.0} MHz):", clock_mhz);
+    println!("  ───────────────────── ──────────");
+    println!("  Parser latency           {:>2} cycles", parser_cycles);
+    println!("  Match + decision          {:>2} cycles", match_cycles + decision_cycles);
+    println!("  Total decision latency   {:>2} cycles ({:.0} ns)", total_cycles, latency_ns);
+    println!();
+
+    // Rule count limits
+    if total > 64 {
+        println!("  WARNING: {} rules exceeds recommended limit of 64 for Artix-7", total);
+        println!("           Critical path through priority encoder may limit Fmax.");
+    } else if total > 32 {
+        println!("  Note: {} rules — consider pipelining the priority encoder for Fmax > 200 MHz.", total);
+    }
     println!();
 }
 

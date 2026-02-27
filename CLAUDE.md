@@ -9,7 +9,9 @@
 - Priority-based first-match-wins decision logic
 - Whitelist/blacklist mode via default action (pass/drop)
 - Rule overlap and shadow detection with warnings
-- FPGA resource estimation (LUTs/FFs for Artix-7 targets)
+- FPGA resource estimation (LUTs/FFs for Artix-7) + timing/pipeline analysis
+- `--json` flag on compile/validate/estimate/diff for CI/scripting integration
+- `diff` subcommand for rule set change management
 - 44 Rust unit tests, 13 cocotb simulation tests, 85%+ functional coverage
 
 ## Architecture
@@ -34,9 +36,14 @@ rules.yaml --> pacgate (Rust) --+--> Verilog RTL  (gen/rtl/)
 ## CLI Commands
 ```bash
 pacgate compile rules.yaml             # Generate Verilog + cocotb tests
+pacgate compile rules.yaml --json      # JSON output with warnings
 pacgate validate rules.yaml            # Validate YAML only (no output)
+pacgate validate rules.yaml --json     # JSON validation with rule list
 pacgate init [rules.yaml]              # Create starter rules file
-pacgate estimate rules.yaml            # FPGA resource estimate
+pacgate estimate rules.yaml            # FPGA resource estimate + timing
+pacgate estimate rules.yaml --json     # JSON resource/timing data
+pacgate diff old.yaml new.yaml         # Compare two rule sets
+pacgate diff old.yaml new.yaml --json  # JSON diff output
 make sim RULES=rules/examples/enterprise.yaml   # Full simulation
 make lint                                        # Icarus Verilog lint
 cargo test                                       # 44 Rust unit tests
@@ -47,7 +54,7 @@ cargo test                                       # 44 Rust unit tests
 - `src/loader.rs` — YAML loading + validation + overlap detection + 23 unit tests
 - `src/verilog_gen.rs` — Tera-based Verilog generation (stateless + FSM)
 - `src/cocotb_gen.rs` — cocotb test harness generation (directed + random + corners)
-- `src/main.rs` — clap CLI (compile, validate, init, estimate)
+- `src/main.rs` — clap CLI (compile, validate, init, estimate, diff)
 - `rtl/frame_parser.v` — Hand-written Ethernet frame parser FSM
 - `templates/*.tera` — 6 Tera templates for code generation
 - `verification/` — Python verification framework (packet, scoreboard, coverage, driver)
