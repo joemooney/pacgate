@@ -19,7 +19,7 @@
 - REQ-016: MAC wildcard octets ("*") generate mask-based comparison [IMPLEMENTED]
 
 ### Compiler
-- REQ-020: Rust CLI with `compile`, `validate`, `init`, `estimate`, `diff`, `graph`, and `stats` subcommands [IMPLEMENTED]
+- REQ-020: Rust CLI with `compile`, `validate`, `init`, `estimate`, `diff`, `graph`, `stats`, `lint`, and `formal` subcommands [IMPLEMENTED]
 - REQ-021: `compile` generates Verilog RTL and cocotb test bench from YAML [IMPLEMENTED]
 - REQ-022: `validate` checks YAML without generating output [IMPLEMENTED]
 - REQ-023: Generated Verilog passes Icarus Verilog lint (`-g2012`) [IMPLEMENTED]
@@ -28,7 +28,7 @@
 - REQ-026: `estimate` reports FPGA resource estimates (LUTs, FFs) + timing analysis for Artix-7 [IMPLEMENTED]
 - REQ-027: Rule overlap and shadow detection with compile-time warnings [IMPLEMENTED]
 - REQ-028: Duplicate rule name and priority validation [IMPLEMENTED]
-- REQ-029: 63 Rust tests (44 unit + 19 integration) covering model, loader, validation, and full CLI [IMPLEMENTED]
+- REQ-029: 65 Rust tests (44 unit + 21 integration) covering model, loader, validation, and full CLI [IMPLEMENTED]
 - REQ-030b: `--json` flag for machine-readable output on compile/validate/estimate/diff [IMPLEMENTED]
 - REQ-030c: `diff` subcommand compares two rule files (added/removed/modified rules) [IMPLEMENTED]
 - REQ-030d: Compile output includes formatted rule summary table [IMPLEMENTED]
@@ -38,7 +38,8 @@
 - REQ-030h: `graph` subcommand outputs DOT (Graphviz) representation of rule set [IMPLEMENTED]
 - REQ-030i: `stats` subcommand shows rule set analytics (field usage, action balance, priority spacing) [IMPLEMENTED]
 - REQ-030j: Shell completions for bash/zsh/fish via `completions` subcommand [IMPLEMENTED]
-- REQ-030k: 14 integration tests covering full CLI pipeline (compile, validate, estimate, diff, stats, graph, init) [IMPLEMENTED]
+- REQ-030k: 21 integration tests covering full CLI pipeline (compile, validate, estimate, diff, stats, graph, init, lint, formal, axi) [IMPLEMENTED]
+- REQ-030l: `lint` subcommand for best-practice analysis (7 lint rules: ARP, broadcast, priority gaps, STP, FSM timeouts, rule count, consolidation) [IMPLEMENTED]
 
 ### Verilog Architecture
 - REQ-030: Hand-written frame parser extracts Ethernet header fields [IMPLEMENTED]
@@ -111,6 +112,31 @@
 ### Property-Based Testing
 - REQ-100: Hypothesis-generated edge-case Ethernet frames for invariant testing [IMPLEMENTED]
 - REQ-101: Properties: determinism, termination, priority correctness, conservation, independence [IMPLEMENTED]
+
+## Phase 5 Requirements — Documentation + Examples + Commercial Features [IMPLEMENTED]
+
+### Real-World Examples
+- REQ-120: 12 production-quality YAML examples covering diverse industries [IMPLEMENTED]
+- REQ-121: Industrial OT boundary filter (EtherCAT, PROFINET, PTP, GOOSE) [IMPLEMENTED]
+- REQ-122: Automotive Ethernet gateway (AVB/TSN, ADAS/powertrain VLANs) [IMPLEMENTED]
+- REQ-123: 5G fronthaul filter (eCPRI, PTP, Sync-E) [IMPLEMENTED]
+- REQ-124: Campus access control (STP guard, VoIP, vendor MAC filtering) [IMPLEMENTED]
+- REQ-125: IoT edge gateway (sensor/actuator/camera VLAN isolation) [IMPLEMENTED]
+- REQ-126: Stateful SYN flood detection with FSM (ARP→IPv4 pattern) [IMPLEMENTED]
+- REQ-127: Stateful ARP spoofing detection with FSM (request/reply pattern) [IMPLEMENTED]
+
+### Documentation
+- REQ-130: README.md with branding, quick start, feature showcase [IMPLEMENTED]
+- REQ-131: Comprehensive User's Guide with rule reference and 11+ examples [IMPLEMENTED]
+- REQ-132: Comprehensive Test Guide covering all verification layers [IMPLEMENTED]
+- REQ-133: 8 hands-on workshops (beginner to advanced) [IMPLEMENTED]
+- REQ-134: Management slideshow (13 slides) [IMPLEMENTED]
+- REQ-135: "Why PacGate?" document for skeptics and decision-makers [IMPLEMENTED]
+
+### Commercial Features
+- REQ-140: `lint` subcommand with 7 best-practice checks [IMPLEMENTED]
+- REQ-141: `lint --json` output for CI/CD integration [IMPLEMENTED]
+- REQ-142: Proprietary license [IMPLEMENTED]
 
 ### CI/Regression
 - REQ-105: GitHub Actions CI pipeline with automated build/compile/simulate

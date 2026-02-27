@@ -437,3 +437,103 @@ Implement Phase 4 (Synthesis Targeting) and Advanced Verification features: AXI-
 ### Git Operations
 - Committed all Phase 4 and Advanced Verification files
 - Pushed to GitHub
+
+---
+
+## Session 7 — 2026-02-27: Phase 5 — Examples, Documentation, Commercial Features
+
+### Goal
+Create comprehensive documentation, real-world examples, management materials, and add commercial features to make PacGate production-ready.
+
+### Actions Taken
+
+1. **README.md with branding**
+   - Created polished README.md with ASCII logo, project image
+   - Quick start guide, architecture diagram, feature table
+   - CLI reference, verification results, FPGA targeting section
+
+2. **7 real-world YAML examples** (bringing total to 12)
+   - `industrial_ot.yaml` — Factory floor OT boundary (EtherCAT 0x88A4, PROFINET 0x8892, PTP 0x88F7, GOOSE 0x88B8)
+   - `automotive_gateway.yaml` — Vehicle domain gateway (AVB/TSN 0x22F0, ADAS VLAN, powertrain VLAN)
+   - `5g_fronthaul.yaml` — O-RAN fronthaul (eCPRI 0xAEFE, PTP, Sync-E)
+   - `campus_access.yaml` — University/enterprise access switch (STP guard, VoIP VLAN, vendor MAC)
+   - `iot_gateway.yaml` — Smart building IoT edge (sensor/actuator/camera VLAN isolation)
+   - `syn_flood_detect.yaml` — Stateful SYN flood detection (ARP→IPv4 FSM with timeout)
+   - `arp_spoof_detect.yaml` — Stateful ARP spoofing detection (request/reply FSM)
+   - All examples validated clean with `pacgate validate`
+
+3. **Management slideshow** (`docs/management/SLIDESHOW.md`)
+   - 13-slide markdown presentation covering problem, solution, market landscape, applications,
+     verification depth, FPGA targets, developer experience, stateful detection, business case,
+     technology stack, roadmap, and call to action
+
+4. **Why PacGate?** (`docs/WHY_PACGATE.md`)
+   - Addresses skeptics: vs P4, vs Corundum/NetFPGA, vs commercial tools
+   - Honest limitations section
+   - ROI numbers and verification depth metrics
+
+5. **Comprehensive User's Guide** (`docs/user-guide/USERS_GUIDE.md`)
+   - 11 sections: getting started, rule language reference, CLI commands, 9 stateless examples,
+     3 stateful examples, verification/simulation, formal verification, FPGA synthesis,
+     CI/CD integration, troubleshooting, EtherType reference table
+
+6. **Comprehensive Test Guide** (`docs/verification/TEST_GUIDE.md`)
+   - Test architecture overview, running tests, cocotb simulation, property-based testing,
+     formal verification, coverage-driven verification
+   - Section on using PacGate to test other FPGA designs (golden reference model approach)
+   - Verification framework API reference, custom test writing, CI/CD integration
+
+7. **8 Hands-on Workshops** (`docs/WORKSHOPS.md`)
+   - Workshop 1: Hello PacGate (30 min)
+   - Workshop 2: Enterprise Network Security (45 min)
+   - Workshop 3: Blacklist Mode (30 min)
+   - Workshop 4: Industrial OT Security (45 min)
+   - Workshop 5: Stateful Detection (60 min)
+   - Workshop 6: AXI-Stream Integration (45 min)
+   - Workshop 7: Rule Management (30 min)
+   - Workshop 8: CI/CD Pipeline (45 min)
+
+8. **`lint` subcommand** — Best-practice analysis
+   - LINT001: Missing ARP allow in whitelist mode
+   - LINT002: Broadcast block priority ordering
+   - LINT003: Tight priority gaps
+   - LINT004: Missing STP protection in blacklist mode
+   - LINT005: FSM states without timeouts
+   - LINT006: Large rule count warnings
+   - LINT007: Single-field rule consolidation hints
+   - Supports `--json` for CI integration
+
+9. **License change**: MIT → Proprietary
+
+10. **Git remote**: Changed from flippy.git to pacgate.git (HTTPS)
+
+### New Files Created
+- `README.md`
+- `LICENSE`
+- `rules/examples/industrial_ot.yaml`
+- `rules/examples/automotive_gateway.yaml`
+- `rules/examples/5g_fronthaul.yaml`
+- `rules/examples/campus_access.yaml`
+- `rules/examples/iot_gateway.yaml`
+- `rules/examples/syn_flood_detect.yaml`
+- `rules/examples/arp_spoof_detect.yaml`
+- `docs/management/SLIDESHOW.md`
+- `docs/WHY_PACGATE.md`
+- `docs/user-guide/USERS_GUIDE.md`
+- `docs/verification/TEST_GUIDE.md`
+- `docs/WORKSHOPS.md`
+
+### Modified Files
+- `src/main.rs` — Added `lint` subcommand, lint functions, fixed init template URL
+- `tests/integration_test.rs` — Added lint tests, updated validate_all_examples (12 examples)
+- `CLAUDE.md` — Updated with Phase 5 features, lint command, 65 tests, 12 examples
+- `OVERVIEW.md` — Updated with Phase 5, examples section, lint, documentation list
+- `REQUIREMENTS.md` — Added Phase 5 requirements (REQ-120-142), updated test counts
+
+### Test Results
+- 65 tests pass (44 unit + 21 integration)
+- All 12 YAML examples validate clean
+
+### Git Operations
+- Changed remote to https://github.com/joemooney/pacgate.git
+- Multiple commits pushed throughout session

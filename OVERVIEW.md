@@ -15,7 +15,7 @@ PacGate is an FPGA-based packet filtering switch where YAML-defined rules compil
 5. Run formal verification with SymbiYosys for mathematical proof of correctness
 
 ## Innovation / Unique Value
-PacGate is unique in that no other open-source tool generates both the hardware implementation (Verilog) and the verification environment (cocotb) from a single specification. Commercial tools like Agnisys IDS-Verify generate tests from register specs but assume the RTL already exists. LLM-based approaches generate one or the other non-deterministically. PacGate generates both, ensuring perfect alignment between specification, implementation, and verification.
+PacGate is unique in that no other tool generates both the hardware implementation (Verilog) and the verification environment (cocotb) from a single specification. Commercial tools like Agnisys IDS-Verify generate tests from register specs but assume the RTL already exists. LLM-based approaches generate one or the other non-deterministically. PacGate generates both, ensuring perfect alignment between specification, implementation, and verification.
 
 ## Architecture
 The generated hardware has a simple streaming interface (byte-at-a-time Ethernet frames). A hand-written frame parser extracts header fields, generated per-rule matchers evaluate in parallel (combinational), and a priority encoder selects the first matching rule's action (pass or drop).
@@ -85,14 +85,25 @@ UVM-inspired Python verification environment with:
 - `pacgate graph rules.yaml` — DOT graph output for Graphviz visualization
 - `pacgate stats rules.yaml` — Rule set analytics (field usage, priority spacing, action balance)
 - `pacgate formal rules.yaml` — Generate SVA assertions + SymbiYosys task files
+- `pacgate lint rules.yaml` — Best-practice analysis (security, performance, maintainability)
 - All commands except `init` and `graph` support `--json` for machine-readable output
+
+## Examples
+12 production-quality YAML examples covering real-world deployments:
+- Enterprise campus, data center multi-tenant, blacklist mode
+- Industrial OT boundary (EtherCAT, PROFINET, PTP, GOOSE)
+- Automotive Ethernet gateway (AVB/TSN, ADAS)
+- 5G fronthaul (eCPRI, PTP, Sync-E)
+- Campus access control, IoT edge gateway
+- Stateful: SYN flood detection, ARP spoofing detection
 
 ## Quality
 - 44 Rust unit tests (model parsing, validation, overlap detection)
-- 19 Rust integration tests (full compile pipeline, AXI, formal, JSON output, diff, stats, graph)
+- 21 Rust integration tests (full compile pipeline, AXI, formal, lint, JSON output, diff, stats, graph)
 - 13+ cocotb simulation tests (directed + 500-packet random + corner cases)
 - 85%+ functional coverage with varied frame sizes and VLAN-tagged traffic
 - Rule overlap and shadow detection with compile-time warnings
+- Best-practice linting with 7 lint rules
 - Property-based testing with Hypothesis for invariant verification
 - SVA formal assertions for mathematical correctness proofs
 
@@ -101,14 +112,14 @@ UVM-inspired Python verification environment with:
 - **Phase 2** (complete): 7-rule enterprise example, MAC wildcards, VLAN matching, advanced verification framework, 13 tests PASS, 500/500 scoreboard matches, 85% coverage
 - **Phase 3** (complete): Stateful FSM rules with timeout counters, sequence detection, FSM Verilog template
 - **Phase 4** (complete): AXI-Stream wrapper, store-and-forward FIFO, Yosys synthesis script, Artix-7 constraints, SVA assertions, SymbiYosys formal verification, property-based testing, coverage XML export
+- **Phase 5** (complete): 12 real-world examples, lint command, README, User's Guide, Test Guide, 8 Workshops, management slideshow, Why PacGate document, proprietary license
 
 ## Documentation
-See `docs/README.md` for the full documentation index including:
-- Design: architecture, design decisions, CI pipeline
-- Verification: strategy, test plan, test harness architecture, coverage model
-- User guide: getting started, rule language reference
-- API reference: compiler CLI and internal modules
-- Management: executive summary, innovation analysis, roadmap
-- Research: cocotb, coverage, mutation testing, formal verification
-
-See `docs/RESEARCH.md` for the full verification framework research report.
+- `README.md` — Project showcase and quick start
+- `docs/user-guide/USERS_GUIDE.md` — Comprehensive user guide with 11+ examples
+- `docs/verification/TEST_GUIDE.md` — Test and verification guide (using PacGate to test other FPGA designs)
+- `docs/WORKSHOPS.md` — 8 hands-on workshops (beginner to advanced)
+- `docs/WHY_PACGATE.md` — Value proposition for skeptics and decision-makers
+- `docs/management/SLIDESHOW.md` — 13-slide management presentation
+- `docs/RESEARCH.md` — Verification framework research report
+- `docs/README.md` — Full documentation index (design, verification, API, management)
