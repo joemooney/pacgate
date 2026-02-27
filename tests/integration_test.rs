@@ -63,7 +63,7 @@ fn validate_all_examples() {
                      "iot_gateway", "syn_flood_detect", "arp_spoof_detect",
                      "l3l4_firewall", "vxlan_datacenter",
                      "byte_match", "hsm_conntrack",
-                     "ipv6_firewall"] {
+                     "ipv6_firewall", "rate_limited"] {
         let path = format!("rules/examples/{}.yaml", example);
         let output = pacgate_bin()
             .args(["validate", &path])
@@ -753,4 +753,41 @@ fn validate_l3l4_firewall() {
     let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
     assert_eq!(json["status"], "valid");
     assert_eq!(json["rules_count"], 8);
+}
+
+// ── Rate Limiting Integration Tests ────────────────────────
+
+#[test]
+fn compile_rate_limited() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/rate_limited.yaml", "--rate-limit",
+               "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // Verify rate_limiter.v was copied
+    assert!(tmp.path().join("rtl/rate_limiter.v").exists(), "rate_limiter.v missing");
+
+    let rl_v = std::fs::read_to_string(tmp.path().join("rtl/rate_limiter.v")).unwrap();
+    assert!(rl_v.contains("module rate_limiter"), "rate_limiter module missing");
+    assert!(rl_v.contains("token"), "token logic missing from rate_limiter.v");
+}
+
+#[test]
+fn compile_rate_limited_json() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/rate_limited.yaml", "--rate-limit",
+               "--json", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    assert_eq!(json["status"], "ok");
+    assert_eq!(json["rate_limit"], true);
+    assert_eq!(json["rules_count"], 4);
 }

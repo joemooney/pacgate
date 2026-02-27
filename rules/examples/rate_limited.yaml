@@ -1,0 +1,47 @@
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_http_ratelimited
+      type: stateless
+      priority: 200
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 80
+      action: pass
+      rate_limit:
+        pps: 10000
+        burst: 128
+
+    - name: allow_dns_ratelimited
+      type: stateless
+      priority: 190
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17
+        dst_port: 53
+      action: pass
+      rate_limit:
+        pps: 5000
+        burst: 64
+
+    - name: allow_ssh
+      type: stateless
+      priority: 180
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 22
+      action: pass
+      rate_limit:
+        pps: 100
+        burst: 16
+
+    - name: allow_arp
+      type: stateless
+      priority: 100
+      match:
+        ethertype: "0x0806"
+      action: pass

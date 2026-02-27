@@ -358,6 +358,20 @@ pub fn copy_conntrack_rtl(output_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Copy hand-written rate limiter RTL to the output directory.
+pub fn copy_rate_limiter_rtl(output_dir: &Path) -> Result<()> {
+    let rtl_dir = output_dir.join("rtl");
+    std::fs::create_dir_all(&rtl_dir)?;
+
+    let src = Path::new("rtl").join("rate_limiter.v");
+    let dst = rtl_dir.join("rate_limiter.v");
+    std::fs::copy(&src, &dst)
+        .with_context(|| "Failed to copy rate_limiter.v to output")?;
+    log::info!("Copied rate_limiter.v to {}", dst.display());
+
+    Ok(())
+}
+
 /// Collect all unique (offset, byte_length) pairs across all rules
 pub fn collect_byte_match_offsets(config: &FilterConfig) -> Vec<(u16, usize)> {
     let mut offsets: std::collections::BTreeMap<u16, usize> = std::collections::BTreeMap::new();

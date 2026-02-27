@@ -170,6 +170,16 @@ fn validate(config: &FilterConfig) -> Result<()> {
             validate_match_criteria(&rule.match_criteria, &rule.name)?;
         }
 
+        // Validate rate_limit if specified
+        if let Some(ref rl) = rule.rate_limit {
+            if rl.pps == 0 {
+                anyhow::bail!("rate_limit pps must be > 0 in rule '{}'", rule.name);
+            }
+            if rl.burst == 0 {
+                anyhow::bail!("rate_limit burst must be > 0 in rule '{}'", rule.name);
+            }
+        }
+
         // Validate ports list if specified
         if let Some(ref ports) = rule.ports {
             if ports.is_empty() {

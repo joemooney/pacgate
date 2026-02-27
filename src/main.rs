@@ -52,6 +52,10 @@ enum Commands {
         /// Include connection tracking table RTL
         #[arg(long)]
         conntrack: bool,
+
+        /// Include rate limiter RTL for rules with rate_limit
+        #[arg(long)]
+        rate_limit: bool,
     },
     /// Validate YAML rules without generating output
     Validate {
@@ -203,7 +207,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Compile { rules, output, templates, json, axi, counters, ports, conntrack } => {
+        Commands::Compile { rules, output, templates, json, axi, counters, ports, conntrack, rate_limit } => {
             log::info!("Compiling rules from {}", rules.display());
             let (config, warnings) = loader::load_rules_with_warnings(&rules)?;
 
@@ -218,6 +222,12 @@ fn main() -> Result<()> {
             // Copy conntrack RTL if --conntrack
             if conntrack {
                 verilog_gen::copy_conntrack_rtl(&output)?;
+            }
+
+            // Copy rate limiter RTL if --rate-limit or any rule has rate_limit
+            let has_rate_limit = rate_limit || config.pacgate.rules.iter().any(|r| r.rate_limit.is_some());
+            if has_rate_limit {
+                verilog_gen::copy_rate_limiter_rtl(&output)?;
             }
 
             // Copy AXI-Stream wrapper RTL if --axi
@@ -249,6 +259,7 @@ fn main() -> Result<()> {
                     "counters": counters,
                     "ports": ports,
                     "conntrack": conntrack,
+                    "rate_limit": has_rate_limit,
                     "generated": {
                         "verilog_dir": format!("{}/rtl", output.display()),
                         "cocotb_dir": format!("{}/tb", output.display()),
@@ -1070,15 +1081,24 @@ fn compute_resource_estimate(config: &model::FilterConfig) -> serde_json::Value 
             if mc.src_port.is_some() { fields += 1; }
             if mc.dst_port.is_some() { fields += 1; }
             if mc.vxlan_vni.is_some() { fields += 2; }
+            // IPv6 fields: 128-bit comparators are expensive
+            if mc.src_ipv6.is_some() { fields += 8; }
+            if mc.dst_ipv6.is_some() { fields += 8; }
+            if mc.ipv6_next_header.is_some() { fields += 1; }
             rule_luts += 10 + fields * 12;
         }
     }
 
+    // Rate limiter: +50 LUTs, +64 FFs per rate-limited rule
+    let num_rate_limited = rules.iter().filter(|r| r.rate_limit.is_some()).count();
+    let rate_luts = num_rate_limited * 50;
+    let rate_ffs = num_rate_limited * 64;
+
     let decision_luts = 10 * total + 8;
     let decision_ffs = 4;
     let io_luts = 20;
-    let total_luts = parser_luts + rule_luts + decision_luts + io_luts;
-    let total_ffs = parser_ffs + rule_ffs + decision_ffs;
+    let total_luts = parser_luts + rule_luts + decision_luts + io_luts + rate_luts;
+    let total_ffs = parser_ffs + rule_ffs + decision_ffs + rate_ffs;
 
     let rule_limit_warning = if total > 64 {
         Some(format!("{} rules exceeds recommended limit of 64 for Artix-7", total))
@@ -1097,6 +1117,7 @@ fn compute_resource_estimate(config: &model::FilterConfig) -> serde_json::Value 
         "components": {
             "frame_parser": { "luts": parser_luts, "ffs": parser_ffs },
             "rule_matchers": { "luts": rule_luts, "ffs": rule_ffs },
+            "rate_limiters": { "count": num_rate_limited, "luts": rate_luts, "ffs": rate_ffs },
             "decision_logic": { "luts": decision_luts, "ffs": decision_ffs },
             "io_logic": { "luts": io_luts, "ffs": 0 },
         },
@@ -1158,16 +1179,25 @@ fn print_resource_estimate(config: &model::FilterConfig) {
             if mc.src_mac.is_some() { fields += 3; }
             if mc.vlan_id.is_some() { fields += 1; }
             if mc.vlan_pcp.is_some() { fields += 1; }
+            // IPv6 fields: 128-bit comparators are expensive
+            if mc.src_ipv6.is_some() { fields += 8; }
+            if mc.dst_ipv6.is_some() { fields += 8; }
+            if mc.ipv6_next_header.is_some() { fields += 1; }
             rule_luts += 10 + fields * 12;
         }
     }
+
+    // Rate limiter: +50 LUTs, +64 FFs per rate-limited rule
+    let num_rate_limited = rules.iter().filter(|r| r.rate_limit.is_some()).count();
+    let rate_luts = num_rate_limited * 50;
+    let rate_ffs = num_rate_limited * 64;
 
     let decision_luts = 10 * total + 8;
     let decision_ffs = 4;
     let io_luts = 20;
 
-    let total_luts = parser_luts + rule_luts + decision_luts + io_luts;
-    let total_ffs = parser_ffs + rule_ffs + decision_ffs;
+    let total_luts = parser_luts + rule_luts + decision_luts + io_luts + rate_luts;
+    let total_ffs = parser_ffs + rule_ffs + decision_ffs + rate_ffs;
 
     // Artix-7 reference: XC7A35T has 20,800 LUTs, 41,600 FFs
     let artix_lut_pct = total_luts as f64 / 20800.0 * 100.0;
@@ -1177,11 +1207,17 @@ fn print_resource_estimate(config: &model::FilterConfig) {
     println!("  PacGate Resource Estimate");
     println!("  ════════════════════════════════════════════");
     println!("  Rules:  {} stateless, {} stateful, {} total", num_stateless, num_stateful, total);
+    if num_rate_limited > 0 {
+        println!("  Rate-limited rules: {}", num_rate_limited);
+    }
     println!();
     println!("  Component             Est. LUTs   Est. FFs");
     println!("  ───────────────────── ────────── ─────────");
     println!("  Frame parser              {:>5}     {:>5}", parser_luts, parser_ffs);
     println!("  Rule matchers             {:>5}     {:>5}", rule_luts, rule_ffs);
+    if num_rate_limited > 0 {
+        println!("  Rate limiters             {:>5}     {:>5}", rate_luts, rate_ffs);
+    }
     println!("  Decision logic            {:>5}     {:>5}", decision_luts, decision_ffs);
     println!("  I/O logic                 {:>5}         -", io_luts);
     println!("  ───────────────────── ────────── ─────────");
