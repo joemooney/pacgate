@@ -5,9 +5,9 @@ mod cocotb_gen;
 mod formal_gen;
 mod pcap;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use clap::{CommandFactory, Parser, Subcommand};
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 #[derive(Parser)]
 #[command(name = "pacgate", version, about = "FPGA Layer 2 Packet Filter Gate — YAML rules to Verilog RTL + cocotb verification")]
@@ -123,6 +123,19 @@ enum Commands {
         /// Output JSON summary instead of human-readable text
         #[arg(long)]
         json: bool,
+    },
+    /// Generate HTML coverage report for a rule set
+    Report {
+        /// Path to the YAML rules file
+        rules: PathBuf,
+
+        /// Output HTML file path
+        #[arg(short, long, default_value = "gen/coverage_report.html")]
+        output: PathBuf,
+
+        /// Templates directory
+        #[arg(short, long, default_value = "templates")]
+        templates: PathBuf,
     },
     /// Import PCAP capture file and generate cocotb test stimulus
     Pcap {
@@ -344,6 +357,11 @@ fn main() -> Result<()> {
                 print_resource_estimate(&config);
             }
         }
+        Commands::Report { rules, output, templates } => {
+            let (config, warnings) = loader::load_rules_with_warnings(&rules)?;
+            generate_coverage_report(&config, &warnings, &rules, &templates, &output)?;
+            println!("Generated coverage report: {}", output.display());
+        }
         Commands::Pcap { pcap_file, output, json } => {
             let packets = pcap::read_pcap(&pcap_file)?;
 
@@ -378,6 +396,157 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn generate_coverage_report(
+    config: &model::FilterConfig,
+    warnings: &[String],
+    rules_path: &Path,
+    templates_dir: &Path,
+    output_path: &Path,
+) -> Result<()> {
+    let glob = format!("{}/**/*.tera", templates_dir.display());
+    let tera = tera::Tera::new(&glob)
+        .with_context(|| format!("Failed to load templates from {}", templates_dir.display()))?;
+
+    let rules = &config.pacgate.rules;
+    let num_stateless = rules.iter().filter(|r| !r.is_stateful()).count();
+    let num_pass = rules.iter().filter(|r| matches!(r.action(), model::Action::Pass)).count();
+    let num_drop = rules.iter().filter(|r| matches!(r.action(), model::Action::Drop)).count();
+
+    // Field usage analysis
+    let all_fields = [
+        ("ethertype", "L2"), ("dst_mac", "L2"), ("src_mac", "L2"),
+        ("vlan_id", "L2"), ("vlan_pcp", "L2"),
+        ("src_ip", "L3"), ("dst_ip", "L3"), ("ip_protocol", "L3"),
+        ("src_port", "L4"), ("dst_port", "L4"),
+    ];
+
+    let mut fields_info = Vec::new();
+    let mut fields_used = 0usize;
+
+    for (name, layer) in &all_fields {
+        let count = rules.iter().filter(|r| !r.is_stateful()).filter(|r| {
+            let mc = &r.match_criteria;
+            match *name {
+                "ethertype" => mc.ethertype.is_some(),
+                "dst_mac" => mc.dst_mac.is_some(),
+                "src_mac" => mc.src_mac.is_some(),
+                "vlan_id" => mc.vlan_id.is_some(),
+                "vlan_pcp" => mc.vlan_pcp.is_some(),
+                "src_ip" => mc.src_ip.is_some(),
+                "dst_ip" => mc.dst_ip.is_some(),
+                "ip_protocol" => mc.ip_protocol.is_some(),
+                "src_port" => mc.src_port.is_some(),
+                "dst_port" => mc.dst_port.is_some(),
+                _ => false,
+            }
+        }).count();
+
+        let pct = if num_stateless > 0 { (count * 100) / num_stateless } else { 0 };
+        if count > 0 { fields_used += 1; }
+
+        fields_info.push(serde_json::json!({
+            "name": name,
+            "layer": layer,
+            "count": count,
+            "pct": pct,
+        }));
+    }
+
+    let field_coverage_pct = (fields_used * 100) / all_fields.len();
+
+    // Build per-rule info
+    let mut rules_info = Vec::new();
+    for (i, rule) in rules.iter().enumerate() {
+        let mut fields = Vec::new();
+        let mc = &rule.match_criteria;
+        if mc.ethertype.is_some() { fields.push("ethertype".to_string()); }
+        if mc.dst_mac.is_some() { fields.push("dst_mac".to_string()); }
+        if mc.src_mac.is_some() { fields.push("src_mac".to_string()); }
+        if mc.vlan_id.is_some() { fields.push("vlan_id".to_string()); }
+        if mc.vlan_pcp.is_some() { fields.push("vlan_pcp".to_string()); }
+        if mc.src_ip.is_some() { fields.push("src_ip".to_string()); }
+        if mc.dst_ip.is_some() { fields.push("dst_ip".to_string()); }
+        if mc.ip_protocol.is_some() { fields.push("ip_protocol".to_string()); }
+        if mc.src_port.is_some() { fields.push("src_port".to_string()); }
+        if mc.dst_port.is_some() { fields.push("dst_port".to_string()); }
+
+        let action = match &rule.action {
+            Some(model::Action::Pass) => "pass",
+            Some(model::Action::Drop) => "drop",
+            None => "default",
+        };
+        let rtype = if rule.is_stateful() { "stateful" } else { "stateless" };
+
+        rules_info.push(serde_json::json!({
+            "index": i + 1,
+            "name": rule.name,
+            "type": rtype,
+            "priority": rule.priority,
+            "action": action,
+            "fields": fields,
+        }));
+    }
+
+    let timestamp = chrono_lite_now();
+
+    let mut ctx = tera::Context::new();
+    ctx.insert("rules_file", &rules_path.display().to_string());
+    ctx.insert("num_rules", &rules.len());
+    ctx.insert("num_stateless", &num_stateless);
+    ctx.insert("num_pass", &num_pass);
+    ctx.insert("num_drop", &num_drop);
+    ctx.insert("field_coverage_pct", &field_coverage_pct);
+    ctx.insert("fields", &fields_info);
+    ctx.insert("rules", &rules_info);
+    ctx.insert("warnings", warnings);
+    ctx.insert("timestamp", &timestamp);
+
+    let rendered = tera.render("coverage_report.html.tera", &ctx)?;
+
+    // Create parent directory if needed
+    if let Some(parent) = output_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(output_path, &rendered)?;
+    Ok(())
+}
+
+/// Simple timestamp without chrono dependency
+fn chrono_lite_now() -> String {
+    use std::time::SystemTime;
+    match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+        Ok(d) => {
+            let secs = d.as_secs();
+            // Simple UTC date formatting
+            let days = secs / 86400;
+            let time_of_day = secs % 86400;
+            let hours = time_of_day / 3600;
+            let minutes = (time_of_day % 3600) / 60;
+
+            // Simple year/month/day from days since epoch
+            // Approximate: good enough for timestamps
+            let mut y = 1970;
+            let mut remaining_days = days as i64;
+            loop {
+                let days_in_year = if y % 4 == 0 && (y % 100 != 0 || y % 400 == 0) { 366 } else { 365 };
+                if remaining_days < days_in_year { break; }
+                remaining_days -= days_in_year;
+                y += 1;
+            }
+            let months = [31, if y % 4 == 0 && (y % 100 != 0 || y % 400 == 0) { 29 } else { 28 },
+                         31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+            let mut m = 0;
+            for &dm in &months {
+                if remaining_days < dm { break; }
+                remaining_days -= dm;
+                m += 1;
+            }
+            format!("{:04}-{:02}-{:02} {:02}:{:02} UTC", y, m + 1, remaining_days + 1, hours, minutes)
+        }
+        Err(_) => "unknown".to_string(),
+    }
 }
 
 fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {

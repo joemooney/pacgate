@@ -420,6 +420,24 @@ fn compile_counters_json() {
 }
 
 #[test]
+fn report_generates_html() {
+    let tmp = tempfile::tempdir().unwrap();
+    let report_path = tmp.path().join("report.html");
+    let output = pacgate_bin()
+        .args(["report", "rules/examples/l3l4_firewall.yaml", "-o", report_path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "report failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    assert!(report_path.exists(), "HTML report missing");
+    let html = std::fs::read_to_string(&report_path).unwrap();
+    assert!(html.contains("PacGate Coverage Report"), "missing report title");
+    assert!(html.contains("allow_ssh_mgmt"), "missing rule name in report");
+    assert!(html.contains("src_ip"), "missing L3 field in report");
+    assert!(html.contains("dst_port"), "missing L4 field in report");
+}
+
+#[test]
 fn pcap_import() {
     let tmp = tempfile::tempdir().unwrap();
 
