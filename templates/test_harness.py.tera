@@ -142,7 +142,23 @@ async def setup(dut):
 async def {{ tc.name }}(dut):
     """{{ tc.description }}"""
     driver, monitor = await setup(dut)
-{% if tc.has_ipv6 is defined and tc.has_ipv6 == "true" %}
+{% if tc.has_gtp is defined and tc.has_gtp == "true" %}
+    # Construct GTP-U packet with proper headers
+    frame = PacketFactory.gtp_u(teid={{ tc.gtp_teid }})
+    extracted = {"gtp_teid": {{ tc.gtp_teid }}, "ip_protocol": 17, "dst_port": 2152}
+{% elif tc.has_mpls is defined and tc.has_mpls == "true" %}
+    # Construct MPLS packet
+    frame = PacketFactory.mpls(label={{ tc.mpls_label | default(value='100') }}, tc={{ tc.mpls_tc | default(value='0') }}, bos={{ tc.mpls_bos | default(value='1') }})
+    extracted = {"mpls_label": {{ tc.mpls_label | default(value='100') }}, "mpls_tc": {{ tc.mpls_tc | default(value='0') }}, "mpls_bos": {{ tc.mpls_bos | default(value='1') }}}
+{% elif tc.has_igmp is defined and tc.has_igmp == "true" %}
+    # Construct IGMP packet
+    frame = PacketFactory.igmp(igmp_type={{ tc.igmp_type }})
+    extracted = {"igmp_type": {{ tc.igmp_type }}, "ip_protocol": 2}
+{% elif tc.has_mld is defined and tc.has_mld == "true" %}
+    # Construct MLD packet
+    frame = PacketFactory.mld(mld_type={{ tc.mld_type }})
+    extracted = {"mld_type": {{ tc.mld_type }}, "ipv6_next_header": 58}
+{% elif tc.has_ipv6 is defined and tc.has_ipv6 == "true" %}
     # Construct IPv6 packet with proper headers
     _proto = {{ tc.ipv6_next_header | default(value='59') }}
     _payload_len = 8
@@ -349,6 +365,44 @@ async def test_random_with_scoreboard(dut):
                 "src_ipv6": _src_ipv6, "dst_ipv6": _dst_ipv6,
                 "ipv6_next_header": _nh,
             }
+
+        # Protocol-specific random packet injection
+        if random.random() < 0.1 and payload_len >= 60:
+            proto_choice = random.choice(["gtp", "mpls", "igmp", "mld"])
+            if proto_choice == "gtp":
+                _teid = random.randint(0, 0xFFFFFFFF)
+                _pkt = PacketFactory.gtp_u(teid=_teid)
+                dst = _pkt.dst_mac
+                src = _pkt.src_mac
+                etype = _pkt.ethertype
+                payload = _pkt.payload
+                extracted = {"gtp_teid": _teid, "ip_protocol": 17, "dst_port": 2152}
+            elif proto_choice == "mpls":
+                _label = random.randint(0, 0xFFFFF)
+                _tc = random.randint(0, 7)
+                _bos = random.choice([0, 1])
+                _pkt = PacketFactory.mpls(label=_label, tc=_tc, bos=_bos)
+                dst = _pkt.dst_mac
+                src = _pkt.src_mac
+                etype = _pkt.ethertype
+                payload = _pkt.payload
+                extracted = {"mpls_label": _label, "mpls_tc": _tc, "mpls_bos": _bos}
+            elif proto_choice == "igmp":
+                _igmp_type = random.choice([0x11, 0x12, 0x16, 0x17, 0x22])
+                _pkt = PacketFactory.igmp(igmp_type=_igmp_type)
+                dst = _pkt.dst_mac
+                src = _pkt.src_mac
+                etype = _pkt.ethertype
+                payload = _pkt.payload
+                extracted = {"igmp_type": _igmp_type, "ip_protocol": 2}
+            else:  # mld
+                _mld_type = random.choice([130, 131, 132])
+                _pkt = PacketFactory.mld(mld_type=_mld_type)
+                dst = _pkt.dst_mac
+                src = _pkt.src_mac
+                etype = _pkt.ethertype
+                payload = _pkt.payload
+                extracted = {"mld_type": _mld_type, "ipv6_next_header": 58}
 
         frame = EthernetFrame(
             dst_mac=dst,

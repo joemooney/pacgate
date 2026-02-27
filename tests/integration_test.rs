@@ -2087,3 +2087,69 @@ fn mutate_run_human_readable() {
     assert!(stdout.contains("MUTATION TEST REPORT"), "should print mutation test report");
     assert!(stdout.contains("Kill rate:"), "should show kill rate");
 }
+
+// ── Phase 14 Batch 2: Protocol Directed Test Branches ─────────
+
+#[test]
+fn gtp_directed_test_branch_in_harness() {
+    let tmp = tempfile::tempdir().unwrap();
+    pacgate_bin()
+        .args(["compile", "rules/examples/gtp_5g.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    let harness = std::fs::read_to_string(tmp.path().join("tb/test_packet_filter.py")).unwrap();
+    assert!(harness.contains("PacketFactory.gtp_u(teid="), "harness should use PacketFactory.gtp_u for GTP directed tests");
+    assert!(harness.contains("\"gtp_teid\":"), "harness should extract gtp_teid in directed test");
+}
+
+#[test]
+fn mpls_directed_test_branch_in_harness() {
+    let tmp = tempfile::tempdir().unwrap();
+    pacgate_bin()
+        .args(["compile", "rules/examples/mpls_network.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    let harness = std::fs::read_to_string(tmp.path().join("tb/test_packet_filter.py")).unwrap();
+    assert!(harness.contains("PacketFactory.mpls(label="), "harness should use PacketFactory.mpls for MPLS directed tests");
+    assert!(harness.contains("\"mpls_label\":"), "harness should extract mpls_label in directed test");
+}
+
+#[test]
+fn igmp_directed_test_branch_in_harness() {
+    let tmp = tempfile::tempdir().unwrap();
+    pacgate_bin()
+        .args(["compile", "rules/examples/multicast.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    let harness = std::fs::read_to_string(tmp.path().join("tb/test_packet_filter.py")).unwrap();
+    assert!(harness.contains("PacketFactory.igmp(igmp_type="), "harness should use PacketFactory.igmp for IGMP directed tests");
+    assert!(harness.contains("\"igmp_type\":"), "harness should extract igmp_type in directed test");
+}
+
+#[test]
+fn mld_directed_test_branch_in_harness() {
+    let tmp = tempfile::tempdir().unwrap();
+    pacgate_bin()
+        .args(["compile", "rules/examples/multicast.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    let harness = std::fs::read_to_string(tmp.path().join("tb/test_packet_filter.py")).unwrap();
+    assert!(harness.contains("PacketFactory.mld(mld_type="), "harness should use PacketFactory.mld for MLD directed tests");
+    assert!(harness.contains("\"mld_type\":"), "harness should extract mld_type in directed test");
+}
+
+#[test]
+fn random_test_includes_protocol_packets() {
+    let tmp = tempfile::tempdir().unwrap();
+    pacgate_bin()
+        .args(["compile", "rules/examples/gtp_5g.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    let harness = std::fs::read_to_string(tmp.path().join("tb/test_packet_filter.py")).unwrap();
+    // Verify random test section includes protocol packet injection
+    assert!(harness.contains("proto_choice = random.choice"), "harness should inject random protocol packets");
+    assert!(harness.contains("PacketFactory.gtp_u(teid=_teid)"), "random test should generate GTP frames");
+    assert!(harness.contains("PacketFactory.mpls(label=_label"), "random test should generate MPLS frames");
+    assert!(harness.contains("PacketFactory.igmp(igmp_type=_igmp_type)"), "random test should generate IGMP frames");
+    assert!(harness.contains("PacketFactory.mld(mld_type=_mld_type)"), "random test should generate MLD frames");
+}
