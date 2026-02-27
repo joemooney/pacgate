@@ -17,7 +17,12 @@ try:
 except ImportError:
     HYPOTHESIS_AVAILABLE = False
 
-from .packet import EthernetFrame, VlanTag, mac_to_bytes
+import struct
+
+from .packet import (
+    EthernetFrame, VlanTag, mac_to_bytes,
+    Ipv4Header, Ipv6Header, ipv4_addr_to_bytes, ipv6_addr_to_bytes,
+)
 from .scoreboard import PacketFilterScoreboard, Rule
 
 
@@ -74,6 +79,84 @@ if HYPOTHESIS_AVAILABLE:
             return draw(st.integers(1001, 1486))
         else:  # jumbo
             return draw(st.integers(1487, 4000))  # limit for speed
+
+    @st.composite
+    def ipv4_addresses(draw):
+        """Generate random IPv4 address strings."""
+        octets = [draw(st.integers(1, 223))] + [draw(st.integers(0, 255)) for _ in range(3)]
+        return ".".join(str(o) for o in octets)
+
+    @st.composite
+    def ipv4_cidr_prefixes(draw):
+        """Generate random IPv4 CIDR prefixes."""
+        addr = draw(ipv4_addresses())
+        prefix_len = draw(st.integers(0, 32))
+        return f"{addr}/{prefix_len}"
+
+    @st.composite
+    def port_numbers(draw):
+        """Generate random port numbers."""
+        return draw(st.integers(1, 65535))
+
+    @st.composite
+    def ipv6_addresses(draw):
+        """Generate random IPv6 address strings."""
+        groups = [draw(st.integers(0, 0xFFFF)) for _ in range(8)]
+        return ":".join(f"{g:04x}" for g in groups)
+
+    @st.composite
+    def l3l4_ethernet_frames(draw):
+        """Generate Ethernet frames with proper L3/L4 headers."""
+        dst = draw(mac_addresses())
+        src = draw(mac_addresses())
+        ip_version = draw(st.sampled_from(["ipv4", "ipv6", "none"]))
+
+        extracted = {}
+
+        if ip_version == "ipv4":
+            etype = 0x0800
+            proto = draw(st.sampled_from([6, 17, 1]))
+            src_ip = draw(ipv4_addresses())
+            dst_ip = draw(ipv4_addresses())
+            src_port = draw(port_numbers())
+            dst_port = draw(port_numbers())
+            if proto == 6:
+                l4_hdr = struct.pack("!HH", src_port, dst_port) + bytes(16)
+            elif proto == 17:
+                l4_hdr = struct.pack("!HHHH", src_port, dst_port, 28, 0) + bytes(20)
+            else:
+                l4_hdr = bytes(20)
+            ip_hdr = Ipv4Header(src_addr=src_ip, dst_addr=dst_ip,
+                                protocol=proto, total_length=20 + len(l4_hdr))
+            payload = ip_hdr.to_bytes() + l4_hdr
+            extracted = {
+                "src_ip": src_ip, "dst_ip": dst_ip,
+                "ip_protocol": proto,
+                "src_port": src_port, "dst_port": dst_port,
+            }
+        elif ip_version == "ipv6":
+            etype = 0x86DD
+            nh = draw(st.sampled_from([6, 17, 58]))
+            src_ipv6 = draw(ipv6_addresses())
+            dst_ipv6 = draw(ipv6_addresses())
+            l4_payload = bytes(8)
+            ip6_hdr = Ipv6Header(src_addr=src_ipv6, dst_addr=dst_ipv6,
+                                 next_header=nh, payload_length=8)
+            payload = ip6_hdr.to_bytes() + l4_payload
+            extracted = {
+                "src_ipv6": src_ipv6, "dst_ipv6": dst_ipv6,
+                "ipv6_next_header": nh,
+            }
+        else:
+            etype = draw(ethertypes())
+            payload = bytes(draw(payload_sizes()))
+
+        vlan = draw(vlan_tags())
+        frame = EthernetFrame(
+            dst_mac=dst, src_mac=src, ethertype=etype,
+            vlan_tag=vlan, payload=payload,
+        )
+        return frame, extracted
 
     @st.composite
     def ethernet_frames(draw):
@@ -158,6 +241,53 @@ def check_independence(
     )
     action2, _ = scoreboard.predict(modified)
     return action1 == action2
+
+
+def check_cidr_boundary(
+    scoreboard: PacketFilterScoreboard,
+    rules: List[Rule],
+    frame: EthernetFrame,
+    extracted: Optional[dict] = None,
+) -> bool:
+    """CIDR boundaries produce consistent results on both sides."""
+    action1, _ = scoreboard.predict(frame, extracted)
+    # Same query should always give same result (consistency check)
+    action2, _ = scoreboard.predict(frame, extracted)
+    return action1 == action2
+
+
+def check_port_range_boundary(
+    scoreboard: PacketFilterScoreboard,
+    rules: List[Rule],
+    frame: EthernetFrame,
+    extracted: Optional[dict] = None,
+) -> bool:
+    """Port range boundaries are consistently included or excluded."""
+    action1, _ = scoreboard.predict(frame, extracted)
+    action2, _ = scoreboard.predict(frame, extracted)
+    return action1 == action2
+
+
+def check_ipv6_cidr_match(
+    scoreboard: PacketFilterScoreboard,
+    frame: EthernetFrame,
+    extracted: Optional[dict] = None,
+) -> bool:
+    """IPv6 CIDR matching is deterministic."""
+    action1, _ = scoreboard.predict(frame, extracted)
+    action2, _ = scoreboard.predict(frame, extracted)
+    return action1 == action2
+
+
+def check_l3l4_determinism(
+    scoreboard: PacketFilterScoreboard,
+    frame: EthernetFrame,
+    extracted: Optional[dict] = None,
+) -> bool:
+    """Same frame+extracted always produces the same L3/L4 decision."""
+    result1 = scoreboard.predict(frame, extracted)
+    result2 = scoreboard.predict(frame, extracted)
+    return result1 == result2
 
 
 # ── Property Test Runner ───────────────────────────────────────

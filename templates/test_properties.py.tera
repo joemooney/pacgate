@@ -20,9 +20,10 @@ from verification.properties import run_property_tests
 try:
     from hypothesis import given, settings
     from verification.properties import (
-        ethernet_frames, HYPOTHESIS_AVAILABLE,
+        ethernet_frames, l3l4_ethernet_frames, HYPOTHESIS_AVAILABLE,
         check_determinism, check_conservation, check_independence,
         check_priority_correctness, check_default_action,
+        check_l3l4_determinism,
     )
     from verification.scoreboard import PacketFilterScoreboard
 except ImportError:
@@ -135,6 +136,13 @@ if HYPOTHESIS_AVAILABLE:
     def test_hypothesis_default(frame):
         """Non-matching frames get default action."""
         assert check_default_action(scoreboard, RULES, frame, DEFAULT_ACTION)
+
+    @given(data=l3l4_ethernet_frames())
+    @settings(max_examples=100, deadline=None)
+    def test_hypothesis_l3l4_determinism(data):
+        """L3/L4 matching is deterministic with extracted fields."""
+        frame, extracted = data
+        assert check_l3l4_determinism(scoreboard, frame, extracted)
 
 
 if __name__ == "__main__":

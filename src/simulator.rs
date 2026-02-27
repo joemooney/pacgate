@@ -1,5 +1,5 @@
 use anyhow::{Result, bail};
-use crate::model::{FilterConfig, MatchCriteria, Action, PortMatch, Ipv4Prefix, Ipv6Prefix, MacAddress, parse_ethertype};
+use crate::model::{FilterConfig, MatchCriteria, Action, PortMatch, Ipv4Prefix, Ipv6Prefix, MacAddress, ByteMatch, parse_ethertype};
 
 /// Represents a simulated packet with all match-field values
 #[derive(Debug, Clone, Default)]
@@ -18,6 +18,7 @@ pub struct SimPacket {
     pub src_ipv6: Option<String>,
     pub dst_ipv6: Option<String>,
     pub ipv6_next_header: Option<u8>,
+    pub raw_bytes: Option<Vec<u8>>,
 }
 
 /// Result of simulating a packet against the rule set
@@ -98,6 +99,9 @@ pub fn parse_packet_spec(spec: &str) -> Result<SimPacket> {
             }
             "ipv6_next_header" => {
                 pkt.ipv6_next_header = Some(value.parse().map_err(|e| anyhow::anyhow!("Bad ipv6_next_header '{}': {}", value, e))?);
+            }
+            "raw_bytes" => {
+                pkt.raw_bytes = Some(parse_hex_bytes(value)?);
             }
             _ => bail!("Unknown packet field '{}'", key),
         }
@@ -335,7 +339,77 @@ pub fn match_criteria_against_packet(mc: &MatchCriteria, pkt: &SimPacket) -> (bo
         if !matches { all_match = false; }
     }
 
+    // byte_match
+    if let Some(ref byte_matches) = mc.byte_match {
+        for bm in byte_matches {
+            let (bm_matches, bm_field) = byte_match_against_packet(bm, pkt);
+            fields.push(bm_field);
+            if !bm_matches { all_match = false; }
+        }
+    }
+
     (all_match, fields)
+}
+
+/// Evaluate a single byte_match rule against the packet's raw_bytes
+fn byte_match_against_packet(bm: &ByteMatch, pkt: &SimPacket) -> (bool, FieldMatch) {
+    let offset = bm.offset as usize;
+    let value_bytes = ByteMatch::parse_hex_value(&bm.value).unwrap_or_default();
+    let mask_bytes = bm.mask.as_ref()
+        .and_then(|m| ByteMatch::parse_hex_value(m).ok())
+        .unwrap_or_else(|| vec![0xFF; value_bytes.len()]);
+
+    let rule_str = format!("offset={} value={} mask={}", bm.offset, bm.value,
+        bm.mask.as_deref().unwrap_or("0xff.."));
+
+    match &pkt.raw_bytes {
+        Some(raw) => {
+            let mut all_ok = true;
+            let mut pkt_hex = String::new();
+            for (i, vb) in value_bytes.iter().enumerate() {
+                let idx = offset + i;
+                if idx >= raw.len() {
+                    all_ok = false;
+                    pkt_hex.push_str("??");
+                } else {
+                    let mb = if i < mask_bytes.len() { mask_bytes[i] } else { 0xFF };
+                    if (raw[idx] & mb) != (vb & mb) {
+                        all_ok = false;
+                    }
+                    pkt_hex.push_str(&format!("{:02x}", raw[idx]));
+                }
+            }
+            (all_ok, FieldMatch {
+                field: format!("byte_match[{}]", bm.offset),
+                rule_value: rule_str,
+                packet_value: format!("0x{}", pkt_hex),
+                matches: all_ok,
+            })
+        }
+        None => {
+            (false, FieldMatch {
+                field: format!("byte_match[{}]", bm.offset),
+                rule_value: rule_str,
+                packet_value: "no raw_bytes".to_string(),
+                matches: false,
+            })
+        }
+    }
+}
+
+/// Parse a hex string like "0x4500deadbeef" into bytes
+fn parse_hex_bytes(s: &str) -> Result<Vec<u8>> {
+    let s = s.trim_start_matches("0x").trim_start_matches("0X");
+    if s.len() % 2 != 0 {
+        bail!("Hex string must have even number of digits: '{}'", s);
+    }
+    let mut bytes = Vec::new();
+    for i in (0..s.len()).step_by(2) {
+        let byte = u8::from_str_radix(&s[i..i+2], 16)
+            .map_err(|e| anyhow::anyhow!("Bad hex byte '{}': {}", &s[i..i+2], e))?;
+        bytes.push(byte);
+    }
+    Ok(bytes)
 }
 
 /// Check if an IPv4 address matches a CIDR prefix
@@ -858,5 +932,112 @@ mod tests {
         // Wrong port
         let pkt3 = parse_packet_spec("src_ipv6=2001:db8::1,ipv6_next_header=6,dst_port=443").unwrap();
         assert_eq!(simulate(&config, &pkt3).action, Action::Drop);
+    }
+
+    #[test]
+    fn parse_hex_bytes_basic() {
+        let bytes = parse_hex_bytes("0x4500").unwrap();
+        assert_eq!(bytes, vec![0x45, 0x00]);
+    }
+
+    #[test]
+    fn parse_hex_bytes_no_prefix() {
+        let bytes = parse_hex_bytes("deadbeef").unwrap();
+        assert_eq!(bytes, vec![0xde, 0xad, 0xbe, 0xef]);
+    }
+
+    #[test]
+    fn parse_hex_bytes_odd_digits_rejected() {
+        assert!(parse_hex_bytes("0x456").is_err());
+    }
+
+    #[test]
+    fn simulate_byte_match_matches() {
+        let rules = vec![
+            StatelessRule {
+                name: "ip_version".to_string(),
+                priority: 100,
+                match_criteria: MatchCriteria {
+                    byte_match: Some(vec![
+                        ByteMatch { offset: 0, value: "0x45".to_string(), mask: None },
+                    ]),
+                    ..Default::default()
+                },
+                action: Some(Action::Pass),
+                rule_type: None,
+                fsm: None,
+                ports: None,
+                rate_limit: None,
+            },
+        ];
+        let config = make_config(rules, Action::Drop);
+
+        let mut pkt = SimPacket::default();
+        pkt.raw_bytes = Some(vec![0x45, 0x00, 0x00, 0x28]);
+        assert_eq!(simulate(&config, &pkt).action, Action::Pass);
+    }
+
+    #[test]
+    fn simulate_byte_match_with_mask() {
+        let rules = vec![
+            StatelessRule {
+                name: "ip_version_masked".to_string(),
+                priority: 100,
+                match_criteria: MatchCriteria {
+                    byte_match: Some(vec![
+                        ByteMatch { offset: 0, value: "0x40".to_string(), mask: Some("0xf0".to_string()) },
+                    ]),
+                    ..Default::default()
+                },
+                action: Some(Action::Pass),
+                rule_type: None,
+                fsm: None,
+                ports: None,
+                rate_limit: None,
+            },
+        ];
+        let config = make_config(rules, Action::Drop);
+
+        // 0x45 & 0xf0 = 0x40 == 0x40 & 0xf0 → match
+        let mut pkt = SimPacket::default();
+        pkt.raw_bytes = Some(vec![0x45, 0x00]);
+        assert_eq!(simulate(&config, &pkt).action, Action::Pass);
+
+        // 0x60 & 0xf0 = 0x60 != 0x40 → no match
+        let mut pkt2 = SimPacket::default();
+        pkt2.raw_bytes = Some(vec![0x60, 0x00]);
+        assert_eq!(simulate(&config, &pkt2).action, Action::Drop);
+    }
+
+    #[test]
+    fn simulate_byte_match_no_raw_bytes() {
+        let rules = vec![
+            StatelessRule {
+                name: "byte_rule".to_string(),
+                priority: 100,
+                match_criteria: MatchCriteria {
+                    byte_match: Some(vec![
+                        ByteMatch { offset: 0, value: "0x45".to_string(), mask: None },
+                    ]),
+                    ..Default::default()
+                },
+                action: Some(Action::Pass),
+                rule_type: None,
+                fsm: None,
+                ports: None,
+                rate_limit: None,
+            },
+        ];
+        let config = make_config(rules, Action::Drop);
+
+        // No raw_bytes → no match → default action
+        let pkt = SimPacket::default();
+        assert_eq!(simulate(&config, &pkt).action, Action::Drop);
+    }
+
+    #[test]
+    fn parse_raw_bytes_in_packet_spec() {
+        let pkt = parse_packet_spec("raw_bytes=0x4500deadbeef").unwrap();
+        assert_eq!(pkt.raw_bytes, Some(vec![0x45, 0x00, 0xde, 0xad, 0xbe, 0xef]));
     }
 }

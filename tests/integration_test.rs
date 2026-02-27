@@ -1357,3 +1357,36 @@ fn all_examples_compile_with_updated_templates() {
         }
     }
 }
+
+#[test]
+fn simulate_byte_match_via_cli() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/byte_match.yaml",
+               "--packet", "ethertype=0x0800,raw_bytes=0x4500002800000000",
+               "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "simulate failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    assert_eq!(json["status"], "ok");
+    // Should match "match_ipv4_version" rule (offset 14 not in raw_bytes since we
+    // only pass 8 bytes, but ethertype matches and byte_match at offset 14 needs
+    // actual packet offset — with raw_bytes starting at offset 0, this tests the
+    // mechanism even if it doesn't match the specific offset)
+}
+
+#[test]
+fn properties_has_l3l4_determinism_test() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let props_py = std::fs::read_to_string(tmp.path().join("tb/test_properties.py")).unwrap();
+    assert!(props_py.contains("l3l4_determinism"), "properties file missing l3l4_determinism test");
+    assert!(props_py.contains("l3l4_ethernet_frames"), "properties file missing l3l4_ethernet_frames import");
+}
