@@ -3,6 +3,7 @@ mod loader;
 mod verilog_gen;
 mod cocotb_gen;
 mod formal_gen;
+mod pcap;
 
 use std::path::PathBuf;
 use clap::{CommandFactory, Parser, Subcommand};
@@ -118,6 +119,19 @@ enum Commands {
         /// Templates directory
         #[arg(short, long, default_value = "templates")]
         templates: PathBuf,
+
+        /// Output JSON summary instead of human-readable text
+        #[arg(long)]
+        json: bool,
+    },
+    /// Import PCAP capture file and generate cocotb test stimulus
+    Pcap {
+        /// Path to the PCAP capture file
+        pcap_file: PathBuf,
+
+        /// Output directory for generated stimulus file
+        #[arg(short, long, default_value = "gen")]
+        output: PathBuf,
 
         /// Output JSON summary instead of human-readable text
         #[arg(long)]
@@ -328,6 +342,37 @@ fn main() -> Result<()> {
                     eprintln!("Warning: {}", w);
                 }
                 print_resource_estimate(&config);
+            }
+        }
+        Commands::Pcap { pcap_file, output, json } => {
+            let packets = pcap::read_pcap(&pcap_file)?;
+
+            if packets.is_empty() {
+                anyhow::bail!("PCAP file contains no Ethernet frames");
+            }
+
+            // Generate stimulus file
+            let tb_dir = output.join("tb");
+            std::fs::create_dir_all(&tb_dir)?;
+            let stimulus = pcap::generate_stimulus(&packets);
+            std::fs::write(tb_dir.join("pcap_stimulus.py"), &stimulus)?;
+
+            if json {
+                let summary = serde_json::json!({
+                    "status": "ok",
+                    "pcap_file": pcap_file.to_string_lossy(),
+                    "frame_count": packets.len(),
+                    "total_bytes": packets.iter().map(|p| p.data.len()).sum::<usize>(),
+                    "min_frame_size": packets.iter().map(|p| p.data.len()).min().unwrap_or(0),
+                    "max_frame_size": packets.iter().map(|p| p.data.len()).max().unwrap_or(0),
+                    "output_file": format!("{}/tb/pcap_stimulus.py", output.display()),
+                });
+                println!("{}", serde_json::to_string_pretty(&summary)?);
+            } else {
+                pcap::print_summary(&packets);
+                println!();
+                println!("  Generated stimulus: {}/tb/pcap_stimulus.py", output.display());
+                println!("  Use in cocotb: from pcap_stimulus import PCAP_FRAMES");
             }
         }
     }

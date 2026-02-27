@@ -420,6 +420,58 @@ fn compile_counters_json() {
 }
 
 #[test]
+fn pcap_import() {
+    let tmp = tempfile::tempdir().unwrap();
+
+    // Create a minimal valid PCAP file with 2 Ethernet frames
+    let mut pcap_data: Vec<u8> = Vec::new();
+    // Global header
+    pcap_data.extend_from_slice(&0xa1b2c3d4u32.to_le_bytes()); // magic
+    pcap_data.extend_from_slice(&2u16.to_le_bytes());           // version major
+    pcap_data.extend_from_slice(&4u16.to_le_bytes());           // version minor
+    pcap_data.extend_from_slice(&0i32.to_le_bytes());           // thiszone
+    pcap_data.extend_from_slice(&0u32.to_le_bytes());           // sigfigs
+    pcap_data.extend_from_slice(&65535u32.to_le_bytes());       // snaplen
+    pcap_data.extend_from_slice(&1u32.to_le_bytes());           // link type (Ethernet)
+
+    // Frame 1: ARP broadcast (60 bytes)
+    let frame1 = [0xffu8; 60];
+    pcap_data.extend_from_slice(&0u32.to_le_bytes());           // ts_sec
+    pcap_data.extend_from_slice(&0u32.to_le_bytes());           // ts_usec
+    pcap_data.extend_from_slice(&(frame1.len() as u32).to_le_bytes()); // incl_len
+    pcap_data.extend_from_slice(&(frame1.len() as u32).to_le_bytes()); // orig_len
+    pcap_data.extend_from_slice(&frame1);
+
+    // Frame 2: 64-byte frame
+    let frame2 = [0xaau8; 64];
+    pcap_data.extend_from_slice(&1u32.to_le_bytes());
+    pcap_data.extend_from_slice(&0u32.to_le_bytes());
+    pcap_data.extend_from_slice(&(frame2.len() as u32).to_le_bytes());
+    pcap_data.extend_from_slice(&(frame2.len() as u32).to_le_bytes());
+    pcap_data.extend_from_slice(&frame2);
+
+    let pcap_path = tmp.path().join("test.pcap");
+    std::fs::write(&pcap_path, &pcap_data).unwrap();
+
+    let out_dir = tmp.path().join("gen");
+    let output = pacgate_bin()
+        .args(["pcap", pcap_path.to_str().unwrap(), "-o", out_dir.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "pcap failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    assert_eq!(json["status"], "ok");
+    assert_eq!(json["frame_count"], 2);
+
+    // Stimulus file should exist
+    assert!(out_dir.join("tb/pcap_stimulus.py").exists(), "stimulus file missing");
+    let stimulus = std::fs::read_to_string(out_dir.join("tb/pcap_stimulus.py")).unwrap();
+    assert!(stimulus.contains("PCAP_FRAMES"), "missing PCAP_FRAMES");
+}
+
+#[test]
 fn validate_l3l4_firewall() {
     let output = pacgate_bin()
         .args(["validate", "rules/examples/l3l4_firewall.yaml", "--json"])
