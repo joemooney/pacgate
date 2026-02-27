@@ -137,13 +137,13 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
     let mut rules = config.pacgate.rules.clone();
     rules.sort_by(|a, b| b.priority.cmp(&a.priority));
 
-    // Collect byte_match offsets for port generation
+    // Collect byte_match offsets for byte_capture generation
     let byte_offsets = collect_byte_match_offsets(config);
 
     // Separate stateless and stateful rules (both get indices in priority order)
     for (idx, rule) in rules.iter().enumerate() {
         if rule.is_stateful() {
-            // Generate FSM module
+            // Generate FSM module (with HSM flattening if needed)
             generate_fsm_rule(&tera, &rtl_dir, idx, rule, &byte_offsets)?;
         } else {
             // Generate combinational matcher
@@ -183,8 +183,7 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         log::info!("Generated decision_logic.v");
     }
 
-    // Collect byte_match offsets and generate byte_capture module if needed
-    let byte_offsets = collect_byte_match_offsets(config);
+    // Generate byte_capture module if needed
     let has_byte_capture = !byte_offsets.is_empty();
     if has_byte_capture {
         let mut ctx = tera::Context::new();
@@ -337,11 +336,206 @@ fn generate_stateless_rule(
     Ok(())
 }
 
+/// Flatten hierarchical FSM states into flat "parent.child" states.
+/// Also returns merged transitions (children inherit parent transitions).
+pub fn flatten_fsm(fsm: &crate::model::FsmDefinition) -> Result<crate::model::FsmDefinition> {
+    use crate::model::{FsmState, FsmDefinition};
+    let mut flat_states = std::collections::HashMap::new();
+
+    fn flatten_recursive(
+        prefix: &str,
+        states: &std::collections::HashMap<String, FsmState>,
+        parent_transitions: &[crate::model::FsmTransition],
+        parent_on_entry: &[String],
+        parent_on_exit: &[String],
+        flat: &mut std::collections::HashMap<String, FsmState>,
+        depth: usize,
+    ) -> Result<()> {
+        if depth > 4 {
+            anyhow::bail!("HSM nesting depth exceeds maximum of 4 levels");
+        }
+        for (name, state) in states {
+            let flat_name = if prefix.is_empty() {
+                name.clone()
+            } else {
+                format!("{}.{}", prefix, name)
+            };
+
+            if let Some(ref substates) = state.substates {
+                // Composite state: recurse into substates
+                // Merge entry/exit actions: parent first, then child
+                let mut merged_on_entry = parent_on_entry.to_vec();
+                if let Some(ref entry) = state.on_entry {
+                    merged_on_entry.extend(entry.clone());
+                }
+                let mut merged_on_exit = Vec::new();
+                if let Some(ref exit) = state.on_exit {
+                    merged_on_exit.extend(exit.clone());
+                }
+                merged_on_exit.extend(parent_on_exit.to_vec());
+
+                // Children inherit parent transitions as fallback
+                let mut merged_transitions = state.transitions.clone();
+                for pt in parent_transitions {
+                    // Prefix the next_state if it's a child of same composite
+                    let mut new_pt = pt.clone();
+                    if substates.contains_key(&pt.next_state) {
+                        new_pt.next_state = format!("{}.{}", flat_name, pt.next_state);
+                    }
+                    merged_transitions.push(new_pt);
+                }
+
+                flatten_recursive(
+                    &flat_name, substates, &merged_transitions,
+                    &merged_on_entry, &merged_on_exit, flat, depth + 1,
+                )?;
+            } else {
+                // Leaf state: merge with parent transitions/actions
+                let mut merged_transitions = state.transitions.clone();
+                // Resolve sibling references: if next_state is a sibling, prefix with parent
+                for trans in &mut merged_transitions {
+                    if states.contains_key(&trans.next_state) && !trans.next_state.contains('.') {
+                        if !prefix.is_empty() {
+                            trans.next_state = format!("{}.{}", prefix, trans.next_state);
+                        }
+                    }
+                }
+                merged_transitions.extend(parent_transitions.to_vec());
+
+                let mut merged_on_entry = parent_on_entry.to_vec();
+                if let Some(ref entry) = state.on_entry {
+                    merged_on_entry.extend(entry.clone());
+                }
+                let mut merged_on_exit = Vec::new();
+                if let Some(ref exit) = state.on_exit {
+                    merged_on_exit.extend(exit.clone());
+                }
+                merged_on_exit.extend(parent_on_exit.to_vec());
+
+                flat.insert(flat_name, FsmState {
+                    timeout_cycles: state.timeout_cycles,
+                    transitions: merged_transitions,
+                    substates: None,
+                    initial_substate: None,
+                    on_entry: if merged_on_entry.is_empty() { None } else { Some(merged_on_entry) },
+                    on_exit: if merged_on_exit.is_empty() { None } else { Some(merged_on_exit) },
+                    history: None,
+                });
+            }
+        }
+        Ok(())
+    }
+
+    flatten_recursive("", &fsm.states, &[], &[], &[], &mut flat_states, 0)?;
+
+    // Resolve initial_state: if it points to a composite, use composite.initial_substate
+    let initial = resolve_initial_state(&fsm.initial_state, &fsm.states);
+
+    Ok(FsmDefinition {
+        initial_state: initial,
+        states: flat_states,
+        variables: fsm.variables.clone(),
+    })
+}
+
+/// Resolve initial state through composite hierarchy
+fn resolve_initial_state(
+    state_name: &str,
+    states: &std::collections::HashMap<String, crate::model::FsmState>,
+) -> String {
+    if let Some(state) = states.get(state_name) {
+        if let Some(ref substates) = state.substates {
+            if let Some(ref initial_sub) = state.initial_substate {
+                let flat_name = format!("{}.{}", state_name, initial_sub);
+                // Recurse in case substate is also composite
+                if let Some(sub) = substates.get(initial_sub.as_str()) {
+                    if sub.substates.is_some() {
+                        return resolve_initial_state(initial_sub, substates)
+                            .split('.')
+                            .collect::<Vec<_>>()
+                            .join(".");
+                    }
+                }
+                return flat_name;
+            }
+        }
+    }
+    state_name.to_string()
+}
+
+/// Convert guard expression to Verilog (replace variable names with var_ prefix)
+pub fn guard_to_verilog(guard: &str, variables: &[crate::model::FsmVariable]) -> String {
+    let mut result = guard.to_string();
+    // Sort by name length descending to avoid partial replacements
+    let mut sorted_vars: Vec<_> = variables.iter().collect();
+    sorted_vars.sort_by(|a, b| b.name.len().cmp(&a.name.len()));
+    for var in &sorted_vars {
+        result = result.replace(&var.name, &format!("var_{}", var.name));
+    }
+    result
+}
+
+/// Parse FSM action expression into Verilog assignment
+/// Supported: "var = expr", "var += expr", "var -= expr", "var |= expr"
+pub fn parse_fsm_action(action: &str, variables: &[crate::model::FsmVariable]) -> Result<String> {
+    let action = action.trim();
+
+    // Try compound assignment operators first
+    for op in &["|=", "+=", "-="] {
+        if let Some(idx) = action.find(op) {
+            let var_name = action[..idx].trim();
+            let expr = action[idx + op.len()..].trim();
+            let verilog_op = match *op {
+                "+=" => "+",
+                "-=" => "-",
+                "|=" => "|",
+                _ => unreachable!(),
+            };
+            let width = variables.iter().find(|v| v.name == var_name)
+                .map(|v| v.width).unwrap_or(16);
+            return Ok(format!("var_{} <= var_{} {} {}'d{};",
+                var_name, var_name, verilog_op, width, expr));
+        }
+    }
+
+    // Simple assignment
+    if let Some(idx) = action.find('=') {
+        let var_name = action[..idx].trim();
+        let expr = action[idx + 1..].trim();
+        let width = variables.iter().find(|v| v.name == var_name)
+            .map(|v| v.width).unwrap_or(16);
+        // Check if expr is a simple number
+        if let Ok(val) = expr.parse::<u64>() {
+            return Ok(format!("var_{} <= {}'d{};", var_name, width, val));
+        }
+        // Complex expression: replace variable references
+        let mut verilog_expr = expr.to_string();
+        let mut sorted_vars: Vec<_> = variables.iter().collect();
+        sorted_vars.sort_by(|a, b| b.name.len().cmp(&a.name.len()));
+        for var in &sorted_vars {
+            verilog_expr = verilog_expr.replace(&var.name, &format!("var_{}", var.name));
+        }
+        return Ok(format!("var_{} <= {};", var_name, verilog_expr));
+    }
+
+    anyhow::bail!("Cannot parse FSM action: '{}'", action);
+}
+
 fn generate_fsm_rule(
     tera: &Tera, rtl_dir: &Path, idx: usize, rule: &crate::model::StatelessRule,
     byte_offsets: &[(u16, usize)],
 ) -> Result<()> {
-    let fsm = rule.fsm.as_ref().unwrap();
+    let raw_fsm = rule.fsm.as_ref().unwrap();
+
+    // Check if HSM (any state has substates) and flatten if needed
+    let has_hsm = raw_fsm.states.values().any(|s| s.substates.is_some());
+    let fsm = if has_hsm {
+        flatten_fsm(raw_fsm)?
+    } else {
+        raw_fsm.clone()
+    };
+
+    let variables = fsm.variables.as_ref().map(|v| v.as_slice()).unwrap_or(&[]);
 
     // Build state list in deterministic order
     let mut state_names: Vec<String> = fsm.states.keys().cloned().collect();
@@ -358,7 +552,9 @@ fn generate_fsm_rule(
     for (si, sname) in state_names.iter().enumerate() {
         let state_def = &fsm.states[sname];
         let mut smap = std::collections::HashMap::new();
-        smap.insert("name".to_string(), serde_json::Value::String(sname.clone()));
+        // Use underscored name for Verilog identifiers (dots not allowed)
+        let verilog_name = sname.replace('.', "_");
+        smap.insert("name".to_string(), serde_json::Value::String(verilog_name));
         smap.insert("index".to_string(), serde_json::json!(si));
 
         let has_timeout = state_def.timeout_cycles.is_some();
@@ -366,22 +562,65 @@ fn generate_fsm_rule(
         smap.insert("timeout_cycles".to_string(),
             serde_json::json!(state_def.timeout_cycles.unwrap_or(0)));
 
+        // On-entry/exit actions
+        let on_entry_actions: Vec<String> = state_def.on_entry.as_ref()
+            .map(|actions| actions.iter().filter_map(|a| parse_fsm_action(a, variables).ok()).collect())
+            .unwrap_or_default();
+        let on_exit_actions: Vec<String> = state_def.on_exit.as_ref()
+            .map(|actions| actions.iter().filter_map(|a| parse_fsm_action(a, variables).ok()).collect())
+            .unwrap_or_default();
+        smap.insert("has_on_entry".to_string(), serde_json::json!(!on_entry_actions.is_empty()));
+        smap.insert("on_entry_actions".to_string(), serde_json::json!(on_entry_actions));
+        smap.insert("has_on_exit".to_string(), serde_json::json!(!on_exit_actions.is_empty()));
+        smap.insert("on_exit_actions".to_string(), serde_json::json!(on_exit_actions));
+
         let mut transitions = Vec::new();
         for trans in &state_def.transitions {
             let mut tmap = std::collections::HashMap::new();
-            tmap.insert("condition".to_string(),
-                serde_json::Value::String(build_condition_expr(&trans.match_criteria)?));
-            let next_idx = state_names.iter().position(|s| s == &trans.next_state).unwrap();
+
+            // Build condition with optional guard
+            let match_cond = build_condition_expr(&trans.match_criteria)?;
+            let full_cond = if let Some(ref guard) = trans.guard {
+                let guard_verilog = guard_to_verilog(guard, variables);
+                format!("{} && ({})", match_cond, guard_verilog)
+            } else {
+                match_cond
+            };
+            tmap.insert("condition".to_string(), serde_json::Value::String(full_cond));
+
+            // next_state: dot-separated names get underscored
+            let next_verilog = trans.next_state.replace('.', "_");
+            let next_idx = state_names.iter().position(|s| {
+                s.replace('.', "_") == next_verilog
+            }).unwrap_or(0);
             tmap.insert("next_state_idx".to_string(), serde_json::json!(next_idx));
             tmap.insert("next_state_name".to_string(),
-                serde_json::Value::String(trans.next_state.clone()));
+                serde_json::Value::String(next_verilog));
             tmap.insert("action_pass".to_string(),
                 serde_json::json!(trans.action == Action::Pass));
+
+            // Transition actions
+            let trans_actions: Vec<String> = trans.on_transition.as_ref()
+                .map(|actions| actions.iter().filter_map(|a| parse_fsm_action(a, variables).ok()).collect())
+                .unwrap_or_default();
+            tmap.insert("has_on_transition".to_string(), serde_json::json!(!trans_actions.is_empty()));
+            tmap.insert("on_transition_actions".to_string(), serde_json::json!(trans_actions));
+
             transitions.push(serde_json::json!(tmap));
         }
         smap.insert("transitions".to_string(), serde_json::json!(transitions));
         states.push(smap);
     }
+
+    // Build variables info for template
+    let var_info: Vec<std::collections::HashMap<String, serde_json::Value>> = variables.iter().map(|v| {
+        let mut map = std::collections::HashMap::new();
+        map.insert("name".to_string(), serde_json::json!(v.name));
+        map.insert("width".to_string(), serde_json::json!(v.width));
+        map.insert("reset_value".to_string(), serde_json::json!(v.reset_value));
+        map
+    }).collect();
+    let has_variables = !var_info.is_empty();
 
     let mut ctx = tera::Context::new();
     ctx.insert("rule_index", &idx);
@@ -389,6 +628,8 @@ fn generate_fsm_rule(
     ctx.insert("state_bits", &state_bits);
     ctx.insert("num_states", &state_names.len());
     ctx.insert("states", &states);
+    ctx.insert("has_variables", &has_variables);
+    ctx.insert("variables", &var_info);
 
     let has_byte_capture = !byte_offsets.is_empty();
     ctx.insert("has_byte_capture", &has_byte_capture);

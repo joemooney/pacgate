@@ -511,6 +511,23 @@ fn pcap_import() {
 // ── Byte-Match Integration Tests ──────────────────────────────────
 
 #[test]
+fn compile_hsm_conntrack() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/hsm_conntrack.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // Should generate FSM with variables and flattened states
+    let rule0 = std::fs::read_to_string(tmp.path().join("rtl/rule_match_0.v")).unwrap();
+    assert!(rule0.contains("var_pkt_count"), "var_pkt_count register missing from FSM");
+    assert!(rule0.contains("S_TRACKING_NORMAL") || rule0.contains("S_TRACKING_BURST"),
+        "flattened HSM states missing");
+}
+
+
+#[test]
 fn compile_byte_match() {
     let tmp = tempfile::tempdir().unwrap();
     let output = pacgate_bin()

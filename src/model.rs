@@ -111,12 +111,30 @@ impl MatchCriteria {
 
 // --- Stateful FSM types ---
 
+/// Variable declaration for HSM
+#[derive(Debug, Clone, Deserialize)]
+pub struct FsmVariable {
+    pub name: String,
+    #[serde(default = "default_var_width")]
+    pub width: u8,
+    #[serde(default)]
+    pub reset_value: u64,
+}
+
+fn default_var_width() -> u8 { 16 }
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct FsmTransition {
     #[serde(rename = "match")]
     pub match_criteria: MatchCriteria,
     pub next_state: String,
     pub action: Action,
+    /// Guard expression referencing FSM variables (e.g. "pkt_count > 10")
+    #[serde(default)]
+    pub guard: Option<String>,
+    /// Actions to execute on this transition (e.g. ["counter += 1"])
+    #[serde(default)]
+    pub on_transition: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -124,12 +142,30 @@ pub struct FsmState {
     #[serde(default)]
     pub timeout_cycles: Option<u64>,
     pub transitions: Vec<FsmTransition>,
+    /// Nested substates for hierarchical state machines
+    #[serde(default)]
+    pub substates: Option<std::collections::HashMap<String, FsmState>>,
+    /// Initial substate when entering a composite state
+    #[serde(default)]
+    pub initial_substate: Option<String>,
+    /// Actions to execute on state entry
+    #[serde(default)]
+    pub on_entry: Option<Vec<String>>,
+    /// Actions to execute on state exit
+    #[serde(default)]
+    pub on_exit: Option<Vec<String>>,
+    /// Enable history for this composite state
+    #[serde(default)]
+    pub history: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct FsmDefinition {
     pub initial_state: String,
     pub states: std::collections::HashMap<String, FsmState>,
+    /// FSM variables (registers)
+    #[serde(default)]
+    pub variables: Option<Vec<FsmVariable>>,
 }
 
 // --- Rule types ---

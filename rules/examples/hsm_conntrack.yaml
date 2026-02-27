@@ -1,0 +1,75 @@
+# hsm_conntrack.yaml — Hierarchical State Machine: TCP flow tracker
+# Demonstrates nested states, variables, guards, and entry/exit actions
+#
+# Flow: idle -> tracking.normal -> tracking.burst (on high rate) -> idle (on timeout)
+# Variables: pkt_count (16-bit packet counter)
+
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: tcp_flow_tracker
+      type: stateful
+      priority: 100
+      fsm:
+        initial_state: idle
+        variables:
+          - name: pkt_count
+            width: 16
+            reset_value: 0
+        states:
+          idle:
+            transitions:
+              - match:
+                  ethertype: "0x0800"
+                  ip_protocol: 6
+                next_state: tracking
+                action: pass
+                on_transition:
+                  - "pkt_count = 0"
+          tracking:
+            timeout_cycles: 50000
+            initial_substate: normal
+            on_entry:
+              - "pkt_count = 0"
+            transitions:
+              - match:
+                  ethertype: "0x0806"
+                next_state: idle
+                action: drop
+            substates:
+              normal:
+                transitions:
+                  - match:
+                      ethertype: "0x0800"
+                      ip_protocol: 6
+                    next_state: normal
+                    action: pass
+                    guard: "pkt_count <= 100"
+                    on_transition:
+                      - "pkt_count += 1"
+                  - match:
+                      ethertype: "0x0800"
+                      ip_protocol: 6
+                    next_state: burst
+                    action: pass
+                    guard: "pkt_count > 100"
+              burst:
+                timeout_cycles: 10000
+                on_entry:
+                  - "pkt_count = 0"
+                transitions:
+                  - match:
+                      ethertype: "0x0800"
+                      ip_protocol: 6
+                    next_state: burst
+                    action: pass
+                    on_transition:
+                      - "pkt_count += 1"
+
+    - name: allow_arp
+      priority: 50
+      match:
+        ethertype: "0x0806"
+      action: pass

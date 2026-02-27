@@ -133,16 +133,28 @@ fn validate(config: &FilterConfig) -> Result<()> {
                     fsm.initial_state, rule.name);
             }
 
-            for (state_name, state) in &fsm.states {
-                for transition in &state.transitions {
-                    if !fsm.states.contains_key(&transition.next_state) {
-                        anyhow::bail!("FSM transition from '{}' to unknown state '{}' in rule '{}'",
-                            state_name, transition.next_state, rule.name);
+            // Validate HSM: check nesting depth, initial_substate, variables
+            validate_fsm_hierarchy(&fsm.states, &rule.name, 0)?;
+
+            // Validate variables
+            if let Some(ref vars) = fsm.variables {
+                for v in vars {
+                    if v.width < 1 || v.width > 32 {
+                        anyhow::bail!("FSM variable '{}' width must be 1-32, got {} in rule '{}'",
+                            v.name, v.width, rule.name);
                     }
-                    // Validate match criteria in transitions
-                    validate_match_criteria(&transition.match_criteria,
-                        &format!("{}(state {})", rule.name, state_name))?;
+                    if !v.name.chars().all(|c| c.is_alphanumeric() || c == '_') || v.name.is_empty() {
+                        anyhow::bail!("FSM variable name '{}' must be a valid identifier in rule '{}'",
+                            v.name, rule.name);
+                    }
                 }
+            }
+
+            // Collect all state names (including flattened) for transition validation
+            let all_state_names = collect_all_state_names(&fsm.states, "");
+
+            for (state_name, state) in &fsm.states {
+                validate_state_transitions(state, state_name, &all_state_names, &rule.name, &fsm.states)?;
             }
         } else {
             // Stateless rule validation
@@ -168,6 +180,127 @@ fn validate(config: &FilterConfig) -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+/// Validate HSM hierarchy depth and composite state requirements
+fn validate_fsm_hierarchy(
+    states: &std::collections::HashMap<String, crate::model::FsmState>,
+    rule_name: &str,
+    depth: usize,
+) -> Result<()> {
+    if depth > 4 {
+        anyhow::bail!("HSM nesting depth exceeds 4 levels in rule '{}'", rule_name);
+    }
+    for (name, state) in states {
+        if let Some(ref substates) = state.substates {
+            if state.initial_substate.is_none() {
+                anyhow::bail!("Composite state '{}' must have initial_substate in rule '{}'",
+                    name, rule_name);
+            }
+            if let Some(ref init_sub) = state.initial_substate {
+                if !substates.contains_key(init_sub) {
+                    anyhow::bail!("initial_substate '{}' not found in composite state '{}' of rule '{}'",
+                        init_sub, name, rule_name);
+                }
+            }
+            validate_fsm_hierarchy(substates, rule_name, depth + 1)?;
+        }
+    }
+    Ok(())
+}
+
+/// Collect all state names (flat + nested with dot notation)
+fn collect_all_state_names(
+    states: &std::collections::HashMap<String, crate::model::FsmState>,
+    prefix: &str,
+) -> Vec<String> {
+    let mut names = Vec::new();
+    for (name, state) in states {
+        let full_name = if prefix.is_empty() {
+            name.clone()
+        } else {
+            format!("{}.{}", prefix, name)
+        };
+        names.push(full_name.clone());
+        if let Some(ref substates) = state.substates {
+            names.extend(collect_all_state_names(substates, &full_name));
+        }
+    }
+    names
+}
+
+/// Validate transitions for a state (recursive for substates)
+fn validate_state_transitions(
+    state: &crate::model::FsmState,
+    state_name: &str,
+    all_names: &[String],
+    rule_name: &str,
+    top_states: &std::collections::HashMap<String, crate::model::FsmState>,
+) -> Result<()> {
+    // Build sibling names if we're inside a composite
+    let sibling_names: Vec<String> = if let Some(ref substates) = state.substates {
+        substates.keys().cloned().collect()
+    } else {
+        Vec::new()
+    };
+
+    for transition in &state.transitions {
+        // Allow transition to any known state (flat or hierarchical) or sibling name
+        let target = &transition.next_state;
+        let is_valid = all_names.contains(target)
+            || top_states.contains_key(target)
+            || sibling_names.contains(target);
+        if !is_valid {
+            anyhow::bail!("FSM transition from '{}' to unknown state '{}' in rule '{}'",
+                state_name, transition.next_state, rule_name);
+        }
+        validate_match_criteria(&transition.match_criteria,
+            &format!("{}(state {})", rule_name, state_name))?;
+    }
+    if let Some(ref substates) = state.substates {
+        // Collect sibling names for substate validation
+        let sub_sibling_names: Vec<String> = substates.keys().cloned().collect();
+        for (sub_name, sub_state) in substates {
+            let full_name = format!("{}.{}", state_name, sub_name);
+            validate_state_transitions_with_siblings(
+                sub_state, &full_name, all_names, rule_name, top_states, &sub_sibling_names,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Like validate_state_transitions but with sibling context
+fn validate_state_transitions_with_siblings(
+    state: &crate::model::FsmState,
+    state_name: &str,
+    all_names: &[String],
+    rule_name: &str,
+    top_states: &std::collections::HashMap<String, crate::model::FsmState>,
+    sibling_names: &[String],
+) -> Result<()> {
+    for transition in &state.transitions {
+        let target = &transition.next_state;
+        let is_valid = all_names.contains(target)
+            || top_states.contains_key(target)
+            || sibling_names.contains(target);
+        if !is_valid {
+            anyhow::bail!("FSM transition from '{}' to unknown state '{}' in rule '{}'",
+                state_name, transition.next_state, rule_name);
+        }
+        validate_match_criteria(&transition.match_criteria,
+            &format!("{}(state {})", rule_name, state_name))?;
+    }
+    if let Some(ref substates) = state.substates {
+        let sub_sibling_names: Vec<String> = substates.keys().cloned().collect();
+        for (sub_name, sub_state) in substates {
+            let full_name = format!("{}.{}", state_name, sub_name);
+            validate_state_transitions_with_siblings(
+                sub_state, &full_name, all_names, rule_name, top_states, &sub_sibling_names,
+            )?;
+        }
+    }
     Ok(())
 }
 

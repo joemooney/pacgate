@@ -40,6 +40,13 @@ module rule_match_{{ rule_index }} (
     reg [31:0] timeout_counter;
 {% endif %}
 {% endfor %}
+{% if has_variables %}
+
+    // FSM variables
+{% for var in variables %}
+    reg [{{ var.width - 1 }}:0] var_{{ var.name }};
+{% endfor %}
+{% endif %}
 
     // Combinational next-state logic
     always @(*) begin
@@ -80,6 +87,11 @@ module rule_match_{{ rule_index }} (
             timeout_counter <= 32'd0;
 {% endif %}
 {% endfor %}
+{% if has_variables %}
+{% for var in variables %}
+            var_{{ var.name }} <= {{ var.width }}'d{{ var.reset_value }};
+{% endfor %}
+{% endif %}
         end else begin
             state        <= next_state;
             match_hit    <= next_hit;
@@ -98,6 +110,45 @@ module rule_match_{{ rule_index }} (
             end
 {% endif %}
 {% endfor %}
+
+{% if has_variables %}
+            // Entry/exit actions and transition actions
+            if (state != next_state) begin
+{% for state in states %}
+{% if state.has_on_exit %}
+                // Exit actions for state {{ state.name }}
+                if (state == S_{{ state.name | upper }}) begin
+{% for action in state.on_exit_actions %}
+                    {{ action }}
+{% endfor %}
+                end
+{% endif %}
+{% endfor %}
+{% for state in states %}
+{% if state.has_on_entry %}
+                // Entry actions for state {{ state.name }}
+                if (next_state == S_{{ state.name | upper }}) begin
+{% for action in state.on_entry_actions %}
+                    {{ action }}
+{% endfor %}
+                end
+{% endif %}
+{% endfor %}
+            end
+
+            // Per-transition actions
+{% for state in states %}
+{% for trans in state.transitions %}
+{% if trans.has_on_transition %}
+            if (state == S_{{ state.name | upper }} && next_state == S_{{ trans.next_state_name | upper }}) begin
+{% for action in trans.on_transition_actions %}
+                {{ action }}
+{% endfor %}
+            end
+{% endif %}
+{% endfor %}
+{% endfor %}
+{% endif %}
         end
     end
 
