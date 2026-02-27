@@ -2373,3 +2373,97 @@ fn diff_detects_l3_l4_field_changes() {
     assert!(stdout.contains("src_ip"), "diff should detect src_ip change (L3/L4 bug fix)");
     assert!(stdout.contains("dst_port"), "diff should detect dst_port change (L3/L4 bug fix)");
 }
+
+// ── Phase 15 Batch 4: Lint Rules + Reachability ───────────────
+
+#[test]
+fn lint_detects_gtp_without_udp_prereq() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml_path = tmp.path().join("gtp_no_prereq.yaml");
+    std::fs::write(&yaml_path, r#"pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: gtp_missing_prereq
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        gtp_teid: 1000
+      action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["lint", yaml_path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("LINT013"), "should detect GTP without UDP prerequisite");
+}
+
+#[test]
+fn lint_no_warning_for_valid_gtp_rule() {
+    let output = pacgate_bin()
+        .args(["lint", "rules/examples/gtp_5g.yaml"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.contains("LINT013"), "valid GTP rules should not trigger LINT013");
+}
+
+#[test]
+fn lint_detects_mpls_without_ethertype() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml_path = tmp.path().join("mpls_no_etype.yaml");
+    std::fs::write(&yaml_path, r#"pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: mpls_missing_etype
+      priority: 100
+      match:
+        mpls_label: 100
+      action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["lint", yaml_path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("LINT014"), "should detect MPLS without EtherType");
+}
+
+#[test]
+fn lint_detects_igmp_without_protocol() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml_path = tmp.path().join("igmp_no_proto.yaml");
+    std::fs::write(&yaml_path, r#"pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: igmp_missing_proto
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        igmp_type: 17
+      action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["lint", yaml_path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("LINT015"), "should detect IGMP without ip_protocol:2");
+}
+
+#[test]
+fn reachability_shows_protocol_fields() {
+    let output = pacgate_bin()
+        .args(["reachability", "rules/examples/gtp_5g.yaml"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("gtp_teid=1000"), "reachability should show gtp_teid in additional fields");
+}

@@ -2631,6 +2631,64 @@ fn lint_rules(config: &model::FilterConfig, warnings: &[String]) -> serde_json::
         }
     }
 
+    // Check 13: GTP-U without UDP prerequisite
+    for rule in rules.iter().filter(|r| !r.is_stateful()) {
+        if rule.match_criteria.gtp_teid.is_some() {
+            let has_udp = rule.match_criteria.ip_protocol == Some(17);
+            let has_gtp_port = matches!(
+                rule.match_criteria.dst_port,
+                Some(model::PortMatch::Exact(2152))
+            );
+            if !has_udp || !has_gtp_port {
+                findings.push(serde_json::json!({
+                    "level": "warning",
+                    "code": "LINT013",
+                    "message": format!("Rule '{}' uses gtp_teid but missing UDP prerequisite (ip_protocol:17 and dst_port:2152)",
+                        rule.name),
+                    "suggestion": "Add ip_protocol: 17 and dst_port: 2152 to ensure GTP-U packets are correctly identified"
+                }));
+            }
+        }
+    }
+
+    // Check 14: MPLS without MPLS EtherType
+    for rule in rules.iter().filter(|r| !r.is_stateful()) {
+        if rule.match_criteria.uses_mpls() {
+            let et = rule.match_criteria.ethertype.as_deref();
+            if et != Some("0x8847") && et != Some("0x8848") {
+                findings.push(serde_json::json!({
+                    "level": "warning",
+                    "code": "LINT014",
+                    "message": format!("Rule '{}' uses MPLS fields but missing MPLS EtherType (0x8847 or 0x8848)",
+                        rule.name),
+                    "suggestion": "Add ethertype: \"0x8847\" (unicast) or \"0x8848\" (multicast) to ensure MPLS parsing"
+                }));
+            }
+        }
+    }
+
+    // Check 15: IGMP/MLD without protocol prerequisite
+    for rule in rules.iter().filter(|r| !r.is_stateful()) {
+        if rule.match_criteria.igmp_type.is_some() && rule.match_criteria.ip_protocol != Some(2) {
+            findings.push(serde_json::json!({
+                "level": "warning",
+                "code": "LINT015",
+                "message": format!("Rule '{}' uses igmp_type but missing ip_protocol: 2 prerequisite",
+                    rule.name),
+                "suggestion": "Add ip_protocol: 2 to ensure IGMP packets are correctly identified"
+            }));
+        }
+        if rule.match_criteria.mld_type.is_some() && rule.match_criteria.ipv6_next_header != Some(58) {
+            findings.push(serde_json::json!({
+                "level": "warning",
+                "code": "LINT015",
+                "message": format!("Rule '{}' uses mld_type but missing ipv6_next_header: 58 prerequisite",
+                    rule.name),
+                "suggestion": "Add ipv6_next_header: 58 to ensure MLD (ICMPv6) packets are correctly identified"
+            }));
+        }
+    }
+
     // Include overlap warnings
     for w in warnings {
         findings.push(serde_json::json!({

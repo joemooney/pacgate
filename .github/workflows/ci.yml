@@ -74,7 +74,7 @@ jobs:
     needs: build-and-test
     strategy:
       matrix:
-        example: [allow_arp, enterprise, l3l4_firewall, ipv6_firewall]
+        example: [allow_arp, enterprise, l3l4_firewall, ipv6_firewall, gtp_5g, mpls_network, multicast, vxlan_datacenter]
     steps:
       - uses: actions/checkout@v4
 
@@ -119,9 +119,10 @@ jobs:
           cd gen/tb && make
 
       - name: Run property tests
+        continue-on-error: true
         run: |
           source .venv/bin/activate
-          python -m pytest gen/tb/test_properties.py -v --junit-xml=property-results.xml || true
+          python -m pytest gen/tb/test_properties.py -v --junit-xml=property-results.xml
 
       - name: Upload test results
         if: always()
