@@ -57,6 +57,20 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Output a DOT graph of the rule set for visualization
+    Graph {
+        /// Path to the YAML rules file
+        rules: PathBuf,
+    },
+    /// Show analytics about a rule set
+    Stats {
+        /// Path to the YAML rules file
+        rules: PathBuf,
+
+        /// Output JSON instead of human-readable text
+        #[arg(long)]
+        json: bool,
+    },
     /// Compare two rule files and show differences
     Diff {
         /// Original rules file
@@ -167,6 +181,23 @@ fn main() -> Result<()> {
             println!("Created starter rules file: {}", output.display());
             println!("Edit it, then run: pacgate compile {}", output.display());
         }
+        Commands::Graph { rules } => {
+            let config = loader::load_rules_with_warnings(&rules)?.0;
+            print_dot_graph(&config);
+        }
+        Commands::Stats { rules, json } => {
+            let (config, warnings) = loader::load_rules_with_warnings(&rules)?;
+            if json {
+                let mut stats = compute_stats(&config);
+                stats.as_object_mut().unwrap().insert("warnings".to_string(), serde_json::json!(warnings));
+                println!("{}", serde_json::to_string_pretty(&stats)?);
+            } else {
+                for w in &warnings {
+                    eprintln!("Warning: {}", w);
+                }
+                print_stats(&config);
+            }
+        }
         Commands::Diff { old, new, json } => {
             let old_config = loader::load_rules_with_warnings(&old)?.0;
             let new_config = loader::load_rules_with_warnings(&new)?.0;
@@ -188,6 +219,210 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
+    let rules = &config.pacgate.rules;
+    let total = rules.len();
+    let stateless = rules.iter().filter(|r| !r.is_stateful()).count();
+    let stateful = rules.iter().filter(|r| r.is_stateful()).count();
+    let pass_rules = rules.iter().filter(|r| matches!(r.action(), model::Action::Pass)).count();
+    let drop_rules = rules.iter().filter(|r| matches!(r.action(), model::Action::Drop)).count();
+
+    // Field usage
+    let mut uses_ethertype = 0;
+    let mut uses_dst_mac = 0;
+    let mut uses_src_mac = 0;
+    let mut uses_vlan_id = 0;
+    let mut uses_vlan_pcp = 0;
+    let mut match_field_count = Vec::new();
+
+    for rule in rules.iter().filter(|r| !r.is_stateful()) {
+        let mc = &rule.match_criteria;
+        let mut count = 0;
+        if mc.ethertype.is_some() { uses_ethertype += 1; count += 1; }
+        if mc.dst_mac.is_some() { uses_dst_mac += 1; count += 1; }
+        if mc.src_mac.is_some() { uses_src_mac += 1; count += 1; }
+        if mc.vlan_id.is_some() { uses_vlan_id += 1; count += 1; }
+        if mc.vlan_pcp.is_some() { uses_vlan_pcp += 1; count += 1; }
+        match_field_count.push(count);
+    }
+
+    // Priority spacing
+    let mut priorities: Vec<u32> = rules.iter().map(|r| r.priority).collect();
+    priorities.sort();
+    let min_gap = if priorities.len() > 1 {
+        priorities.windows(2).map(|w| w[1] - w[0]).min().unwrap_or(0)
+    } else { 0 };
+    let max_gap = if priorities.len() > 1 {
+        priorities.windows(2).map(|w| w[1] - w[0]).max().unwrap_or(0)
+    } else { 0 };
+    let avg_fields: f64 = if match_field_count.is_empty() { 0.0 }
+        else { match_field_count.iter().sum::<usize>() as f64 / match_field_count.len() as f64 };
+
+    serde_json::json!({
+        "total_rules": total,
+        "stateless": stateless,
+        "stateful": stateful,
+        "actions": {
+            "pass": pass_rules,
+            "drop": drop_rules,
+        },
+        "default_action": match config.pacgate.defaults.action { model::Action::Pass => "pass", model::Action::Drop => "drop" },
+        "field_usage": {
+            "ethertype": uses_ethertype,
+            "dst_mac": uses_dst_mac,
+            "src_mac": uses_src_mac,
+            "vlan_id": uses_vlan_id,
+            "vlan_pcp": uses_vlan_pcp,
+        },
+        "match_complexity": {
+            "avg_fields_per_rule": format!("{:.1}", avg_fields),
+            "max_fields": match_field_count.iter().max().unwrap_or(&0),
+            "min_fields": match_field_count.iter().min().unwrap_or(&0),
+        },
+        "priority_range": {
+            "min": priorities.first().unwrap_or(&0),
+            "max": priorities.last().unwrap_or(&0),
+            "min_gap": min_gap,
+            "max_gap": max_gap,
+        },
+    })
+}
+
+fn print_stats(config: &model::FilterConfig) {
+    let rules = &config.pacgate.rules;
+    let total = rules.len();
+    let stateless = rules.iter().filter(|r| !r.is_stateful()).count();
+    let stateful = rules.iter().filter(|r| r.is_stateful()).count();
+    let pass_rules = rules.iter().filter(|r| matches!(r.action(), model::Action::Pass)).count();
+    let drop_rules = rules.iter().filter(|r| matches!(r.action(), model::Action::Drop)).count();
+    let default_str = match config.pacgate.defaults.action {
+        model::Action::Pass => "pass",
+        model::Action::Drop => "drop",
+    };
+
+    // Field usage
+    let mut uses_ethertype = 0usize;
+    let mut uses_dst_mac = 0usize;
+    let mut uses_src_mac = 0usize;
+    let mut uses_vlan_id = 0usize;
+    let mut uses_vlan_pcp = 0usize;
+
+    for rule in rules.iter().filter(|r| !r.is_stateful()) {
+        let mc = &rule.match_criteria;
+        if mc.ethertype.is_some() { uses_ethertype += 1; }
+        if mc.dst_mac.is_some() { uses_dst_mac += 1; }
+        if mc.src_mac.is_some() { uses_src_mac += 1; }
+        if mc.vlan_id.is_some() { uses_vlan_id += 1; }
+        if mc.vlan_pcp.is_some() { uses_vlan_pcp += 1; }
+    }
+
+    // Priority spacing
+    let mut priorities: Vec<u32> = rules.iter().map(|r| r.priority).collect();
+    priorities.sort();
+
+    println!();
+    println!("  PacGate Rule Set Analytics");
+    println!("  ════════════════════════════════════════════");
+    println!("  Total rules:     {}", total);
+    println!("  Stateless:       {}    Stateful: {}", stateless, stateful);
+    println!("  Pass rules:      {}    Drop rules: {}", pass_rules, drop_rules);
+    println!("  Default action:  {}", default_str);
+    println!();
+    println!("  Field Usage (stateless rules):");
+    println!("  ─────────────────────────────────");
+    if stateless > 0 {
+        let bar = |n: usize| "#".repeat(n).to_string() + &" ".repeat(stateless - n);
+        println!("  ethertype  [{:>2}/{}] |{}|", uses_ethertype, stateless, bar(uses_ethertype));
+        println!("  dst_mac    [{:>2}/{}] |{}|", uses_dst_mac, stateless, bar(uses_dst_mac));
+        println!("  src_mac    [{:>2}/{}] |{}|", uses_src_mac, stateless, bar(uses_src_mac));
+        println!("  vlan_id    [{:>2}/{}] |{}|", uses_vlan_id, stateless, bar(uses_vlan_id));
+        println!("  vlan_pcp   [{:>2}/{}] |{}|", uses_vlan_pcp, stateless, bar(uses_vlan_pcp));
+    }
+    println!();
+    println!("  Priority Range: {} — {}", priorities.first().unwrap_or(&0), priorities.last().unwrap_or(&0));
+    if priorities.len() > 1 {
+        let min_gap = priorities.windows(2).map(|w| w[1] - w[0]).min().unwrap_or(0);
+        let max_gap = priorities.windows(2).map(|w| w[1] - w[0]).max().unwrap_or(0);
+        println!("  Priority gaps:   min={}, max={}", min_gap, max_gap);
+        if min_gap < 10 {
+            println!("  Note: tight priority spacing — consider leaving gaps for future rules.");
+        }
+    }
+    println!();
+}
+
+fn print_dot_graph(config: &model::FilterConfig) {
+    let default_action = match config.pacgate.defaults.action {
+        model::Action::Pass => "PASS",
+        model::Action::Drop => "DROP",
+    };
+
+    println!("digraph pacgate {{");
+    println!("  rankdir=TB;");
+    println!("  node [shape=box, fontname=\"monospace\", fontsize=10];");
+    println!("  edge [fontname=\"monospace\", fontsize=9];");
+    println!();
+
+    // Input node
+    println!("  input [label=\"Incoming\\nPacket\", shape=oval, style=filled, fillcolor=\"#e8e8e8\"];");
+
+    // Frame parser node
+    println!("  parser [label=\"Frame Parser\\n(dst_mac, src_mac,\\nethertype, vlan)\", shape=box, style=filled, fillcolor=\"#d4e6f1\"];");
+    println!("  input -> parser;");
+    println!();
+
+    // Rule nodes
+    for (i, rule) in config.pacgate.rules.iter().enumerate() {
+        let color = if rule.is_stateful() { "#fde9d9" } else { "#d5f5e3" };
+        let rtype = if rule.is_stateful() { "FSM" } else { "stateless" };
+
+        let mut criteria = Vec::new();
+        if !rule.is_stateful() {
+            let mc = &rule.match_criteria;
+            if let Some(ref et) = mc.ethertype { criteria.push(format!("ethertype={}", et)); }
+            if let Some(ref mac) = mc.dst_mac { criteria.push(format!("dst={}", mac)); }
+            if let Some(ref mac) = mc.src_mac { criteria.push(format!("src={}", mac)); }
+            if let Some(vid) = mc.vlan_id { criteria.push(format!("vlan={}", vid)); }
+            if let Some(pcp) = mc.vlan_pcp { criteria.push(format!("pcp={}", pcp)); }
+        } else {
+            criteria.push("(FSM states)".to_string());
+        }
+
+        let criteria_str = if criteria.is_empty() { "any".to_string() } else { criteria.join("\\n") };
+        let action_str = match &rule.action {
+            Some(model::Action::Pass) => "PASS",
+            Some(model::Action::Drop) => "DROP",
+            None => "FSM",
+        };
+
+        println!("  rule_{} [label=\"{}\\npri={} [{}]\\n{}\\n-> {}\", style=filled, fillcolor=\"{}\"];",
+            i, rule.name, rule.priority, rtype, criteria_str, action_str, color);
+        println!("  parser -> rule_{};", i);
+    }
+
+    println!();
+
+    // Decision logic
+    println!("  decision [label=\"Priority Encoder\\n(first match wins)\", shape=diamond, style=filled, fillcolor=\"#fadbd8\"];");
+    for i in 0..config.pacgate.rules.len() {
+        println!("  rule_{} -> decision;", i);
+    }
+
+    // Output nodes
+    println!("  pass_out [label=\"PASS\", shape=oval, style=filled, fillcolor=\"#82e0aa\"];");
+    println!("  drop_out [label=\"DROP\", shape=oval, style=filled, fillcolor=\"#f1948a\"];");
+    println!("  decision -> pass_out [label=\"match=pass\"];");
+    println!("  decision -> drop_out [label=\"match=drop\"];");
+
+    // Default action
+    println!("  default [label=\"No Match\\n-> {}\", shape=box, style=\"filled,dashed\", fillcolor=\"#f9e79f\"];", default_action);
+    println!("  decision -> default [style=dashed, label=\"no match\"];");
+    let default_target = if default_action == "PASS" { "pass_out" } else { "drop_out" };
+    println!("  default -> {} [style=dashed];", default_target);
+
+    println!("}}");
 }
 
 fn diff_rules(old: &model::FilterConfig, new: &model::FilterConfig, json: bool) -> Result<()> {

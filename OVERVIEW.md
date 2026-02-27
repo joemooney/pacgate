@@ -64,7 +64,9 @@ UVM-inspired Python verification environment with:
 - `pacgate init` — Create a well-commented starter rules file
 - `pacgate estimate rules.yaml` — FPGA resource estimation (LUTs/FFs) + timing analysis
 - `pacgate diff old.yaml new.yaml` — Compare two rule sets (added/removed/modified)
-- All commands except `init` support `--json` for machine-readable output
+- `pacgate graph rules.yaml` — DOT graph output for Graphviz visualization
+- `pacgate stats rules.yaml` — Rule set analytics (field usage, priority spacing, action balance)
+- All commands except `init` and `graph` support `--json` for machine-readable output
 
 ## Quality
 - 44 Rust unit tests (model parsing, validation, overlap detection)

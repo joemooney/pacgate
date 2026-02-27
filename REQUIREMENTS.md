@@ -19,7 +19,7 @@
 - REQ-016: MAC wildcard octets ("*") generate mask-based comparison [IMPLEMENTED]
 
 ### Compiler
-- REQ-020: Rust CLI with `compile`, `validate`, `init`, `estimate`, and `diff` subcommands [IMPLEMENTED]
+- REQ-020: Rust CLI with `compile`, `validate`, `init`, `estimate`, `diff`, `graph`, and `stats` subcommands [IMPLEMENTED]
 - REQ-021: `compile` generates Verilog RTL and cocotb test bench from YAML [IMPLEMENTED]
 - REQ-022: `validate` checks YAML without generating output [IMPLEMENTED]
 - REQ-023: Generated Verilog passes Icarus Verilog lint (`-g2012`) [IMPLEMENTED]
@@ -35,6 +35,8 @@
 - REQ-030e: Estimate includes pipeline timing analysis (cycles, latency at 125 MHz) [IMPLEMENTED]
 - REQ-030f: Rule count limit warnings for Artix-7 targets (>32 note, >64 warning) [IMPLEMENTED]
 - REQ-030g: Overlap warnings captured in JSON output (not just stderr) [IMPLEMENTED]
+- REQ-030h: `graph` subcommand outputs DOT (Graphviz) representation of rule set [IMPLEMENTED]
+- REQ-030i: `stats` subcommand shows rule set analytics (field usage, action balance, priority spacing) [IMPLEMENTED]
 
 ### Verilog Architecture
 - REQ-030: Hand-written frame parser extracts Ethernet header fields [IMPLEMENTED]

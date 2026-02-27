@@ -44,6 +44,9 @@ pacgate estimate rules.yaml            # FPGA resource estimate + timing
 pacgate estimate rules.yaml --json     # JSON resource/timing data
 pacgate diff old.yaml new.yaml         # Compare two rule sets
 pacgate diff old.yaml new.yaml --json  # JSON diff output
+pacgate graph rules.yaml               # DOT graph output (pipe to dot -Tpng)
+pacgate stats rules.yaml               # Rule set analytics
+pacgate stats rules.yaml --json        # JSON analytics
 make sim RULES=rules/examples/enterprise.yaml   # Full simulation
 make lint                                        # Icarus Verilog lint
 cargo test                                       # 44 Rust unit tests
@@ -54,7 +57,7 @@ cargo test                                       # 44 Rust unit tests
 - `src/loader.rs` — YAML loading + validation + overlap detection + 23 unit tests
 - `src/verilog_gen.rs` — Tera-based Verilog generation (stateless + FSM)
 - `src/cocotb_gen.rs` — cocotb test harness generation (directed + random + corners)
-- `src/main.rs` — clap CLI (compile, validate, init, estimate, diff)
+- `src/main.rs` — clap CLI (compile, validate, init, estimate, diff, graph, stats)
 - `rtl/frame_parser.v` — Hand-written Ethernet frame parser FSM
 - `templates/*.tera` — 6 Tera templates for code generation
 - `verification/` — Python verification framework (packet, scoreboard, coverage, driver)

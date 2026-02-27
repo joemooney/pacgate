@@ -261,6 +261,22 @@ Continue from previous session (context window continuation). Complete pending -
    - Total: 16 cycles (128 ns at 125 MHz)
    - Rule count warnings: >32 suggests pipelining, >64 warns about Fmax
 
+6. **`pacgate graph` subcommand**
+   - Outputs DOT (Graphviz) representation of rule set
+   - Shows: input -> parser -> rule nodes -> decision -> pass/drop
+   - Color-coded: stateless (green), stateful (orange), decision (red), default (yellow)
+   - Each rule node shows: name, priority, type, match criteria, action
+   - Usage: `pacgate graph rules.yaml | dot -Tpng -o rules.png`
+
+7. **`pacgate stats` subcommand**
+   - Shows rule set analytics: total rules, stateless/stateful split, pass/drop balance
+   - Field usage histogram with ASCII bar chart
+   - Priority range and gap analysis
+   - Tight spacing warning (<10 gap)
+   - Supports `--json` output
+
+8. **Datacenter example verified** — 14/14 PASS in cocotb simulation
+
 ### Git Operations
 - Committed all CLI enhancements
 - Pushed to GitHub
