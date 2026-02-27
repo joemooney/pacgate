@@ -424,3 +424,53 @@
 - REQ-543: PCAP output integration tests (simulate --pcap-out) [IMPLEMENTED]
 - REQ-544: Bench integration tests (basic, json) [IMPLEMENTED]
 - REQ-545: HTML diff integration tests (diff --html) [IMPLEMENTED]
+
+## Phase 12 Requirements — Protocol Extensions: GTP-U, MPLS, IGMP/MLD [IMPLEMENTED]
+
+### GTP-U Tunnel Parsing
+- REQ-600: Detect GTP-U encapsulation (UDP dst port 2152) [IMPLEMENTED]
+- REQ-601: Parse 8-byte GTP-U header, extract 32-bit TEID [IMPLEMENTED]
+- REQ-602: Match on gtp_teid field in YAML rules [IMPLEMENTED]
+- REQ-603: Frame parser S_GTP_HDR state for GTP-U header extraction [IMPLEMENTED]
+- REQ-604: GTP-U TEID matching in hardware: exact 32-bit comparison [IMPLEMENTED]
+- REQ-605: GTP-U wiring through all templates (rule_match, rule_fsm, packet_filter_top) [IMPLEMENTED]
+- REQ-606: Simulator support for gtp_teid field matching [IMPLEMENTED]
+- REQ-607: GTP-U YAML example (gtp_5g.yaml) [IMPLEMENTED]
+
+### MPLS Label Stack
+- REQ-610: Detect MPLS encapsulation (EtherType 0x8847 unicast, 0x8848 multicast) [IMPLEMENTED]
+- REQ-611: Parse MPLS label entry: 20-bit label, 3-bit TC, 1-bit BOS, 8-bit TTL [IMPLEMENTED]
+- REQ-612: Match on mpls_label (20-bit, 0-1048575) in YAML rules [IMPLEMENTED]
+- REQ-613: Match on mpls_tc (3-bit, 0-7) in YAML rules [IMPLEMENTED]
+- REQ-614: Match on mpls_bos (1-bit, bottom-of-stack flag) in YAML rules [IMPLEMENTED]
+- REQ-615: Frame parser S_MPLS_HDR state for MPLS header extraction [IMPLEMENTED]
+- REQ-616: MPLS field matching in hardware: label/TC/BOS comparators [IMPLEMENTED]
+- REQ-617: Simulator support for mpls_label, mpls_tc, mpls_bos field matching [IMPLEMENTED]
+- REQ-618: MPLS YAML example (mpls_network.yaml) [IMPLEMENTED]
+
+### IGMP/MLD Multicast
+- REQ-620: Detect IGMP packets (IPv4 protocol number 2) [IMPLEMENTED]
+- REQ-621: Extract IGMP type byte from IGMP header [IMPLEMENTED]
+- REQ-622: Match on igmp_type field in YAML rules [IMPLEMENTED]
+- REQ-623: Detect MLD packets (ICMPv6 next_header 58, types 130-132) [IMPLEMENTED]
+- REQ-624: Extract MLD type from ICMPv6 header [IMPLEMENTED]
+- REQ-625: Match on mld_type field in YAML rules [IMPLEMENTED]
+- REQ-626: Frame parser S_IGMP_HDR state for IGMP/MLD header extraction [IMPLEMENTED]
+- REQ-627: IGMP/MLD field matching in hardware: exact type byte comparison [IMPLEMENTED]
+- REQ-628: Simulator support for igmp_type, mld_type field matching [IMPLEMENTED]
+- REQ-629: Multicast YAML example (multicast.yaml) [IMPLEMENTED]
+
+### Protocol Extension Infrastructure
+- REQ-630: Consistent global protocol flags in Verilog port lists (gtp_valid, mpls_valid, igmp_valid, mld_valid) [IMPLEMENTED]
+- REQ-631: New match fields added to MatchCriteria model struct [IMPLEMENTED]
+- REQ-632: YAML loader validation for new field value ranges [IMPLEMENTED]
+- REQ-633: Verilog generation templates updated for new protocol fields [IMPLEMENTED]
+- REQ-634: Cocotb test generation supports new protocol match fields [IMPLEMENTED]
+
+### Testing
+- REQ-640: 214 Rust unit tests (through Phase 12) [IMPLEMENTED]
+- REQ-641: 105 Rust integration tests (through Phase 12) [IMPLEMENTED]
+- REQ-642: GTP-U integration tests (compile, simulate, json) [IMPLEMENTED]
+- REQ-643: MPLS integration tests (compile, simulate, label/TC/BOS matching) [IMPLEMENTED]
+- REQ-644: IGMP/MLD integration tests (compile, simulate, multicast type matching) [IMPLEMENTED]
+- REQ-645: All 21 YAML examples compile and lint clean [IMPLEMENTED]

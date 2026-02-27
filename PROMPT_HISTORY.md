@@ -1190,3 +1190,82 @@ Implement Phase 9 with five major feature areas: PCAP traffic analysis with rule
 - Updated OVERVIEW.md: added Phase 11 to CLI Commands, Quality, and Development Status sections
 - Updated REQUIREMENTS.md: added Phase 11 requirements REQ-500 through REQ-545
 - Updated PROMPT_HISTORY.md: added this session entry
+
+---
+
+## Session 13: Phase 12 — Protocol Extensions (2026-02-27)
+
+### Prompt
+"Phase 12: Protocol Extensions. Add GTP-U tunnel parsing, MPLS label stack, and IGMP/MLD multicast support."
+
+### Phase 12 Actions
+
+#### GTP-U Tunnel Parsing
+- Extended `src/model.rs` with `gtp_teid` field (Option<u32>) in MatchCriteria
+- Extended `rtl/frame_parser.v` with S_GTP_HDR state: detects UDP dst port 2152, parses 8-byte GTP-U header, extracts 32-bit TEID
+- Added `gtp_valid`, `gtp_teid[31:0]` output signals to frame parser
+- Updated Verilog generation templates for GTP-U field matching in rule_match and packet_filter_top
+- Added GTP-U support to simulator (gtp_teid field parsing and matching)
+- Added cocotb test generation for GTP-U rules
+- Created `rules/examples/gtp_5g.yaml` — 5G mobile core GTP-U tunnel filtering example
+- Unit tests: GTP-U model parsing, validation, simulation
+- Integration tests: GTP-U compile, simulate, JSON output
+
+#### MPLS Label Stack
+- Extended `src/model.rs` with `mpls_label` (Option<u32>), `mpls_tc` (Option<u8>), `mpls_bos` (Option<u8>) fields in MatchCriteria
+- Extended `rtl/frame_parser.v` with S_MPLS_HDR state: detects EtherType 0x8847 (unicast) / 0x8848 (multicast), extracts 20-bit label, 3-bit TC, 1-bit BOS
+- Added `mpls_valid`, `mpls_label[19:0]`, `mpls_tc[2:0]`, `mpls_bos` output signals to frame parser
+- Updated Verilog generation templates for MPLS field matching
+- Added MPLS support to simulator (mpls_label, mpls_tc, mpls_bos field parsing and matching)
+- Added cocotb test generation for MPLS rules
+- Created `rules/examples/mpls_network.yaml` — MPLS provider network label stack matching example
+- Unit tests: MPLS model parsing, validation, label/TC/BOS ranges, simulation
+- Integration tests: MPLS compile, simulate, label/TC/BOS matching
+
+#### IGMP/MLD Multicast
+- Extended `src/model.rs` with `igmp_type` (Option<u8>) and `mld_type` (Option<u8>) fields in MatchCriteria
+- Extended `rtl/frame_parser.v` with S_IGMP_HDR state: detects IPv4 protocol 2 (IGMP), extracts type byte
+- MLD detection via ICMPv6 (next_header 58), types 130 (query), 131 (report v1), 132 (done)
+- Added `igmp_valid`, `igmp_type[7:0]`, `mld_valid`, `mld_type[7:0]` output signals to frame parser
+- Updated Verilog generation templates for IGMP/MLD field matching
+- Added IGMP/MLD support to simulator (igmp_type, mld_type field parsing and matching)
+- Added cocotb test generation for IGMP/MLD rules
+- Created `rules/examples/multicast.yaml` — multicast filtering example with IGMP/MLD type matching
+- Unit tests: IGMP/MLD model parsing, validation, type matching, simulation
+- Integration tests: multicast compile, simulate, IGMP/MLD type matching
+
+#### Infrastructure Changes
+- Consistent global protocol flags added to Verilog port lists across all templates
+- Frame parser extended with states: S_GTP_HDR, S_MPLS_HDR, S_IGMP_HDR
+- All new match fields wired through model, loader validation, verilog_gen, cocotb_gen, simulator, templates
+- YAML loader validates value ranges: gtp_teid (32-bit), mpls_label (20-bit), mpls_tc (3-bit), mpls_bos (1-bit), igmp_type (8-bit), mld_type (8-bit)
+
+### New Files
+- `rules/examples/gtp_5g.yaml` — GTP-U 5G mobile core tunnel filtering example
+- `rules/examples/mpls_network.yaml` — MPLS provider network label stack example
+- `rules/examples/multicast.yaml` — IGMP/MLD multicast filtering example
+
+### Modified Files
+- `src/model.rs` — Added gtp_teid, mpls_label, mpls_tc, mpls_bos, igmp_type, mld_type to MatchCriteria
+- `src/loader.rs` — Validation for new field value ranges
+- `src/verilog_gen.rs` — GTP-U/MPLS/IGMP/MLD field wiring in generated Verilog
+- `src/cocotb_gen.rs` — Test generation for new protocol fields
+- `src/simulator.rs` — Software simulation support for all new fields
+- `src/main.rs` — Updated for new match fields
+- `rtl/frame_parser.v` — S_GTP_HDR, S_MPLS_HDR, S_IGMP_HDR parser states
+- `templates/*.tera` — Updated templates for new protocol port lists and matching
+- `tests/integration_test.rs` — New integration tests for GTP-U, MPLS, IGMP/MLD
+
+### Test Results
+- 319 Rust tests pass (214 unit + 105 integration)
+- All 21 YAML examples validate and compile clean
+- All existing tests pass unmodified (backward compatible)
+
+### Git Operations
+- Commits pushed to https://github.com/joemooney/pacgate.git
+
+### Documentation Updates
+- Updated CLAUDE.md: added Phase 12 features (GTP-U, MPLS, IGMP/MLD) to Feature Summary, frame parser description, CLI simulate examples, Design Decisions, Current Status; updated test counts to 319 (214 unit + 105 integration), example count to 21
+- Updated OVERVIEW.md: added Phase 12 protocol fields to Match Fields table, examples, quality, and Development Status sections
+- Updated REQUIREMENTS.md: added Phase 12 requirements REQ-600 through REQ-645
+- Updated PROMPT_HISTORY.md: added this session entry
