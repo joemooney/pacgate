@@ -1266,3 +1266,94 @@ fn properties_l3l4_fields_in_generated_test() {
     assert!(props_py.contains("src_ip="), "properties file missing src_ip field");
     assert!(props_py.contains("ip_protocol="), "properties file missing ip_protocol field");
 }
+
+#[test]
+fn directed_test_l3l4_has_ipv4_header() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let test_py = std::fs::read_to_string(tmp.path().join("tb/test_packet_filter.py")).unwrap();
+    assert!(test_py.contains("Ipv4Header"), "directed test missing Ipv4Header construction");
+    assert!(test_py.contains("extracted"), "directed test missing extracted dict");
+    assert!(test_py.contains("import struct"), "test missing struct import");
+}
+
+#[test]
+fn directed_test_ipv6_has_header() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/ipv6_firewall.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let test_py = std::fs::read_to_string(tmp.path().join("tb/test_packet_filter.py")).unwrap();
+    assert!(test_py.contains("Ipv6Header"), "directed test missing Ipv6Header construction");
+    assert!(test_py.contains("extracted"), "directed test missing extracted dict");
+}
+
+#[test]
+fn random_test_has_l3l4_construction() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let test_py = std::fs::read_to_string(tmp.path().join("tb/test_packet_filter.py")).unwrap();
+    // Random test should construct L3/L4 headers for IPv4 frames
+    assert!(test_py.contains("ip_hdr = Ipv4Header"), "random test missing IPv4 header construction");
+    assert!(test_py.contains("ip6_hdr = Ipv6Header"), "random test missing IPv6 header construction");
+    assert!(test_py.contains("extracted=extracted"), "random test missing extracted param in scoreboard.check");
+}
+
+#[test]
+fn random_test_imports_struct() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/allow_arp.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let test_py = std::fs::read_to_string(tmp.path().join("tb/test_packet_filter.py")).unwrap();
+    assert!(test_py.contains("import struct"), "test harness missing struct import");
+}
+
+#[test]
+fn directed_test_vlan_has_extracted() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/enterprise.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let test_py = std::fs::read_to_string(tmp.path().join("tb/test_packet_filter.py")).unwrap();
+    // VLAN/L2-only tests should still define extracted (empty dict)
+    assert!(test_py.contains("extracted"), "test missing extracted dict for VLAN tests");
+}
+
+#[test]
+fn all_examples_compile_with_updated_templates() {
+    // Verify all 18 examples still compile with the updated test_harness template
+    let examples = std::fs::read_dir("rules/examples").unwrap();
+    for entry in examples {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        if path.extension().map(|e| e == "yaml").unwrap_or(false) {
+            let tmp = tempfile::tempdir().unwrap();
+            let output = pacgate_bin()
+                .args(["compile", path.to_str().unwrap(), "-o", tmp.path().to_str().unwrap()])
+                .output()
+                .unwrap();
+            assert!(output.status.success(),
+                "compile failed for {}: {}", path.display(), String::from_utf8_lossy(&output.stderr));
+        }
+    }
+}

@@ -13,6 +13,7 @@ Test suite includes:
 import os
 import sys
 import random
+import struct
 
 import cocotb
 from cocotb.clock import Clock
@@ -124,18 +125,66 @@ async def {{ tc.name }}(dut):
     driver, monitor = await setup(dut)
 {% if tc.has_ipv6 is defined and tc.has_ipv6 == "true" %}
     # Construct IPv6 packet with proper headers
+    _proto = {{ tc.ipv6_next_header | default(value='59') }}
+    _payload_len = 8
+    l4_payload = bytes(8)
+{% if tc.dst_port is defined %}
+    _src_port = {{ tc.src_port | default(value='12345') }}
+    _dst_port = {{ tc.dst_port }}
+    if _proto == 6:
+        l4_payload = struct.pack("!HH", _src_port, _dst_port) + bytes(16)
+        _payload_len = 20
+    elif _proto == 17:
+        l4_payload = struct.pack("!HHHH", _src_port, _dst_port, 28, 0) + bytes(20)
+        _payload_len = 28
+{% endif %}
     ipv6_hdr = Ipv6Header(
         src_addr="{{ tc.src_ipv6 | default(value='2001:0db8:0000:0000:0000:0000:0000:0001') }}",
         dst_addr="{{ tc.dst_ipv6 | default(value='2001:0db8:0000:0000:0000:0000:0000:0002') }}",
-        next_header={{ tc.ipv6_next_header | default(value='59') }},
-        payload_length=8,
+        next_header=_proto,
+        payload_length=_payload_len,
     )
-    l4_payload = bytes(8)
-{% if tc.dst_port is defined %}
-    import struct
-    l4_payload = struct.pack("!HH", 12345, {{ tc.dst_port }}) + bytes(4)
-{% endif %}
     payload = ipv6_hdr.to_bytes() + l4_payload
+    extracted = {
+        "src_ipv6": "{{ tc.src_ipv6 | default(value='2001:0db8:0000:0000:0000:0000:0000:0001') }}",
+        "dst_ipv6": "{{ tc.dst_ipv6 | default(value='2001:0db8:0000:0000:0000:0000:0000:0002') }}",
+        "ipv6_next_header": _proto,
+{% if tc.dst_port is defined %}
+        "src_port": _src_port,
+        "dst_port": _dst_port,
+{% endif %}
+    }
+    frame = EthernetFrame(
+        dst_mac=mac_to_bytes("{{ tc.dst_mac }}"),
+        src_mac=mac_to_bytes("{{ tc.src_mac }}"),
+        ethertype={{ tc.ethertype }},
+        payload=payload,
+    )
+{% elif tc.has_l3 is defined and tc.has_l3 == "true" %}
+    # Construct IPv4 packet with proper L3/L4 headers
+    _ip_proto = {{ tc.ip_protocol | default(value='6') }}
+    _src_ip = "{{ tc.src_ip | default(value='10.0.0.1') }}"
+    _dst_ip = "{{ tc.dst_ip | default(value='10.0.0.2') }}"
+    _src_port = {{ tc.src_port | default(value='12345') }}
+    _dst_port = {{ tc.dst_port | default(value='80') }}
+    if _ip_proto == 6:  # TCP
+        l4_hdr = struct.pack("!HH", _src_port, _dst_port) + bytes(16)
+    elif _ip_proto == 17:  # UDP
+        l4_hdr = struct.pack("!HHHH", _src_port, _dst_port, 28, 0) + bytes(20)
+    else:
+        l4_hdr = bytes(20)
+    ip_hdr = Ipv4Header(
+        src_addr=_src_ip, dst_addr=_dst_ip,
+        protocol=_ip_proto, total_length=20 + len(l4_hdr),
+    )
+    payload = ip_hdr.to_bytes() + l4_hdr
+    extracted = {
+        "src_ip": _src_ip,
+        "dst_ip": _dst_ip,
+        "ip_protocol": _ip_proto,
+        "src_port": _src_port,
+        "dst_port": _dst_port,
+    }
     frame = EthernetFrame(
         dst_mac=mac_to_bytes("{{ tc.dst_mac }}"),
         src_mac=mac_to_bytes("{{ tc.src_mac }}"),
@@ -143,6 +192,7 @@ async def {{ tc.name }}(dut):
         payload=payload,
     )
 {% elif tc.has_vlan == "true" %}
+    extracted = {}
     frame = EthernetFrame(
         dst_mac=mac_to_bytes("{{ tc.dst_mac }}"),
         src_mac=mac_to_bytes("{{ tc.src_mac }}"),
@@ -151,6 +201,7 @@ async def {{ tc.name }}(dut):
         payload=bytes(46),
     )
 {% else %}
+    extracted = {}
     frame = EthernetFrame(
         dst_mac=mac_to_bytes("{{ tc.dst_mac }}"),
         src_mac=mac_to_bytes("{{ tc.src_mac }}"),
@@ -236,19 +287,63 @@ async def test_random_with_scoreboard(dut):
                 pcp=random.randint(0, 7),
             )
 
+        # Build extracted fields dict for scoreboard L3/L4 matching
+        extracted = {}
+        payload = bytes(payload_len)
+
+        # 50% of IPv4 frames get proper L3/L4 headers
+        if etype == 0x0800 and random.random() < 0.5 and payload_len >= 40:
+            _ip_proto = random.choice([6, 17, 1])
+            _src_ip = f"{random.randint(1,223)}.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(1,254)}"
+            _dst_ip = f"{random.randint(1,223)}.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(1,254)}"
+            _src_port = random.randint(1024, 65535)
+            _dst_port = random.choice([80, 443, 22, 53, 8080, random.randint(1, 65535)])
+            if _ip_proto == 6:
+                l4_hdr = struct.pack("!HH", _src_port, _dst_port) + bytes(16)
+            elif _ip_proto == 17:
+                l4_hdr = struct.pack("!HHHH", _src_port, _dst_port, 28, 0) + bytes(20)
+            else:
+                l4_hdr = bytes(20)
+            ip_hdr = Ipv4Header(
+                src_addr=_src_ip, dst_addr=_dst_ip,
+                protocol=_ip_proto, total_length=20 + len(l4_hdr),
+            )
+            payload = ip_hdr.to_bytes() + l4_hdr + bytes(max(0, payload_len - 20 - len(l4_hdr)))
+            extracted = {
+                "src_ip": _src_ip, "dst_ip": _dst_ip,
+                "ip_protocol": _ip_proto,
+                "src_port": _src_port, "dst_port": _dst_port,
+            }
+
+        # 50% of IPv6 frames get proper L3 headers
+        elif etype == 0x86DD and random.random() < 0.5 and payload_len >= 48:
+            _nh = random.choice([6, 17, 58])
+            _src_ipv6 = f"2001:db8:{random.randint(0,0xffff):04x}::{random.randint(1,0xffff):x}"
+            _dst_ipv6 = f"2001:db8:{random.randint(0,0xffff):04x}::{random.randint(1,0xffff):x}"
+            l4_payload = bytes(8)
+            ip6_hdr = Ipv6Header(
+                src_addr=_src_ipv6, dst_addr=_dst_ipv6,
+                next_header=_nh, payload_length=8,
+            )
+            payload = ip6_hdr.to_bytes() + l4_payload + bytes(max(0, payload_len - 48))
+            extracted = {
+                "src_ipv6": _src_ipv6, "dst_ipv6": _dst_ipv6,
+                "ipv6_next_header": _nh,
+            }
+
         frame = EthernetFrame(
             dst_mac=dst,
             src_mac=src,
             ethertype=etype,
-            payload=bytes(payload_len),
+            payload=payload,
             vlan_tag=vlan_tag,
         )
 
         await driver.send(frame)
         result = await monitor.wait_for_decision()
 
-        # Scoreboard check
-        action, matched_rule = scoreboard.check(frame, result)
+        # Scoreboard check (pass extracted fields for L3/L4 matching)
+        action, matched_rule = scoreboard.check(frame, result, extracted=extracted)
 
         # Coverage sample
         coverage.sample(frame, result == 1, matched_rule)
