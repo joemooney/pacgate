@@ -658,6 +658,54 @@ fn compile_byte_match() {
 }
 
 #[test]
+// ── Simulate Integration Tests ──────────────────────────────────
+
+#[test]
+fn simulate_basic() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/allow_arp.yaml",
+               "--packet", "ethertype=0x0806"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "simulate failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("allow_arp"), "should match allow_arp rule");
+    assert!(stdout.contains("PASS"), "should pass ARP");
+}
+
+#[test]
+fn simulate_default_action() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/allow_arp.yaml",
+               "--packet", "ethertype=0x9999"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "simulate failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("DEFAULT"), "should hit default action");
+    assert!(stdout.contains("DROP"), "default should be DROP");
+}
+
+#[test]
+fn simulate_json_output() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/l3l4_firewall.yaml",
+               "--packet", "ethertype=0x0800,ip_protocol=6,dst_port=22,dst_ip=10.0.1.1",
+               "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "simulate failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    assert_eq!(json["status"], "ok");
+    assert!(json["matched_rule"].is_string() || json["matched_rule"].is_null());
+    assert!(json["action"].as_str().unwrap() == "pass" || json["action"].as_str().unwrap() == "drop");
+}
+
+#[test]
 fn validate_l3l4_firewall() {
     let output = pacgate_bin()
         .args(["validate", "rules/examples/l3l4_firewall.yaml", "--json"])

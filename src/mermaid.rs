@@ -254,6 +254,7 @@ pub fn to_yaml(diagram: ParsedDiagram, rule_name: &str, priority: u32) -> Filter
                 rule_type: Some("stateful".to_string()),
                 fsm: Some(fsm),
                 ports: None,
+                rate_limit: None,
             }],
             conntrack: None,
         },

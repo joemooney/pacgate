@@ -168,6 +168,17 @@ pub struct FsmDefinition {
     pub variables: Option<Vec<FsmVariable>>,
 }
 
+// --- Rate limiting ---
+
+/// Token-bucket rate limiter configuration
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RateLimit {
+    /// Packets per second
+    pub pps: u32,
+    /// Maximum burst size (tokens)
+    pub burst: u32,
+}
+
 // --- Rule types ---
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -187,6 +198,9 @@ pub struct StatelessRule {
     /// Which ports this rule applies to (multi-port mode)
     #[serde(default)]
     pub ports: Option<Vec<u16>>,
+    /// Per-rule rate limiting (token bucket)
+    #[serde(default)]
+    pub rate_limit: Option<RateLimit>,
 }
 
 impl StatelessRule {
@@ -516,6 +530,7 @@ mod tests {
             rule_type: None,
             fsm: None,
             ports: None,
+            rate_limit: None,
         };
         assert_eq!(rule.action(), Action::Drop);
     }
@@ -530,6 +545,7 @@ mod tests {
             rule_type: None,
             fsm: None,
             ports: None,
+            rate_limit: None,
         };
         assert_eq!(rule.action(), Action::Pass);
     }
@@ -544,6 +560,7 @@ mod tests {
             rule_type: Some("stateful".to_string()),
             fsm: None,
             ports: None,
+            rate_limit: None,
         };
         assert!(rule.is_stateful());
     }
@@ -558,6 +575,7 @@ mod tests {
             rule_type: Some("stateless".to_string()),
             fsm: None,
             ports: None,
+            rate_limit: None,
         };
         assert!(!rule.is_stateful());
     }

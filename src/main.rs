@@ -5,6 +5,7 @@ mod cocotb_gen;
 mod formal_gen;
 mod pcap;
 mod mermaid;
+mod simulator;
 
 use std::path::{Path, PathBuf};
 use clap::{CommandFactory, Parser, Subcommand};
@@ -180,6 +181,20 @@ enum Commands {
     ToMermaid {
         /// Path to the YAML rules file
         rules: PathBuf,
+    },
+    /// Simulate a packet against the rule set (software dry-run)
+    Simulate {
+        /// Path to the YAML rules file
+        rules: PathBuf,
+
+        /// Packet specification: key=value pairs separated by commas
+        /// e.g. "ethertype=0x0800,src_ip=10.0.0.1,dst_port=80"
+        #[arg(short, long)]
+        packet: String,
+
+        /// Output JSON instead of human-readable text
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -454,6 +469,53 @@ fn main() -> Result<()> {
             let (config, _warnings) = loader::load_rules_with_warnings(&rules)?;
             let mermaid_text = mermaid::from_yaml(&config);
             println!("{}", mermaid_text);
+        }
+        Commands::Simulate { rules, packet, json } => {
+            let config = loader::load_rules(&rules)?;
+            let sim_pkt = simulator::parse_packet_spec(&packet)?;
+            let result = simulator::simulate(&config, &sim_pkt);
+
+            if json {
+                let fields_json: Vec<serde_json::Value> = result.fields.iter().map(|f| {
+                    serde_json::json!({
+                        "field": f.field,
+                        "rule_value": f.rule_value,
+                        "packet_value": f.packet_value,
+                        "matches": f.matches,
+                    })
+                }).collect();
+                let summary = serde_json::json!({
+                    "status": "ok",
+                    "matched_rule": result.rule_name,
+                    "action": match result.action { model::Action::Pass => "pass", model::Action::Drop => "drop" },
+                    "is_default": result.is_default,
+                    "fields": fields_json,
+                });
+                println!("{}", serde_json::to_string_pretty(&summary)?);
+            } else {
+                println!();
+                println!("  PacGate Packet Simulation");
+                println!("  ════════════════════════════════════════════");
+                println!("  Packet: {}", packet);
+                println!();
+                if result.is_default {
+                    let action_str = match result.action { model::Action::Pass => "PASS", model::Action::Drop => "DROP" };
+                    println!("  Result: DEFAULT action -> {}", action_str);
+                    println!("  (No rule matched this packet)");
+                } else {
+                    let action_str = match result.action { model::Action::Pass => "PASS", model::Action::Drop => "DROP" };
+                    println!("  Result: Rule '{}' -> {}", result.rule_name.as_deref().unwrap_or("?"), action_str);
+                    println!();
+                    println!("  Field Breakdown:");
+                    println!("  {:15} {:20} {:20} {}", "Field", "Rule Value", "Packet Value", "Match");
+                    println!("  {:15} {:20} {:20} {}", "─────", "──────────", "────────────", "─────");
+                    for f in &result.fields {
+                        let mark = if f.matches { "YES" } else { "NO" };
+                        println!("  {:15} {:20} {:20} {}", f.field, f.rule_value, f.packet_value, mark);
+                    }
+                }
+                println!();
+            }
         }
     }
 

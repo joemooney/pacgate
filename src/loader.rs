@@ -744,6 +744,7 @@ pacgate:
                 rule_type: None,
                 fsm: None,
                 ports: None,
+                rate_limit: None,
             },
             StatelessRule {
                 name: "allow_ipv4".to_string(),
@@ -756,6 +757,7 @@ pacgate:
                 rule_type: None,
                 fsm: None,
                 ports: None,
+                rate_limit: None,
             },
         ];
         let warnings = check_rule_overlaps(&rules);
@@ -778,6 +780,7 @@ pacgate:
                 rule_type: None,
                 fsm: None,
                 ports: None,
+                rate_limit: None,
             },
             StatelessRule {
                 name: "drop_arp".to_string(),
@@ -790,6 +793,7 @@ pacgate:
                 rule_type: None,
                 fsm: None,
                 ports: None,
+                rate_limit: None,
             },
         ];
         let warnings = check_rule_overlaps(&rules);
@@ -811,6 +815,7 @@ pacgate:
                 rule_type: None,
                 fsm: None,
                 ports: None,
+                rate_limit: None,
             },
             StatelessRule {
                 name: "allow_ipv4".to_string(),
@@ -823,6 +828,7 @@ pacgate:
                 rule_type: None,
                 fsm: None,
                 ports: None,
+                rate_limit: None,
             },
         ];
         let warnings = check_rule_overlaps(&rules);
@@ -841,6 +847,7 @@ pacgate:
                 rule_type: None,
                 fsm: None,
                 ports: None,
+                rate_limit: None,
             },
         ];
         let warnings = check_rule_overlaps(&rules);
