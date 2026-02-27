@@ -308,6 +308,10 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         let mut ctx = tera::Context::new();
         ctx.insert("scoreboard_rules", &scoreboard_rules);
         ctx.insert("default_action", if default_pass { "pass" } else { "drop" });
+        ctx.insert("has_gtp_rules", &rules.iter().any(|r| r.match_criteria.gtp_teid.is_some()));
+        ctx.insert("has_mpls_rules", &rules.iter().any(|r| r.match_criteria.mpls_label.is_some() || r.match_criteria.mpls_tc.is_some() || r.match_criteria.mpls_bos.is_some()));
+        ctx.insert("has_igmp_rules", &rules.iter().any(|r| r.match_criteria.igmp_type.is_some()));
+        ctx.insert("has_mld_rules", &rules.iter().any(|r| r.match_criteria.mld_type.is_some()));
 
         let rendered = tera.render("test_properties.py.tera", &ctx)?;
         std::fs::write(tb_dir.join("test_properties.py"), &rendered)?;

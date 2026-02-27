@@ -2547,6 +2547,34 @@ fn simulate_stateful_rate_limit_drops() {
 }
 
 #[test]
+fn property_test_gtp_strategy_generated() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/gtp_5g.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let props = std::fs::read_to_string(tmp.path().join("tb/test_properties.py")).unwrap();
+    assert!(props.contains("gtp_u_frames"), "should import gtp_u_frames strategy");
+    assert!(props.contains("test_hypothesis_gtp_determinism"), "should define GTP determinism test");
+}
+
+#[test]
+fn doc_byte_match_displayed() {
+    let tmp = tempfile::tempdir().unwrap();
+    let out_html = tmp.path().join("doc.html");
+    let output = pacgate_bin()
+        .args(["doc", "rules/examples/byte_match.yaml", "-o", out_html.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "doc failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let html = std::fs::read_to_string(&out_html).unwrap();
+    assert!(html.contains("byte_match"), "HTML doc should contain byte_match field");
+}
+
+#[test]
 fn reachability_shows_protocol_fields() {
     let output = pacgate_bin()
         .args(["reachability", "rules/examples/gtp_5g.yaml"])

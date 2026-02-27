@@ -1182,6 +1182,11 @@ fn generate_rule_documentation(
         if let Some(bos) = rule.match_criteria.mpls_bos { match_fields.push(format!("mpls_bos: {}", bos)); }
         if let Some(igmp) = rule.match_criteria.igmp_type { match_fields.push(format!("igmp_type: 0x{:02X}", igmp)); }
         if let Some(mld) = rule.match_criteria.mld_type { match_fields.push(format!("mld_type: {}", mld)); }
+        if let Some(ref bms) = rule.match_criteria.byte_match {
+            for bm in bms {
+                match_fields.push(format!("byte_match: offset={}, value={}, mask={}", bm.offset, bm.value, bm.mask.as_deref().unwrap_or("FF")));
+            }
+        }
 
         let key_match = if match_fields.is_empty() { "any".to_string() } else { match_fields.join(", ") };
         let action = if rule.action() == model::Action::Pass { "pass" } else { "drop" };

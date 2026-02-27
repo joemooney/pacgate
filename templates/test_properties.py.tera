@@ -25,6 +25,8 @@ try:
         check_priority_correctness, check_default_action,
         check_l3l4_determinism,
         check_cidr_boundary, check_port_range_boundary, check_ipv6_cidr_match,
+        check_tunnel_determinism, check_protocol_determinism,
+        gtp_u_frames, mpls_frames, igmp_frames, mld_frames,
     )
     from verification.scoreboard import PacketFilterScoreboard
 except ImportError:
@@ -183,6 +185,42 @@ if HYPOTHESIS_AVAILABLE:
         """IPv6 CIDR matching is deterministic."""
         frame, extracted = data
         assert check_ipv6_cidr_match(scoreboard, frame, extracted)
+
+{% if has_gtp_rules %}
+    @given(data=gtp_u_frames())
+    @settings(max_examples=50, deadline=None)
+    def test_hypothesis_gtp_determinism(data):
+        """GTP-U tunnel matching is deterministic."""
+        frame, extracted = data
+        assert check_tunnel_determinism(scoreboard, frame, extracted)
+{% endif %}
+
+{% if has_mpls_rules %}
+    @given(data=mpls_frames())
+    @settings(max_examples=50, deadline=None)
+    def test_hypothesis_mpls_determinism(data):
+        """MPLS label matching is deterministic."""
+        frame, extracted = data
+        assert check_tunnel_determinism(scoreboard, frame, extracted)
+{% endif %}
+
+{% if has_igmp_rules %}
+    @given(data=igmp_frames())
+    @settings(max_examples=50, deadline=None)
+    def test_hypothesis_igmp_determinism(data):
+        """IGMP multicast matching is deterministic."""
+        frame, extracted = data
+        assert check_protocol_determinism(scoreboard, frame, extracted)
+{% endif %}
+
+{% if has_mld_rules %}
+    @given(data=mld_frames())
+    @settings(max_examples=50, deadline=None)
+    def test_hypothesis_mld_determinism(data):
+        """MLD multicast matching is deterministic."""
+        frame, extracted = data
+        assert check_protocol_determinism(scoreboard, frame, extracted)
+{% endif %}
 
 
 if __name__ == "__main__":

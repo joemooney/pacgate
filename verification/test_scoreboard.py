@@ -308,6 +308,38 @@ class TestCoverageProtocols:
         assert cov.coverpoints["gtp_teid_range"].bins["mid"].hit
 
 
+class TestProtocolDeterminism:
+    """Tests for protocol-specific determinism check functions."""
+
+    def test_gtp_determinism_check(self):
+        from verification.properties import check_tunnel_determinism
+        rule = Rule(name="gtp", priority=100, action="pass", gtp_teid=1000)
+        sb = PacketFilterScoreboard([rule], default_action="drop")
+        frame = _make_frame()
+        assert check_tunnel_determinism(sb, frame, {"gtp_teid": 1000})
+
+    def test_mpls_determinism_check(self):
+        from verification.properties import check_tunnel_determinism
+        rule = Rule(name="mpls", priority=100, action="pass", mpls_label=200)
+        sb = PacketFilterScoreboard([rule], default_action="drop")
+        frame = _make_frame(ethertype=0x8847)
+        assert check_tunnel_determinism(sb, frame, {"mpls_label": 200})
+
+    def test_igmp_determinism_check(self):
+        from verification.properties import check_protocol_determinism
+        rule = Rule(name="igmp", priority=100, action="pass", igmp_type=0x11)
+        sb = PacketFilterScoreboard([rule], default_action="drop")
+        frame = _make_frame()
+        assert check_protocol_determinism(sb, frame, {"igmp_type": 0x11})
+
+    def test_mld_determinism_check(self):
+        from verification.properties import check_protocol_determinism
+        rule = Rule(name="mld", priority=100, action="pass", mld_type=130)
+        sb = PacketFilterScoreboard([rule], default_action="drop")
+        frame = _make_frame(ethertype=0x86DD)
+        assert check_protocol_determinism(sb, frame, {"mld_type": 130})
+
+
 if __name__ == "__main__":
     import pytest
     pytest.main([__file__, "-v"])
