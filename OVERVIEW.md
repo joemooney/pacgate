@@ -4,7 +4,7 @@
 PacGate is an FPGA-based packet filtering switch where YAML-defined rules compile into both synthesizable Verilog (the filter hardware) and a cocotb test harness (the validator). The two outputs are generated from the same specification but serve orthogonal purposes: the filter enforces rules in hardware, the harness proves they work correctly in simulation.
 
 ## What It Does
-1. You define packet filter rules in YAML (match on MAC, IPv4/IPv6, ports, VLAN, VXLAN VNI, GTP-U TEID, MPLS labels, IGMP/MLD, etc.) with optional rewrite actions (NAT, TTL, MAC, VLAN)
+1. You define packet filter rules in YAML (match on MAC, IPv4/IPv6, ports, VLAN, VXLAN VNI, GTP-U TEID, MPLS labels, IGMP/MLD, DSCP/ECN, etc.) with optional rewrite actions (NAT, TTL, MAC, VLAN, DSCP)
 2. The `pacgate` compiler (written in Rust) reads the YAML and generates:
    - **Verilog RTL** — synthesizable hardware description for an FPGA
    - **cocotb test bench** — Python tests that verify the hardware via simulation
@@ -78,6 +78,8 @@ rules.yaml ──> Compiler (Rust) ──┬──> Verilog (DUT)
 | L2.5 | mpls_bos | 1-bit (0-1) | `1` |
 | L3 | igmp_type | 8-bit hex | `"0x11"` (query) |
 | L3 | mld_type | 8-bit | `130` (query) |
+| L3 | ip_dscp | 6-bit (0-63) | `46` (EF) |
+| L3 | ip_ecn | 2-bit (0-3) | `1` (ECT1) |
 | Raw | byte_match | Offset+value+mask | `{offset: 14, value: "45", mask: "F0"}` |
 
 ## Verification Framework
@@ -85,7 +87,7 @@ UVM-inspired Python verification environment with:
 - **PacketFactory** — generates directed, random, boundary, and corner-case Ethernet frames (with L3/L4/IPv6 headers)
 - **PacketDriver** (BFM) — drives frames into the DUT byte-by-byte
 - **DecisionMonitor** — captures pass/drop decisions from the DUT
-- **Scoreboard** — Python reference model with full L2/L3/L4/IPv6/VXLAN/GTP-U/MPLS/IGMP/MLD/byte-match matching, checks against DUT
+- **Scoreboard** — Python reference model with full L2/L3/L4/IPv6/VXLAN/GTP-U/MPLS/IGMP/MLD/DSCP/ECN/byte-match matching, checks against DUT
 - **Coverage** — functional coverage with cover points, bins, cross coverage, and XML export
 - **Properties** — Hypothesis-based property testing (determinism, priority, conservation, independence, L3/L4 determinism)
 - **Conntrack Tests** — 5 cocotb tests for connection tracking (new flow, return traffic, timeout, collision, overflow)
@@ -131,7 +133,7 @@ UVM-inspired Python verification environment with:
 - All commands except `init`, `graph`, `report` support `--json` for machine-readable output
 
 ## Examples
-23 production-quality YAML examples covering real-world deployments:
+26 production-quality YAML examples covering real-world deployments:
 - Enterprise campus, data center multi-tenant, blacklist mode
 - Industrial OT boundary (EtherCAT, PROFINET, PTP, GOOSE)
 - Automotive Ethernet gateway (AVB/TSN, ADAS)
@@ -148,26 +150,27 @@ UVM-inspired Python verification environment with:
 - MPLS provider network (label stack matching, TC classification)
 - Multicast filtering (IGMP/MLD type-based control)
 - Dynamic firewall (runtime-updateable flow tables via AXI-Lite)
-- Packet rewrite actions (NAT, TTL management, MAC/VLAN rewriting)
+- Packet rewrite actions (NAT, TTL management, MAC/VLAN rewriting, QoS remarking)
+- QoS classification (DSCP/ECN matching with DiffServ class filtering)
 
 ## Quality
-- 260 Rust unit tests (model parsing, validation, CIDR/port overlap, IPv4/IPv6, PCAP, byte-match, HSM, Mermaid, simulation incl. byte-match/rate-limit/conntrack, PCAP analysis, synthesis, mutation (11 types), templates, benchmarking, reachability (protocol fields), GTP-U, MPLS, IGMP/MLD, MCY config generation, rewrite action parsing/validation, cocotb 2.0 runner generation)
-- 204 Rust integration tests (full compile pipeline, AXI, formal, lint (19 rules), L3/L4, IPv6, VXLAN, counters, PCAP, report, byte-match, HSM, Mermaid, multi-port, conntrack, rate-limit, simulate, simulate --stateful, pcap-analyze, synth, mutate, template, doc, scoreboard field verification, multi-flag compile, all-examples lint, bench, diff --html, reachability, GTP-U, MPLS, multicast, coverage framework, boundary tests, MCY, mutation kill-rate, protocol verification completeness, lint protocol prereqs, formal GTP/MPLS/cover assertions, byte_match in docs, protocol property tests, rewrite actions, cocotb 2.0 runner scripts)
+- 275 Rust unit tests (model parsing, validation, CIDR/port overlap, IPv4/IPv6, PCAP, byte-match, HSM, Mermaid, simulation incl. byte-match/rate-limit/conntrack, PCAP analysis, synthesis, mutation (13 types), templates, benchmarking, reachability (protocol fields), GTP-U, MPLS, IGMP/MLD, DSCP/ECN, MCY config generation, rewrite action parsing/validation, cocotb 2.0 runner generation)
+- 216 Rust integration tests (full compile pipeline, AXI, formal, lint (22 rules), L3/L4, IPv6, VXLAN, counters, PCAP, report, byte-match, HSM, Mermaid, multi-port, conntrack, rate-limit, simulate, simulate --stateful, pcap-analyze, synth, mutate, template, doc, scoreboard field verification, multi-flag compile, all-examples lint, bench, diff --html, reachability, GTP-U, MPLS, multicast, DSCP/ECN, coverage framework, boundary tests, MCY, mutation kill-rate, protocol verification completeness, lint protocol prereqs, formal GTP/MPLS/DSCP/ECN/cover assertions, byte_match in docs, protocol property tests, rewrite actions, cocotb 2.0 runner scripts)
 - 47 Python scoreboard unit tests (IPv4 CIDR, IPv6 CIDR, port matching, VXLAN VNI, byte-match, multi-field L3/L4, GTP-U TEID, MPLS label/TC/BOS, IGMP/MLD type, protocol coverage sampling, protocol determinism checks)
 - 13+ cocotb simulation tests (directed with L3/L4 headers + 500-packet random + corner cases)
 - 5 conntrack cocotb tests (new flow, return traffic, timeout, hash collision, table overflow)
 - 85%+ functional coverage with varied frame sizes and VLAN-tagged traffic
 - Rule overlap and shadow detection with CIDR containment and port range analysis
-- Best-practice linting with 19 lint rules (LINT001-019, including GTP/MPLS/IGMP/MLD prerequisite checks, dynamic mode, rewrite actions)
-- Mutation testing: 11 YAML mutation strategies + MCY Verilog-level mutation config generation
+- Best-practice linting with 22 lint rules (LINT001-022, including GTP/MPLS/IGMP/MLD/DSCP/ECN prerequisite checks, dynamic mode, rewrite actions)
+- Mutation testing: 13 YAML mutation strategies + MCY Verilog-level mutation config generation
 - Mutation kill-rate runner: compile + lint each mutant, report kill/survived/error rates
 - Coverage-directed test generation with CoverageDirector wired into random test loop
 - Coverage XML export for CI artifact tracking
 - Boundary test generation: auto-derived CIDR boundary and port boundary test cases
 - Formally-derived negative tests: guaranteed no-match frames from unused ethertypes
 - Property-based testing with Hypothesis for invariant verification (9 property checks + 4 protocol strategies for GTP-U/MPLS/IGMP/MLD)
-- SVA formal assertions with IPv6 CIDR, port range, rate limiter, byte-match, GTP-U, MPLS, IGMP/MLD correctness checks
-- Shadow/overlap detection covers all protocol fields (L2/L3/L4/IPv6/VXLAN/GTP-U/MPLS/IGMP/MLD)
+- SVA formal assertions with IPv6 CIDR, port range, rate limiter, byte-match, GTP-U, MPLS, IGMP/MLD, DSCP/ECN correctness checks
+- Shadow/overlap detection covers all protocol fields (L2/L3/L4/IPv6/VXLAN/GTP-U/MPLS/IGMP/MLD/DSCP/ECN)
 - Analysis tools (stats/graph/diff/estimate/doc) fully cover all protocol fields
 
 ## Development Status
@@ -191,6 +194,7 @@ UVM-inspired Python verification environment with:
 - **Phase 18** (complete): Packet rewrite actions — `rewrite:` field with 7 operations (set_dst_mac, set_src_mac, set_vlan_id, set_ttl, dec_ttl, set_src_ip, set_dst_ip) for NAT, TTL management, MAC rewriting, VLAN modification; RewriteAction data model + YAML validation, frame parser ip_ttl/ip_checksum extraction, rewrite_lut.v (generated ROM), packet_rewrite.v (RTL byte substitution with RFC 1624 checksum), templatized AXI top, simulator rewrite info, estimate/lint (LINT018-019)/formal/diff support, 23 examples, 250 unit + 181 integration = 431 tests
 - **Phase 19** (complete): Platform integration targets — `--target opennic` and `--target corundum` generate drop-in NIC wrappers with 512↔8-bit width converters, OpenNIC tuser metadata passthrough, Corundum PTP timestamp + reset inversion, estimate/lint (LINT020-021)/synth support, 25 examples, 256 unit + 195 integration = 451 tests
 - **Phase 20** (complete): cocotb 2.0 migration — pin cocotb>=2.0.0 + cocotb-tools, fix `.value.integer` → `int(.value)`, generate `run_sim.py` runner scripts (cocotb_tools.runner API) alongside Makefiles for all test modes (main, AXI, conntrack, rate limiter, dynamic), platform target width converter inclusion in runners, CI updated to use runner, 260 unit + 204 integration = 464 tests
+- **Phase 21** (complete): DSCP/ECN QoS matching + DSCP rewrite — ip_dscp (6-bit, 0-63) and ip_ecn (2-bit, 0-3) match fields from IPv4 TOS byte, set_dscp rewrite action (QoS remarking) with RFC 1624 incremental checksum, frame parser TOS extraction, qos_classification.yaml example (7 rules: EF/AF41/AF31/CS6/BE+ECT1/CS1→BE remark/ARP), LINT022 (DSCP/ECN without IPv4), SVA DSCP/ECN bounds assertions, Python scoreboard matching, 13 mutation types, all analysis tools updated, 275 unit + 216 integration = 491 tests
 
 ## Documentation
 - `README.md` — Project showcase and quick start

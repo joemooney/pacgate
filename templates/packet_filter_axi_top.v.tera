@@ -65,6 +65,8 @@ module packet_filter_axi_top #(
     wire [15:0] filter_ip_checksum;
     wire [31:0] filter_src_ip;
     wire [31:0] filter_dst_ip;
+    wire [5:0]  filter_ip_dscp;
+    wire [1:0]  filter_ip_ecn;
 
     // Packet filter core (generated from rules)
     packet_filter_top u_filter (
@@ -82,7 +84,9 @@ module packet_filter_axi_top #(
         .ip_ttl         (filter_ip_ttl),
         .ip_checksum    (filter_ip_checksum),
         .src_ip         (filter_src_ip),
-        .dst_ip         (filter_dst_ip)
+        .dst_ip         (filter_dst_ip),
+        .ip_dscp        (filter_ip_dscp),
+        .ip_ecn         (filter_ip_ecn)
     );
 
     // FIFO output (intermediate, before rewrite)
@@ -114,13 +118,14 @@ module packet_filter_axi_top #(
 
     // Rewrite LUT: maps rule_idx to rewrite parameters
     wire        rw_en;
-    wire [6:0]  rw_flags;
+    wire [7:0]  rw_flags;
     wire [47:0] rw_dst_mac;
     wire [47:0] rw_src_mac;
     wire [11:0] rw_vlan_id;
     wire [7:0]  rw_ttl;
     wire [31:0] rw_src_ip;
     wire [31:0] rw_dst_ip;
+    wire [5:0]  rw_dscp;
 
     rewrite_lut u_rewrite_lut (
         .rule_idx         (decision_rule_idx),
@@ -132,7 +137,8 @@ module packet_filter_axi_top #(
         .rewrite_vlan_id  (rw_vlan_id),
         .rewrite_ttl      (rw_ttl),
         .rewrite_src_ip   (rw_src_ip),
-        .rewrite_dst_ip   (rw_dst_ip)
+        .rewrite_dst_ip   (rw_dst_ip),
+        .rewrite_dscp     (rw_dscp)
     );
 
     // Packet rewrite engine: byte substitution between FIFO and output
@@ -155,11 +161,14 @@ module packet_filter_axi_top #(
         .rewrite_ttl     (rw_ttl),
         .rewrite_src_ip  (rw_src_ip),
         .rewrite_dst_ip  (rw_dst_ip),
+        .rewrite_dscp    (rw_dscp),
         .has_vlan        (filter_vlan_valid),
         .orig_ip_ttl     (filter_ip_ttl),
         .orig_ip_checksum(filter_ip_checksum),
         .orig_src_ip     (filter_src_ip),
-        .orig_dst_ip     (filter_dst_ip)
+        .orig_dst_ip     (filter_dst_ip),
+        .orig_ip_dscp    (filter_ip_dscp),
+        .orig_ip_ecn     (filter_ip_ecn)
     );
 
 {% else %}

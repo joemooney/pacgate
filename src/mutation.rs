@@ -197,6 +197,34 @@ pub fn generate_mutations(config: &FilterConfig) -> Vec<(Mutation, FilterConfig)
         }
     }
 
+    // Mutation 12: Remove ip_dscp
+    for (i, rule) in config.pacgate.rules.iter().enumerate() {
+        if !rule.is_stateful() && rule.match_criteria.ip_dscp.is_some() {
+            let mut mutated = config.clone();
+            mutated.pacgate.rules[i].match_criteria.ip_dscp = None;
+            mutations.push((Mutation {
+                name: format!("remove_ip_dscp_{}", rule.name),
+                description: format!("Remove ip_dscp match from rule '{}'", rule.name),
+                mutant_index: index,
+            }, mutated));
+            index += 1;
+        }
+    }
+
+    // Mutation 13: Remove ip_ecn
+    for (i, rule) in config.pacgate.rules.iter().enumerate() {
+        if !rule.is_stateful() && rule.match_criteria.ip_ecn.is_some() {
+            let mut mutated = config.clone();
+            mutated.pacgate.rules[i].match_criteria.ip_ecn = None;
+            mutations.push((Mutation {
+                name: format!("remove_ip_ecn_{}", rule.name),
+                description: format!("Remove ip_ecn match from rule '{}'", rule.name),
+                mutant_index: index,
+            }, mutated));
+            index += 1;
+        }
+    }
+
     mutations
 }
 
@@ -544,6 +572,58 @@ mod tests {
         let mutations = generate_mutations(&config);
         let rm = mutations.iter().find(|(m, _)| m.name.starts_with("remove_gtp_teid_")).unwrap();
         assert!(rm.1.pacgate.rules[0].match_criteria.gtp_teid.is_none());
+    }
+
+    #[test]
+    fn remove_ip_dscp_mutation() {
+        let config = FilterConfig {
+            pacgate: PacgateConfig {
+                version: "1.0".to_string(),
+                defaults: Defaults { action: Action::Drop },
+                rules: vec![
+                    StatelessRule {
+                        name: "dscp_rule".to_string(),
+                        priority: 100,
+                        match_criteria: MatchCriteria {
+                            ip_dscp: Some(46),
+                            ..Default::default()
+                        },
+                        action: Some(Action::Pass),
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
+                    },
+                ],
+                conntrack: None,
+            },
+        };
+        let mutations = generate_mutations(&config);
+        let rm = mutations.iter().find(|(m, _)| m.name.starts_with("remove_ip_dscp_")).unwrap();
+        assert!(rm.1.pacgate.rules[0].match_criteria.ip_dscp.is_none());
+    }
+
+    #[test]
+    fn remove_ip_ecn_mutation() {
+        let config = FilterConfig {
+            pacgate: PacgateConfig {
+                version: "1.0".to_string(),
+                defaults: Defaults { action: Action::Drop },
+                rules: vec![
+                    StatelessRule {
+                        name: "ecn_rule".to_string(),
+                        priority: 100,
+                        match_criteria: MatchCriteria {
+                            ip_ecn: Some(1),
+                            ..Default::default()
+                        },
+                        action: Some(Action::Pass),
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
+                    },
+                ],
+                conntrack: None,
+            },
+        };
+        let mutations = generate_mutations(&config);
+        let rm = mutations.iter().find(|(m, _)| m.name.starts_with("remove_ip_ecn_")).unwrap();
+        assert!(rm.1.pacgate.rules[0].match_criteria.ip_ecn.is_none());
     }
 
     #[test]

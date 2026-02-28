@@ -27,6 +27,12 @@ ___FPGA Packet Switch Verification Gateway___
 
 ---
 
+<p align="center">
+  <img src="docs/images/pacgate_familu.png" alt="PaciNet Family" width="300"/>
+</p>
+
+---
+
 ## What is PacGate?
 
 PacGate is an **FPGA packet filtering compiler** that turns YAML rule definitions into both **synthesizable Verilog hardware** and a **complete verification environment** — from a single specification.

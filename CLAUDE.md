@@ -10,13 +10,14 @@
 - **GTP-U tunnel**: gtp_teid matching (32-bit TEID after UDP:2152 detection)
 - **MPLS label stack**: mpls_label (20-bit), mpls_tc (3-bit), mpls_bos (1-bit bottom-of-stack)
 - **IGMP/MLD multicast**: igmp_type (IPv4 protocol 2), mld_type (ICMPv6 types 130-132)
+- **QoS matching**: ip_dscp (6-bit DSCP, 0-63), ip_ecn (2-bit ECN, 0-3) from IPv4 TOS byte
 - **Byte-offset matching**: raw byte inspection at any packet offset with value/mask (`byte_match`)
 - **Hierarchical State Machines**: nested states, variables (1-32 bit), guards, entry/exit/transition actions
 - **Mermaid import/export**: bidirectional stateDiagram-v2 conversion (`from-mermaid`, `to-mermaid`)
 - **Multi-port switch fabric**: N independent filter instances (`--ports N`)
 - **Connection tracking**: CRC-based hash table with timeout (`--conntrack`)
 - **Runtime flow tables**: register-based AXI-Lite-writable match entries with staging+commit atomicity (`--dynamic`)
-- **Packet rewrite actions**: set_dst_mac, set_src_mac, set_vlan_id, set_ttl, dec_ttl, set_src_ip, set_dst_ip (NAT, TTL management, MAC rewrite, VLAN modification)
+- **Packet rewrite actions**: set_dst_mac, set_src_mac, set_vlan_id, set_ttl, dec_ttl, set_src_ip, set_dst_ip, set_dscp (NAT, TTL management, MAC rewrite, VLAN modification, QoS remarking)
 - **Platform integration**: `--target opennic` and `--target corundum` generate drop-in NIC wrappers with 512↔8-bit width converters (~2 Gbps at 250MHz)
 - **cocotb 2.0 runner**: `run_sim.py` generated alongside Makefiles using `cocotb_tools.runner` API for programmatic, cross-platform simulation
 - **IPv6 matching**: src_ipv6, dst_ipv6 (CIDR prefix), ipv6_next_header
@@ -35,7 +36,7 @@
 - **HTML diff visualization**: color-coded side-by-side HTML diff report (`diff --html`)
 - **Performance benchmarking**: compile time, simulation throughput (pkts/sec), LUT/FF scaling curves (`bench` subcommand)
 - Rule overlap and shadow detection with warnings
-- **Full-stack scoreboard**: Python reference model matches L2/L3/L4/IPv6/VXLAN/GTP-U/MPLS/IGMP/MLD/byte-match fields
+- **Full-stack scoreboard**: Python reference model matches L2/L3/L4/IPv6/VXLAN/GTP-U/MPLS/IGMP/MLD/DSCP/ECN/byte-match fields
 - **Directed L3/L4 tests**: generated tests construct proper IPv4/IPv6/TCP/UDP headers
 - **Byte-match simulation**: software simulator evaluates byte_match rules with raw_bytes
 - **Enhanced formal**: SVA assertions for IPv6 CIDR, port range, rate limiter enforcement, byte-match, GTP-U/MPLS/IGMP/MLD prerequisite + bounds assertions with protocol cover statements
@@ -45,7 +46,7 @@
 - **Coverage-directed closure**: CoverageDirector wired into test loop with XML export
 - **Boundary test generation**: auto-derived CIDR/port boundary tests + formally-derived negative tests
 - **Enhanced property tests**: 9 Hypothesis-based tests including CIDR/port/IPv6 boundary checks
-- `lint` subcommand for best-practice analysis and security checks (21 lint rules)
+- `lint` subcommand for best-practice analysis and security checks (22 lint rules)
 - FPGA resource estimation (LUTs/FFs for Artix-7) + timing/pipeline analysis
 - `--json` flag on compile/validate/estimate/diff/formal/lint for CI/scripting integration
 - `diff` subcommand for rule set change management
@@ -59,8 +60,8 @@
 - Coverage XML export with merge support across runs
 - Coverage-directed test generation (verification/coverage_driven.py)
 - Enhanced overlap detection with CIDR containment and port range analysis
-- 25 real-world YAML examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite, OpenNIC, Corundum)
-- 260 Rust unit tests + 204 integration tests = 464 total, 47 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
+- 26 real-world YAML examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite, OpenNIC, Corundum)
+- 275 Rust unit tests + 216 integration tests = 491 total, 47 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
 
 ## Architecture
 ```
@@ -143,6 +144,7 @@ pacgate simulate rules.yaml --packet "..." --stateful                # Stateful 
 pacgate simulate rules.yaml --packet "gtp_teid=12345"               # GTP-U tunnel simulation
 pacgate simulate rules.yaml --packet "mpls_label=1000,mpls_bos=1"   # MPLS label simulation
 pacgate simulate rules.yaml --packet "igmp_type=0x11"               # IGMP multicast simulation
+pacgate simulate rules.yaml --packet "ethertype=0x0800,ip_dscp=46"  # DSCP QoS classification simulation
 pacgate simulate rules.yaml --packet "..." --pcap-out trace.pcap     # Write simulation results to PCAP
 pacgate pcap-analyze capture.pcap      # Analyze PCAP + suggest rules
 pacgate pcap-analyze capture.pcap -m whitelist --output-yaml rules.yaml  # Generate rules from PCAP
@@ -166,7 +168,7 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 ```
 
 ## Key Files
-- `src/model.rs` — Data model (Action, MatchCriteria, ByteMatch, Ipv6Prefix, RateLimit, FsmVariable, HSM types, ConntrackConfig, GtpTeid, MplsLabel, IgmpType, MldType, RewriteAction)
+- `src/model.rs` — Data model (Action, MatchCriteria, ByteMatch, Ipv6Prefix, RateLimit, FsmVariable, HSM types, ConntrackConfig, GtpTeid, MplsLabel, IgmpType, MldType, IpDscp, IpEcn, RewriteAction)
 - `src/loader.rs` — YAML loading + validation + CIDR/port overlap detection + HSM/byte_match/conntrack validation
 - `src/verilog_gen.rs` — Tera-based Verilog generation (L2/L3/L4/IPv6/VXLAN/GTP-U/MPLS/IGMP/MLD/byte-match, HSM flattening, multiport)
 - `src/cocotb_gen.rs` — cocotb test harness + AXI tests + property test generation
@@ -207,7 +209,7 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 ## Design Decisions
 - Decision output is **latched** (stays valid until next pkt_sof)
 - Rules sorted by priority (highest first); priority encoder is if/else chain
-- Frame parser handles 802.1Q VLAN, IPv4, IPv6, TCP/UDP, VXLAN, GTP-U, MPLS, IGMP, MLD
+- Frame parser handles 802.1Q VLAN, IPv4, IPv6, TCP/UDP, VXLAN, GTP-U, MPLS, IGMP, MLD, DSCP/ECN
 - Stateless evaluation is combinational (O(1) clock cycles)
 - Stateful rules use registered FSM with 32-bit timeout counters
 - HSM flattening: composite states converted to flat "parent_child" Verilog states (max 4 levels)
@@ -225,7 +227,7 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 - Rate limiting: token-bucket per rule (parameterized PPS/BURST, 16-bit tokens, 32-bit refill counter)
 - Packet simulation: software reference model evaluates rules without hardware toolchain
 - Overlap detection: CIDR prefix containment + port range analysis (not just string equality)
-- Packet rewrite is in-place only (no frame length changes); supports MAC/VLAN/TTL/IP substitution with RFC 1624 incremental checksum
+- Packet rewrite is in-place only (no frame length changes); supports MAC/VLAN/TTL/IP/DSCP substitution with RFC 1624 incremental checksum
 - AXI-Stream modules are hand-written (not generated) since they are infrastructure
 - Platform targets (OpenNIC/Corundum): 512↔8-bit width converters limit V1 to ~2 Gbps; suitable for 1GbE/dev/prototyping
 - OpenNIC wrapper preserves tuser_size/tuser_src/tuser_dst metadata; Corundum wrapper inverts active-high reset and passes PTP timestamp
@@ -257,3 +259,4 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 - **Phase 18**: Complete — Packet rewrite actions: `rewrite:` field with 7 operations (set_dst_mac, set_src_mac, set_vlan_id, set_ttl, dec_ttl, set_src_ip, set_dst_ip), RewriteAction model + YAML validation, frame parser ip_ttl/ip_checksum extraction, rewrite_lut.v (generated ROM), packet_rewrite.v (RTL byte substitution with RFC 1624 checksum), templatized AXI top with rewrite wiring, simulator rewrite info, estimate/lint (LINT018-019)/formal/diff support, rewrite_actions.yaml example, 250 unit + 181 integration = 431 tests
 - **Phase 19**: Complete — Platform integration targets: `--target opennic` and `--target corundum` generate drop-in NIC wrappers with 512↔8-bit width converters (axis_512_to_8.v, axis_8_to_512.v), OpenNIC tuser metadata passthrough, Corundum PTP timestamp + reset inversion, estimate/lint (LINT020-021)/synth support, 2 platform examples, CI jobs, 256 unit + 195 integration = 451 tests
 - **Phase 20**: Complete — cocotb 2.0 migration: pin cocotb>=2.0.0 + cocotb-tools, fix `.value.integer` → `int(.value)`, generate `run_sim.py` runner scripts (cocotb_tools.runner API) alongside Makefiles for all test modes (main, AXI, conntrack, rate limiter, dynamic), platform target width converter inclusion, CI updated to use runner, 260 unit + 204 integration = 464 tests
+- **Phase 21**: Complete — DSCP/ECN QoS matching + DSCP rewrite: ip_dscp (6-bit, 0-63) and ip_ecn (2-bit, 0-3) match fields from IPv4 TOS byte, set_dscp rewrite action with RFC 1624 incremental checksum, frame parser TOS byte extraction, qos_classification.yaml example (7 rules: EF/AF41/AF31/CS6/BE+ECT1/remark/ARP), LINT022 (DSCP/ECN without IPv4), SVA DSCP/ECN bounds assertions, Python scoreboard DSCP/ECN matching, 13 mutation types, 275 unit + 216 integration = 491 tests

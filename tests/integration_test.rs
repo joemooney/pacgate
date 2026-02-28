@@ -3741,3 +3741,177 @@ pacgate:
         .unwrap();
     assert!(!output.status.success(), "validate should reject ip_ecn=4");
 }
+
+#[test]
+fn compile_dscp_rewrite() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("dscp_rewrite.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: remark_cs1
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_dscp: 8
+      action: pass
+      rewrite:
+        set_dscp: 0
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["compile", yaml.to_str().unwrap(), "-o", tmp.path().to_str().unwrap(), "--axi"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let lut_v = std::fs::read_to_string(tmp.path().join("rtl/rewrite_lut.v")).unwrap();
+    assert!(lut_v.contains("rewrite_dscp"), "rewrite_lut.v should contain rewrite_dscp port");
+}
+
+#[test]
+fn simulate_ecn_match() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("ecn.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: ecn_ect1
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_ecn: 1
+      action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["simulate", yaml.to_str().unwrap(), "--packet", "ethertype=0x0800,ip_ecn=1"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "simulate failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("pass") || stdout.contains("PASS"), "should match ECN rule");
+}
+
+#[test]
+fn lint_dscp_no_ipv4() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("dscp_no_ipv4.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: dscp_no_etype
+      priority: 100
+      match:
+        ip_dscp: 46
+      action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["lint", yaml.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "lint failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("LINT022"), "should warn about DSCP without IPv4 ethertype");
+}
+
+#[test]
+fn estimate_dscp_rule() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("dscp_est.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: ef_traffic
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_dscp: 46
+      action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["estimate", yaml.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "estimate failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("luts") || stdout.contains("LUTs"), "estimate should report LUT count");
+}
+
+#[test]
+fn diff_dscp_change() {
+    let tmp = tempfile::tempdir().unwrap();
+    let old = tmp.path().join("old.yaml");
+    let new = tmp.path().join("new.yaml");
+    std::fs::write(&old, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: qos_rule
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_dscp: 46
+      action: pass
+"#).unwrap();
+    std::fs::write(&new, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: qos_rule
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_dscp: 34
+      action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["diff", old.to_str().unwrap(), new.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "diff failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("ip_dscp"), "diff should report ip_dscp change");
+}
+
+#[test]
+fn formal_dscp_ecn() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("dscp_formal.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: ef_traffic
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_dscp: 46
+      action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["formal", yaml.to_str().unwrap(), "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "formal failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let assertions = std::fs::read_to_string(tmp.path().join("formal/assertions.sv")).unwrap();
+    assert!(assertions.contains("p_dscp_bounds"), "assertions should contain DSCP bounds check");
+    assert!(assertions.contains("p_ecn_bounds"), "assertions should contain ECN bounds check");
+}

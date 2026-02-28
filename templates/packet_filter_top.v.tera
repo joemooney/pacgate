@@ -23,7 +23,9 @@ module packet_filter_top (
     output wire [7:0]  ip_ttl,
     output wire [15:0] ip_checksum,
     output wire [31:0] src_ip,
-    output wire [31:0] dst_ip
+    output wire [31:0] dst_ip,
+    output wire [5:0]  ip_dscp,
+    output wire [1:0]  ip_ecn
 {% endif %}
 );
 
@@ -81,8 +83,10 @@ module packet_filter_top (
     wire        mld_valid;
 
     // Frame parser outputs — QoS (DSCP/ECN)
+{% if not has_rewrite %}
     wire [5:0]  ip_dscp;
     wire [1:0]  ip_ecn;
+{% endif %}
 
     wire        fields_valid;
 

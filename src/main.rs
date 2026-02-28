@@ -1355,6 +1355,8 @@ fn generate_rule_documentation(
         if let Some(bos) = rule.match_criteria.mpls_bos { match_fields.push(format!("mpls_bos: {}", bos)); }
         if let Some(igmp) = rule.match_criteria.igmp_type { match_fields.push(format!("igmp_type: 0x{:02X}", igmp)); }
         if let Some(mld) = rule.match_criteria.mld_type { match_fields.push(format!("mld_type: {}", mld)); }
+        if let Some(dscp) = rule.match_criteria.ip_dscp { match_fields.push(format!("ip_dscp: {}", dscp)); }
+        if let Some(ecn) = rule.match_criteria.ip_ecn { match_fields.push(format!("ip_ecn: {}", ecn)); }
         if let Some(ref bms) = rule.match_criteria.byte_match {
             for bm in bms {
                 match_fields.push(format!("byte_match: offset={}, value={}, mask={}", bm.offset, bm.value, bm.mask.as_deref().unwrap_or("FF")));
@@ -1591,6 +1593,8 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
     let mut uses_mpls_bos = 0;
     let mut uses_igmp_type = 0;
     let mut uses_mld_type = 0;
+    let mut uses_ip_dscp = 0;
+    let mut uses_ip_ecn = 0;
     let mut match_field_count = Vec::new();
 
     for rule in rules.iter().filter(|r| !r.is_stateful()) {
@@ -1613,6 +1617,8 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
         if mc.mpls_bos.is_some() { uses_mpls_bos += 1; count += 1; }
         if mc.igmp_type.is_some() { uses_igmp_type += 1; count += 1; }
         if mc.mld_type.is_some() { uses_mld_type += 1; count += 1; }
+        if mc.ip_dscp.is_some() { uses_ip_dscp += 1; count += 1; }
+        if mc.ip_ecn.is_some() { uses_ip_ecn += 1; count += 1; }
         match_field_count.push(count);
     }
 
@@ -1654,6 +1660,8 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
             "mpls_bos": uses_mpls_bos,
             "igmp_type": uses_igmp_type,
             "mld_type": uses_mld_type,
+            "ip_dscp": uses_ip_dscp,
+            "ip_ecn": uses_ip_ecn,
         },
         "match_complexity": {
             "avg_fields_per_rule": format!("{:.1}", avg_fields),
@@ -1691,6 +1699,8 @@ fn print_stats(config: &model::FilterConfig) {
     let mut uses_mpls_label = 0usize;
     let mut uses_igmp_type = 0usize;
     let mut uses_mld_type = 0usize;
+    let mut uses_ip_dscp = 0usize;
+    let mut uses_ip_ecn = 0usize;
 
     for rule in rules.iter().filter(|r| !r.is_stateful()) {
         let mc = &rule.match_criteria;
@@ -1703,6 +1713,8 @@ fn print_stats(config: &model::FilterConfig) {
         if mc.mpls_label.is_some() { uses_mpls_label += 1; }
         if mc.igmp_type.is_some() { uses_igmp_type += 1; }
         if mc.mld_type.is_some() { uses_mld_type += 1; }
+        if mc.ip_dscp.is_some() { uses_ip_dscp += 1; }
+        if mc.ip_ecn.is_some() { uses_ip_ecn += 1; }
     }
 
     // Priority spacing
@@ -1737,6 +1749,12 @@ fn print_stats(config: &model::FilterConfig) {
         }
         if uses_mld_type > 0 {
             println!("  mld_type   [{:>2}/{}] |{}|", uses_mld_type, stateless, bar(uses_mld_type));
+        }
+        if uses_ip_dscp > 0 {
+            println!("  ip_dscp    [{:>2}/{}] |{}|", uses_ip_dscp, stateless, bar(uses_ip_dscp));
+        }
+        if uses_ip_ecn > 0 {
+            println!("  ip_ecn     [{:>2}/{}] |{}|", uses_ip_ecn, stateless, bar(uses_ip_ecn));
         }
     }
     println!();
@@ -1800,6 +1818,8 @@ fn print_dot_graph(config: &model::FilterConfig) {
             if let Some(bos) = mc.mpls_bos { criteria.push(format!("mpls_bos={}", bos)); }
             if let Some(igmp) = mc.igmp_type { criteria.push(format!("igmp_type=0x{:02X}", igmp)); }
             if let Some(mld) = mc.mld_type { criteria.push(format!("mld_type={}", mld)); }
+            if let Some(dscp) = mc.ip_dscp { criteria.push(format!("ip_dscp={}", dscp)); }
+            if let Some(ecn) = mc.ip_ecn { criteria.push(format!("ip_ecn={}", ecn)); }
         } else {
             criteria.push("(FSM states)".to_string());
         }
@@ -1946,6 +1966,14 @@ fn diff_rules(old: &model::FilterConfig, new: &model::FilterConfig, json: bool) 
                 if old_rule.match_criteria.mld_type != new_rule.match_criteria.mld_type {
                     changes.push(format!("mld_type: {:?} -> {:?}",
                         old_rule.match_criteria.mld_type, new_rule.match_criteria.mld_type));
+                }
+                if old_rule.match_criteria.ip_dscp != new_rule.match_criteria.ip_dscp {
+                    changes.push(format!("ip_dscp: {:?} -> {:?}",
+                        old_rule.match_criteria.ip_dscp, new_rule.match_criteria.ip_dscp));
+                }
+                if old_rule.match_criteria.ip_ecn != new_rule.match_criteria.ip_ecn {
+                    changes.push(format!("ip_ecn: {:?} -> {:?}",
+                        old_rule.match_criteria.ip_ecn, new_rule.match_criteria.ip_ecn));
                 }
                 if old_rule.is_stateful() != new_rule.is_stateful() {
                     changes.push(format!("type: {} -> {}",
@@ -2261,6 +2289,20 @@ fn generate_diff_html(
                         "new_value": format!("{:?}", new_rule.match_criteria.mld_type),
                     }));
                 }
+                if old_rule.match_criteria.ip_dscp != new_rule.match_criteria.ip_dscp {
+                    changes.push(serde_json::json!({
+                        "field": "ip_dscp",
+                        "old_value": format!("{:?}", old_rule.match_criteria.ip_dscp),
+                        "new_value": format!("{:?}", new_rule.match_criteria.ip_dscp),
+                    }));
+                }
+                if old_rule.match_criteria.ip_ecn != new_rule.match_criteria.ip_ecn {
+                    changes.push(serde_json::json!({
+                        "field": "ip_ecn",
+                        "old_value": format!("{:?}", old_rule.match_criteria.ip_ecn),
+                        "new_value": format!("{:?}", new_rule.match_criteria.ip_ecn),
+                    }));
+                }
 
                 if changes.is_empty() {
                     unchanged_count += 1;
@@ -2399,6 +2441,8 @@ fn compute_resource_estimate(config: &model::FilterConfig) -> serde_json::Value 
             if mc.mpls_bos.is_some() { fields += 1; }    // 1-bit comparator
             if mc.igmp_type.is_some() { fields += 1; }   // 8-bit comparator
             if mc.mld_type.is_some() { fields += 1; }    // 8-bit comparator
+            if mc.ip_dscp.is_some() { fields += 1; }     // 6-bit comparator
+            if mc.ip_ecn.is_some() { fields += 1; }      // 2-bit comparator
             rule_luts += 10 + fields * 12;
         }
     }
@@ -2510,6 +2554,8 @@ fn print_resource_estimate(config: &model::FilterConfig) {
             if mc.mpls_bos.is_some() { fields += 1; }
             if mc.igmp_type.is_some() { fields += 1; }
             if mc.mld_type.is_some() { fields += 1; }
+            if mc.ip_dscp.is_some() { fields += 1; }
+            if mc.ip_ecn.is_some() { fields += 1; }
             rule_luts += 10 + fields * 12;
         }
     }
@@ -3055,6 +3101,23 @@ fn lint_rules(config: &model::FilterConfig, warnings: &[String], dynamic: bool, 
             "message": format!("Platform target '{}' implicitly enables AXI-Stream mode", platform.name()),
             "suggestion": "No action needed; --axi is automatically enabled for platform targets"
         }));
+    }
+
+    // Check 22: DSCP/ECN without IPv4 ethertype prerequisite
+    for rule in &config.pacgate.rules {
+        if rule.match_criteria.uses_dscp_ecn() {
+            let has_ipv4 = rule.match_criteria.ethertype.as_ref()
+                .map(|et| model::parse_ethertype(et).ok() == Some(0x0800))
+                .unwrap_or(false);
+            if !has_ipv4 {
+                findings.push(serde_json::json!({
+                    "level": "warning",
+                    "code": "LINT022",
+                    "message": format!("Rule '{}' uses ip_dscp/ip_ecn without ethertype: 0x0800 — may match non-IPv4 traffic", rule.name),
+                    "suggestion": "Add 'ethertype: \"0x0800\"' to ensure DSCP/ECN matching is only applied to IPv4 packets"
+                }));
+            }
+        }
     }
 
     // Include overlap warnings

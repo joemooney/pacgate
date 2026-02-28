@@ -287,6 +287,30 @@ module packet_filter_assertions (
     cover property (@(posedge clk) disable iff (!rst_n) parsed_mld_valid);
 {% endif %}
 
+{% if has_dscp_ecn_rules %}
+    // ── DSCP/ECN Assertions ───────────────────────────────────────
+    // DSCP is 6-bit (0-63), ECN is 2-bit (0-3) from IPv4 TOS byte.
+
+    // DSCP bounds: ip_dscp must be <= 63
+    property p_dscp_bounds;
+        @(posedge clk) disable iff (!rst_n)
+        fields_valid |-> (parsed_ip_dscp <= 6'd63);
+    endproperty
+    assert property (p_dscp_bounds)
+        else $error("ASSERT FAIL: ip_dscp out of bounds (> 63)");
+
+    // ECN bounds: ip_ecn must be <= 3
+    property p_ecn_bounds;
+        @(posedge clk) disable iff (!rst_n)
+        fields_valid |-> (parsed_ip_ecn <= 2'd3);
+    endproperty
+    assert property (p_ecn_bounds)
+        else $error("ASSERT FAIL: ip_ecn out of bounds (> 3)");
+
+    // Cover: EF traffic (DSCP=46) detected
+    cover property (@(posedge clk) disable iff (!rst_n) fields_valid && parsed_ip_dscp == 6'd46);
+{% endif %}
+
 {% if has_rewrite_rules %}
     // ── Rewrite Engine Assertions ───────────────────────────────────
     // Rewrite must only be applied when the packet is passed (not dropped).

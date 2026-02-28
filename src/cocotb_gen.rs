@@ -103,6 +103,15 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
             tc.insert("mld_type".to_string(), format!("0x{:02X}", mld));
             tc.insert("has_mld".to_string(), "true".to_string());
         }
+        // DSCP/ECN fields
+        if let Some(dscp) = rule.match_criteria.ip_dscp {
+            tc.insert("ip_dscp".to_string(), dscp.to_string());
+            tc.insert("has_dscp_ecn".to_string(), "true".to_string());
+        }
+        if let Some(ecn) = rule.match_criteria.ip_ecn {
+            tc.insert("ip_ecn".to_string(), ecn.to_string());
+            tc.insert("has_dscp_ecn".to_string(), "true".to_string());
+        }
         test_cases.push(tc);
     }
 
@@ -285,6 +294,13 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         }
         if let Some(mld) = rule.match_criteria.mld_type {
             sr.insert("mld_type".to_string(), format!("0x{:02X}", mld));
+        }
+        // DSCP/ECN scoreboard fields
+        if let Some(dscp) = rule.match_criteria.ip_dscp {
+            sr.insert("ip_dscp".to_string(), dscp.to_string());
+        }
+        if let Some(ecn) = rule.match_criteria.ip_ecn {
+            sr.insert("ip_ecn".to_string(), ecn.to_string());
         }
         scoreboard_rules.push(sr);
     }

@@ -1,0 +1,66 @@
+# qos_classification.yaml — QoS-aware packet classification with DSCP/ECN matching
+# Demonstrates DiffServ DSCP classes and ECN-based filtering + DSCP remarking
+
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+
+  rules:
+    # EF (Expedited Forwarding) — DSCP 46 — voice/real-time traffic
+    - name: allow_ef
+      priority: 700
+      match:
+        ethertype: "0x0800"
+        ip_dscp: 46
+      action: pass
+
+    # AF41 (Assured Forwarding class 4, low drop) — DSCP 34 — video
+    - name: allow_af41
+      priority: 600
+      match:
+        ethertype: "0x0800"
+        ip_dscp: 34
+      action: pass
+
+    # AF31 (Assured Forwarding class 3, low drop) — DSCP 26 — streaming
+    - name: allow_af31
+      priority: 500
+      match:
+        ethertype: "0x0800"
+        ip_dscp: 26
+      action: pass
+
+    # CS6 (Class Selector 6) — DSCP 48 — network control
+    - name: allow_cs6
+      priority: 400
+      match:
+        ethertype: "0x0800"
+        ip_dscp: 48
+      action: pass
+
+    # Best-effort with ECT(1) — congestion-aware default traffic
+    - name: allow_be_ect1
+      priority: 300
+      match:
+        ethertype: "0x0800"
+        ip_dscp: 0
+        ip_ecn: 1
+      action: pass
+
+    # Remark CS1 (scavenger/background) to BE (best effort) — QoS demotion
+    - name: remark_cs1_to_be
+      priority: 200
+      match:
+        ethertype: "0x0800"
+        ip_dscp: 8
+      action: pass
+      rewrite:
+        set_dscp: 0
+
+    # Allow ARP for connectivity
+    - name: allow_arp
+      priority: 100
+      match:
+        ethertype: "0x0806"
+      action: pass

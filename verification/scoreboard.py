@@ -99,6 +99,9 @@ class Rule:
     # IGMP/MLD multicast
     igmp_type: Optional[int] = None
     mld_type: Optional[int] = None
+    # QoS fields (IPv4 TOS byte)
+    ip_dscp: Optional[int] = None
+    ip_ecn: Optional[int] = None
 
     def matches(self, frame: EthernetFrame, extracted: Optional[dict] = None) -> bool:
         """Check if this rule matches the given frame.
@@ -215,6 +218,16 @@ class Rule:
         if self.mld_type is not None:
             pkt_mld = extracted.get("mld_type")
             if pkt_mld is None or pkt_mld != self.mld_type:
+                return False
+
+        # QoS DSCP/ECN matching
+        if self.ip_dscp is not None:
+            pkt_dscp = extracted.get("ip_dscp")
+            if pkt_dscp is None or pkt_dscp != self.ip_dscp:
+                return False
+        if self.ip_ecn is not None:
+            pkt_ecn = extracted.get("ip_ecn")
+            if pkt_ecn is None or pkt_ecn != self.ip_ecn:
                 return False
 
         return True

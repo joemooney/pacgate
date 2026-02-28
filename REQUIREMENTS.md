@@ -755,8 +755,8 @@
 - REQ-1270: rewrite_actions.yaml example demonstrating NAT, TTL, MAC, VLAN rewrite [IMPLEMENTED]
 
 ### Testing
-- REQ-1280: 260 Rust unit tests (through Phase 20) [IMPLEMENTED]
-- REQ-1281: 204 Rust integration tests (through Phase 20) [IMPLEMENTED]
+- REQ-1280: 275 Rust unit tests (through Phase 21) [IMPLEMENTED]
+- REQ-1281: 216 Rust integration tests (through Phase 21) [IMPLEMENTED]
 - REQ-1282: 47 Python scoreboard unit tests (through Phase 18) [IMPLEMENTED]
 
 ## Phase 19: Platform Integration Targets
@@ -831,3 +831,68 @@
 ### Testing
 - REQ-1440: 4 unit tests for runner template rendering (sources, toplevel, imports, SIM override) [IMPLEMENTED]
 - REQ-1441: 9 integration tests for runner generation across all compile modes [IMPLEMENTED]
+
+## Phase 21: DSCP/ECN QoS Matching + DSCP Rewrite [IMPLEMENTED]
+
+### Match Fields
+- REQ-1500: Match on IPv4 DSCP (6-bit, 0-63) from TOS byte bits [7:2] [IMPLEMENTED]
+- REQ-1501: Match on IPv4 ECN (2-bit, 0-3) from TOS byte bits [1:0] [IMPLEMENTED]
+- REQ-1502: DSCP value range validation (0-63, reject >=64) [IMPLEMENTED]
+- REQ-1503: ECN value range validation (0-3, reject >=4) [IMPLEMENTED]
+- REQ-1504: DSCP/ECN shadow detection in rule overlap analysis [IMPLEMENTED]
+- REQ-1505: DSCP/ECN overlap detection in rule overlap analysis [IMPLEMENTED]
+
+### Frame Parser
+- REQ-1510: Extract DSCP from IPv4 TOS byte (byte 1 of IP header, bits [7:2]) [IMPLEMENTED]
+- REQ-1511: Extract ECN from IPv4 TOS byte (byte 1 of IP header, bits [1:0]) [IMPLEMENTED]
+- REQ-1512: ip_dscp and ip_ecn output ports on frame_parser module [IMPLEMENTED]
+
+### Rewrite Actions
+- REQ-1520: set_dscp rewrite action (6-bit DSCP value, 0-63) for QoS remarking [IMPLEMENTED]
+- REQ-1521: set_dscp range validation (0-63) and IPv4 ethertype prerequisite [IMPLEMENTED]
+- REQ-1522: DSCP rewrite with RFC 1624 incremental IP checksum update [IMPLEMENTED]
+- REQ-1523: DSCP byte substitution at IP header byte 1 (TOS), preserving ECN bits [IMPLEMENTED]
+- REQ-1524: rewrite_flags bit [7] = set_dscp, expanded from 7-bit to 8-bit [IMPLEMENTED]
+- REQ-1525: rewrite_lut generates set_dscp output port and per-entry DSCP values [IMPLEMENTED]
+
+### Verilog Generation
+- REQ-1530: has_dscp_ecn global protocol flag controlling conditional port generation [IMPLEMENTED]
+- REQ-1531: DSCP/ECN condition generation: `ip_dscp == 6'dN`, `ip_ecn == 2'dN` [IMPLEMENTED]
+- REQ-1532: Conditional DSCP/ECN ports in rule_match and rule_fsm templates [IMPLEMENTED]
+- REQ-1533: Wire DSCP/ECN from frame_parser through packet_filter_top to rule matchers [IMPLEMENTED]
+- REQ-1534: AXI top template wires DSCP rewrite signals (rewrite_dscp, orig_ip_dscp, orig_ip_ecn) [IMPLEMENTED]
+
+### Simulation
+- REQ-1540: SimPacket supports ip_dscp and ip_ecn fields [IMPLEMENTED]
+- REQ-1541: parse_packet_spec handles "ip_dscp=N" and "ip_ecn=N" with range validation [IMPLEMENTED]
+- REQ-1542: match_criteria_against_packet evaluates DSCP and ECN matching [IMPLEMENTED]
+- REQ-1543: SimRewrite supports set_dscp field [IMPLEMENTED]
+
+### Verification
+- REQ-1550: Python scoreboard Rule dataclass includes ip_dscp and ip_ecn fields [IMPLEMENTED]
+- REQ-1551: Scoreboard matches() evaluates DSCP/ECN from extracted dict [IMPLEMENTED]
+- REQ-1552: cocotb test case generation includes DSCP/ECN fields [IMPLEMENTED]
+- REQ-1553: cocotb scoreboard rules include DSCP/ECN fields [IMPLEMENTED]
+- REQ-1554: SVA DSCP bounds assertion (ip_dscp <= 63) [IMPLEMENTED]
+- REQ-1555: SVA ECN bounds assertion (ip_ecn <= 3) [IMPLEMENTED]
+- REQ-1556: SVA cover property for EF traffic (DSCP=46) [IMPLEMENTED]
+
+### Tools
+- REQ-1560: LINT022 — DSCP/ECN without IPv4 ethertype prerequisite warning [IMPLEMENTED]
+- REQ-1561: Estimate includes DSCP (6-bit) and ECN (2-bit) comparator LUT costs [IMPLEMENTED]
+- REQ-1562: Diff compares ip_dscp and ip_ecn fields (text and JSON modes) [IMPLEMENTED]
+- REQ-1563: Doc includes ip_dscp and ip_ecn in HTML field listing [IMPLEMENTED]
+- REQ-1564: Stats tracks ip_dscp and ip_ecn field usage counts [IMPLEMENTED]
+- REQ-1565: Graph includes ip_dscp and ip_ecn in DOT node labels [IMPLEMENTED]
+
+### Mutation Testing
+- REQ-1570: remove_ip_dscp mutation type [IMPLEMENTED]
+- REQ-1571: remove_ip_ecn mutation type [IMPLEMENTED]
+
+### Example
+- REQ-1580: qos_classification.yaml example with 7 rules (EF, AF41, AF31, CS6, BE+ECT1, CS1→BE remark, ARP) [IMPLEMENTED]
+- REQ-1581: CI simulate matrix includes qos_classification example [IMPLEMENTED]
+
+### Testing
+- REQ-1590: 15 unit tests for DSCP/ECN (8 model + 4 loader + 2 simulator + 2 mutation) [IMPLEMENTED]
+- REQ-1591: 12 integration tests for DSCP/ECN (compile, simulate, validate, lint, estimate, diff, formal) [IMPLEMENTED]

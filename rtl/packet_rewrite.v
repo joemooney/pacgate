@@ -13,13 +13,14 @@
 //   dec_ttl      — decrement TTL by 1
 //   set_src_ip   — IP header bytes 12-15 (offset 26-29 or 30-33 with VLAN)
 //   set_dst_ip   — IP header bytes 16-19 (offset 30-33 or 34-37 with VLAN)
+//   set_dscp     — IP header byte 1 TOS[7:2] (DSCP remarking, preserves ECN)
 //
-// IP checksum is incrementally updated (RFC 1624) when TTL or IP
-// addresses are modified.
+// IP checksum is incrementally updated (RFC 1624) when TTL, IP
+// addresses, or DSCP are modified.
 //
 // rewrite_flags encoding:
 //   [0]=set_dst_mac [1]=set_src_mac [2]=set_vlan_id
-//   [3]=set_ttl [4]=dec_ttl [5]=set_src_ip [6]=set_dst_ip
+//   [3]=set_ttl [4]=dec_ttl [5]=set_src_ip [6]=set_dst_ip [7]=set_dscp
 
 module packet_rewrite (
     input  wire        clk,
@@ -39,20 +40,23 @@ module packet_rewrite (
 
     // Rewrite parameters (latched on decision_valid by top-level)
     input  wire        rewrite_en,
-    input  wire [6:0]  rewrite_flags,
+    input  wire [7:0]  rewrite_flags,
     input  wire [47:0] rewrite_dst_mac,
     input  wire [47:0] rewrite_src_mac,
     input  wire [11:0] rewrite_vlan_id,
     input  wire [7:0]  rewrite_ttl,
     input  wire [31:0] rewrite_src_ip,
     input  wire [31:0] rewrite_dst_ip,
+    input  wire [5:0]  rewrite_dscp,
 
     // Parsed fields from frame_parser (for incremental checksum)
     input  wire        has_vlan,
     input  wire [7:0]  orig_ip_ttl,
     input  wire [15:0] orig_ip_checksum,
     input  wire [31:0] orig_src_ip,
-    input  wire [31:0] orig_dst_ip
+    input  wire [31:0] orig_dst_ip,
+    input  wire [5:0]  orig_ip_dscp,
+    input  wire [1:0]  orig_ip_ecn
 );
 
     // Flag decode
@@ -63,6 +67,7 @@ module packet_rewrite (
     wire flag_dec_ttl = rewrite_en & rewrite_flags[4];
     wire flag_src_ip  = rewrite_en & rewrite_flags[5];
     wire flag_dst_ip  = rewrite_en & rewrite_flags[6];
+    wire flag_dscp    = rewrite_en & rewrite_flags[7];
 
     // IP header base offset: 14 (no VLAN) or 18 (with VLAN)
     wire [10:0] ip_base = has_vlan ? 11'd18 : 11'd14;
@@ -103,6 +108,14 @@ module packet_rewrite (
             cksum_delta = cksum_delta
                 + {16'd0, ~orig_dst_ip[31:16]} + {16'd0, rewrite_dst_ip[31:16]}
                 + {16'd0, ~orig_dst_ip[15:0]}  + {16'd0, rewrite_dst_ip[15:0]};
+        end
+
+        // DSCP change (TOS byte: DSCP[7:2] + ECN[1:0], in 16-bit word {ver_ihl, tos} at IP+0..1)
+        // Only DSCP changes; ECN is preserved from original
+        if (flag_dscp) begin
+            cksum_delta = cksum_delta
+                + {16'd0, ~{8'h00, {orig_ip_dscp, orig_ip_ecn}}}
+                + {16'd0,  {8'h00, {rewrite_dscp, orig_ip_ecn}}};
         end
     end
 
@@ -189,7 +202,7 @@ module packet_rewrite (
                 end
 
                 // IP checksum: IP header bytes 10-11
-                if (flag_set_ttl || flag_dec_ttl || flag_src_ip || flag_dst_ip) begin
+                if (flag_set_ttl || flag_dec_ttl || flag_src_ip || flag_dst_ip || flag_dscp) begin
                     if (byte_pos == ip_base + 11'd10) begin
                         m_axis_tdata <= new_checksum[15:8];
                     end
@@ -204,6 +217,13 @@ module packet_rewrite (
                     if (byte_pos == ip_base + 11'd13) m_axis_tdata <= rewrite_src_ip[23:16];
                     if (byte_pos == ip_base + 11'd14) m_axis_tdata <= rewrite_src_ip[15:8];
                     if (byte_pos == ip_base + 11'd15) m_axis_tdata <= rewrite_src_ip[7:0];
+                end
+
+                // DSCP: IP header byte 1 (TOS) — replace DSCP[7:2], preserve ECN[1:0]
+                if (flag_dscp) begin
+                    if (byte_pos == ip_base + 11'd1) begin
+                        m_axis_tdata <= {rewrite_dscp, s_axis_tdata[1:0]};
+                    end
                 end
 
                 // Destination IP: IP header bytes 16-19

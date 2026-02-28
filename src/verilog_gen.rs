@@ -396,7 +396,7 @@ fn generate_rewrite_lut(tera: &Tera, rtl_dir: &Path, rules: &[crate::model::Stat
             map.insert("index".to_string(), serde_json::json!(idx));
 
             let flags = rw.flags();
-            map.insert("flags_bin".to_string(), serde_json::json!(format!("{:07b}", flags)));
+            map.insert("flags_bin".to_string(), serde_json::json!(format!("{:08b}", flags)));
 
             // MAC addresses
             if let Some(ref mac) = rw.set_dst_mac {
@@ -444,6 +444,14 @@ fn generate_rewrite_lut(tera: &Tera, rtl_dir: &Path, rules: &[crate::model::Stat
                 map.insert("dst_ip".to_string(), serde_json::json!(prefix.to_verilog_value()));
             } else {
                 map.insert("has_dst_ip".to_string(), serde_json::json!(false));
+            }
+
+            // DSCP
+            if let Some(dscp) = rw.set_dscp {
+                map.insert("has_dscp".to_string(), serde_json::json!(true));
+                map.insert("dscp".to_string(), serde_json::json!(dscp));
+            } else {
+                map.insert("has_dscp".to_string(), serde_json::json!(false));
             }
 
             map

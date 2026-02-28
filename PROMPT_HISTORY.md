@@ -1769,3 +1769,50 @@ Implement Phase 19: Platform Integration Targets. Add `--target opennic` and `--
 
 ### Git Operations
 - Commits pushed to https://github.com/joemooney/pacgate.git
+
+---
+
+## Session: Phase 21 — DSCP/ECN QoS Matching + DSCP Rewrite (2026-02-27)
+
+### Prompt
+"Implement Phase 21: DSCP/ECN QoS Matching + DSCP Rewrite" — Add ip_dscp (6-bit, 0-63) and ip_ecn (2-bit, 0-3) match fields from IPv4 TOS byte, set_dscp rewrite action for QoS remarking, qos_classification example, and full tool/verification support.
+
+### Actions Taken
+
+#### Batch 1: Model + Parser + Match Generation + Simulator
+1. **src/model.rs** — Added ip_dscp/ip_ecn to MatchCriteria, uses_dscp_ecn() helper, set_dscp to RewriteAction, flags bit [7], 8 unit tests
+2. **src/loader.rs** — DSCP 0-63 / ECN 0-3 validation, set_dscp IPv4 prereq, shadow/overlap, 4 unit tests
+3. **rtl/frame_parser.v** — ip_dscp/ip_ecn outputs, TOS byte extraction at S_IP_HDR byte_cnt 6'd1
+4. **src/verilog_gen.rs** — has_dscp_ecn flag, condition generation, template context (3 places)
+5. **Templates** — Conditional DSCP/ECN ports in rule_match, rule_fsm, packet_filter_top
+6. **src/simulator.rs** — SimPacket DSCP/ECN, parse/match, SimRewrite set_dscp, 2 unit tests
+7. **tests/integration_test.rs** — 6 tests (compile, simulate, validate)
+
+#### Batch 2: Rewrite + Verification + Tools + Docs
+8. **rtl/packet_rewrite.v** — rewrite_flags [7:0], DSCP rewrite + checksum + byte substitution
+9. **templates/rewrite_lut.v.tera** — 8-bit flags, rewrite_dscp output
+10. **src/verilog_gen.rs** — {:08b} flags, set_dscp LUT entry
+11. **templates/packet_filter_axi_top.v.tera** — DSCP rewrite wiring
+12. **templates/packet_filter_top.v.tera** — Conditional wire declarations for has_rewrite
+13. **verification/scoreboard.py** — ip_dscp/ip_ecn in Rule + matches()
+14. **src/cocotb_gen.rs** — DSCP/ECN in test cases + scoreboard rules
+15. **src/formal_gen.rs** — DSCP/ECN assertions context
+16. **templates/assertions.sv.tera** — DSCP bounds, ECN bounds, EF cover
+17. **src/mutation.rs** — remove_ip_dscp/ip_ecn mutations, 2 unit tests
+18. **src/main.rs** — LINT022, estimate, diff, doc, stats, graph updates
+19. **rules/examples/qos_classification.yaml** — 7 QoS rules
+20. **.github/workflows/ci.yml** — qos_classification in simulate matrix
+21. **tests/integration_test.rs** — 6 more tests (rewrite, ecn, lint, estimate, diff, formal)
+22. **Documentation** — CLAUDE.md, OVERVIEW.md, REQUIREMENTS.md, PROMPT_HISTORY.md
+
+### Bug Fixes
+- Fixed duplicate ip_dscp/ip_ecn wire declarations (output port + internal wire conflict)
+- Fixed print_stats missing variable declarations for ip_dscp/ip_ecn
+
+### Test Results
+- 275 unit tests — all PASS
+- 216 integration tests — all PASS
+- Total: 491 Rust tests (from 464 in Phase 20)
+
+### Git Operations
+- Commits pushed to https://github.com/joemooney/pacgate.git
