@@ -363,3 +363,12 @@ jobs:
 
       - name: Lint generated Verilog (stateful FSM)
         run: iverilog -g2012 -o /dev/null gen/rtl/*.v rtl/*.v
+
+      - name: Compile dynamic_firewall with --dynamic
+        run: cargo run --release -- compile rules/examples/dynamic_firewall.yaml --dynamic -o gen_dynamic/
+
+      - name: Lint dynamic flow table Verilog
+        run: iverilog -g2012 -o /dev/null gen_dynamic/rtl/*.v rtl/*.v
+
+      - name: Lint dynamic_firewall with --dynamic
+        run: cargo run --release -- lint rules/examples/dynamic_firewall.yaml --dynamic --json

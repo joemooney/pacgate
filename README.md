@@ -228,11 +228,12 @@ AXI-Stream In ──► AXI Adapter ──► Frame Parser ──► Rule Matche
 - **AXI-Stream Wrapper**: Standard interface for integration with existing FPGA designs
 - **Rate Limiter**: Per-rule token-bucket rate limiting (`--rate-limit`)
 - **Connection Tracking**: CRC-based hash table with timeout (`--conntrack`)
+- **Runtime Flow Tables**: Register-based match entries with AXI-Lite CRUD + atomic commit (`--dynamic`)
 - **Rule Counters**: Per-rule 64-bit packet/byte counters with AXI-Lite readout (`--counters`)
 
 ## Examples
 
-PacGate ships with 21 production-quality examples covering real-world deployment scenarios:
+PacGate ships with 22 production-quality examples covering real-world deployment scenarios:
 
 | Example | Scenario | Rules | Mode |
 |---------|----------|-------|------|
@@ -257,6 +258,7 @@ PacGate ships with 21 production-quality examples covering real-world deployment
 | [`gtp_5g.yaml`](rules/examples/gtp_5g.yaml) | GTP-U 5G mobile core (TEID) | 5 | Whitelist |
 | [`mpls_network.yaml`](rules/examples/mpls_network.yaml) | MPLS provider network (label stack) | 5 | Whitelist |
 | [`multicast.yaml`](rules/examples/multicast.yaml) | IGMP/MLD multicast filtering | 5 | Whitelist |
+| [`dynamic_firewall.yaml`](rules/examples/dynamic_firewall.yaml) | Runtime-updateable flow table (`--dynamic`) | 5 | Whitelist |
 
 ### Try an Example
 
@@ -313,6 +315,8 @@ COMPILE FLAGS:
   --ports N      Generate multi-port switch fabric (N parallel filters)
   --conntrack    Include connection tracking hash table RTL
   --rate-limit   Include per-rule token-bucket rate limiter RTL
+  --dynamic      Runtime-updateable flow table (AXI-Lite writable, replaces static matchers)
+  --dynamic-entries N  Max flow table entries (1-256, default 16)
 
 SIMULATE FLAGS:
   --stateful     Enable rate-limit + connection tracking in software simulation
@@ -414,8 +418,8 @@ pacgate/
 
 | Metric | Value |
 |--------|-------|
-| Rust unit tests | 237 |
-| Rust integration tests | 151 |
+| Rust unit tests | 242 |
+| Rust integration tests | 165 |
 | Python scoreboard tests | 47 |
 | cocotb simulation tests | 13+ |
 | Conntrack cocotb tests | 5 |
@@ -423,10 +427,10 @@ pacgate/
 | Functional coverage | 85%+ |
 | Hypothesis property tests | 9 strategies (incl. GTP-U/MPLS/IGMP/MLD) |
 | SVA formal assertions | 20+ properties (protocol prerequisites, bounds, cover) |
-| Lint rules | 15 (LINT001-015) |
+| Lint rules | 17 (LINT001-017) |
 | Mutation strategies | 11 YAML-level + MCY Verilog-level |
 | Rule overlap detection | Compile-time CIDR/port range analysis |
-| YAML examples | 21 production-quality |
+| YAML examples | 22 production-quality |
 
 ## Technology Stack
 

@@ -668,7 +668,7 @@ These platforms use ASIC-based or ARM-based approaches. PacGate targets the FPGA
 
 **High Priority** — strong market demand + feasible:
 
-1. **Runtime-updateable flow tables**: `--dynamic` flag generates AXI-Lite-writable match tables. Bridges the biggest gap vs. P4. Enables rule updates without recompilation.
+1. **Runtime-updateable flow tables**: `--dynamic` flag generates AXI-Lite-writable match tables. Bridges the biggest gap vs. P4. Enables rule updates without recompilation. **[IMPLEMENTED — Phase 17]**
 
 2. **Packet rewrite actions**: Add `rewrite` actions (set VLAN, modify TTL, NAT src/dst, VLAN push/pop) to complement pass/drop. Transforms PacGate from pure filter to lightweight packet processor.
 

@@ -15,6 +15,7 @@
 - **Mermaid import/export**: bidirectional stateDiagram-v2 conversion (`from-mermaid`, `to-mermaid`)
 - **Multi-port switch fabric**: N independent filter instances (`--ports N`)
 - **Connection tracking**: CRC-based hash table with timeout (`--conntrack`)
+- **Runtime flow tables**: register-based AXI-Lite-writable match entries with staging+commit atomicity (`--dynamic`)
 - **IPv6 matching**: src_ipv6, dst_ipv6 (CIDR prefix), ipv6_next_header
 - **Packet simulation**: software dry-run with `simulate` subcommand (no hardware needed)
 - **Stateful simulation**: `--stateful` flag enables rate-limit + conntrack in software dry-run
@@ -41,7 +42,7 @@
 - **Coverage-directed closure**: CoverageDirector wired into test loop with XML export
 - **Boundary test generation**: auto-derived CIDR/port boundary tests + formally-derived negative tests
 - **Enhanced property tests**: 9 Hypothesis-based tests including CIDR/port/IPv6 boundary checks
-- `lint` subcommand for best-practice analysis and security checks (15 lint rules)
+- `lint` subcommand for best-practice analysis and security checks (17 lint rules)
 - FPGA resource estimation (LUTs/FFs for Artix-7) + timing/pipeline analysis
 - `--json` flag on compile/validate/estimate/diff/formal/lint for CI/scripting integration
 - `diff` subcommand for rule set change management
@@ -55,8 +56,8 @@
 - Coverage XML export with merge support across runs
 - Coverage-directed test generation (verification/coverage_driven.py)
 - Enhanced overlap detection with CIDR containment and port range analysis
-- 21 real-world YAML examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast)
-- 237 Rust unit tests + 151 integration tests = 388 total, 47 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
+- 22 real-world YAML examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic)
+- 242 Rust unit tests + 165 integration tests = 407 total, 47 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
 
 ## Architecture
 ```
@@ -85,6 +86,9 @@ Mermaid .md --> pacgate from-mermaid --> YAML rules
   - `axi_stream_adapter` — AXI-Stream to pkt_* interface bridge
   - `packet_filter_top` — core filter (above)
   - `store_forward_fifo` — frame buffering, forwards/discards based on decision
+- `packet_filter_dynamic_top` — dynamic mode top-level (generated, `--dynamic`)
+  - `frame_parser` — same hand-written parser
+  - `flow_table` — register-based match entries with AXI-Lite CRUD (generated from template)
 - `rule_counters` — per-rule 64-bit packet/byte counters (rtl/rule_counters.v)
 - `axi_lite_csr` — AXI4-Lite register interface for counter readout (rtl/axi_lite_csr.v)
 - `conntrack_table` — connection tracking hash table (rtl/conntrack_table.v)
@@ -104,6 +108,8 @@ pacgate compile rules.yaml --counters  # Include per-rule counters + AXI-Lite CS
 pacgate compile rules.yaml --ports 4   # Multi-port (4 independent filters)
 pacgate compile rules.yaml --conntrack # Include connection tracking RTL
 pacgate compile rules.yaml --rate-limit # Include rate limiter RTL
+pacgate compile rules.yaml --dynamic   # Runtime-updateable flow table (AXI-Lite)
+pacgate compile rules.yaml --dynamic --dynamic-entries 32  # 32-entry flow table
 pacgate compile rules.yaml --json      # JSON output with warnings
 pacgate validate rules.yaml            # Validate YAML only (no output)
 pacgate init [rules.yaml]              # Create starter rules file
@@ -169,10 +175,10 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 - `rtl/packet_filter_axi_top.v` — AXI-Stream top-level integrating all modules
 - `rtl/conntrack_table.v` — Connection tracking hash table with CRC hash + timeout
 - `rtl/rate_limiter.v` — Token-bucket rate limiter (parameterized PPS, BURST)
-- `templates/*.tera` — 19 Tera templates (+ synth scripts, rate limiter TB, HTML docs, diff report, MCY config)
+- `templates/*.tera` — 22 Tera templates (+ synth scripts, rate limiter TB, HTML docs, diff report, MCY config, flow table, dynamic top)
 - `templates/diff_report.html.tera` — HTML diff visualization template (color-coded additions/removals/modifications)
 - `verification/` — Python verification framework (packet, scoreboard, coverage, driver, properties, coverage_driven, test_scoreboard)
-- `rules/examples/` — 21 YAML examples
+- `rules/examples/` — 22 YAML examples
 - `rules/templates/` — 7 rule template YAML snippets
 - `.github/workflows/ci.yml` — GitHub Actions CI pipeline
 
@@ -222,3 +228,4 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 - **Phase 14**: Complete — Protocol verification completeness: GTP-U/MPLS/IGMP/MLD in Python scoreboard + packet factory + test templates (directed+random) + SVA formal assertions + shadow/overlap detection + stats/graph/diff/estimate/doc; fixed diff_rules() L3/L4/IPv6 bug
 - **Phase 15**: Complete — Verification depth & tool completeness: reachability analysis with protocol fields + stateful rule tracking, 11 mutation types (6 new: widen_src_ip, shift_dst_port, remove_gtp_teid/mpls_label/igmp_type/vxlan_vni), 5 new coverage coverpoints (tunnel_type, mpls_present, igmp_type_range, mld_type_range, gtp_teid_range), fixed conntrack test assertions, 4 Hypothesis strategies (GTP-U/MPLS/IGMP/MLD frames), 9 property checks wired in runner, LINT013-015 (GTP/MPLS/IGMP/MLD prerequisite checks), CI simulate matrix expanded to 8 examples
 - **Phase 16**: Complete — Simulator completeness + verification depth: rate-limit simulation (token-bucket in software), conntrack simulation (5-tuple hash + reverse lookup), --stateful CLI flag, strengthened SVA (rate-limit enforcement, GTP/MPLS/IGMP/MLD prereq + bounds assertions, protocol cover statements), protocol property tests wired into generated test files, byte_match in HTML docs, CI expansion (conntrack-simulate, formal-generate, rate-limit-simulate jobs)
+- **Phase 17**: Complete — Runtime-updateable flow tables: `--dynamic` flag replaces static per-rule matchers with register-based `flow_table.v` (AXI-Lite writable, staging+commit atomicity), YAML rules as initial values, `--dynamic-entries N` (1-256), cocotb tests (6 AXI-Lite CRUD tests), estimate/lint/formal support (LINT016-017), dynamic_firewall.yaml example, 242 unit + 165 integration = 407 tests

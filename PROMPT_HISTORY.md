@@ -1546,3 +1546,64 @@ Review and update all documentation/management files to reflect Phase 16 complet
 - 2 commits pushed to https://github.com/joemooney/pacgate.git
   - `cc17e1b` — Update all documentation to reflect Phase 16 completion
   - `719fd1b` — Update RESEARCH.md with market analysis and Phase 16 status
+
+## Session 18 — 2026-02-27: Phase 17 — Runtime-Updateable Flow Tables
+
+### Goal
+Implement `--dynamic` compile flag that replaces static per-rule matchers with a register-based `flow_table.v` module supporting AXI-Lite runtime updates. YAML rules become initial values loaded at reset; software can add/modify/delete entries via staging registers + atomic COMMIT without FPGA re-synthesis.
+
+### Actions Taken
+
+**Batch 1: CLI Flag + Validation + Data Model**
+1. Added `--dynamic` (bool) and `--dynamic-entries` (u16, default 16) flags to Compile command
+2. Added `validate_dynamic()` to `src/loader.rs` — rejects FSM, conntrack, IPv6/GTP/MPLS/IGMP/MLD/byte_match/VXLAN
+3. Added 5 unit tests + 3 integration tests for validation
+
+**Batch 2: flow_table.v.tera RTL Template**
+4. Created `templates/flow_table.v.tera` (~400 lines) — register-based flow table module with:
+   - Per-entry register arrays for all V1 match fields (ethertype, MAC, VLAN, IP, ports)
+   - Parallel combinational matching with generate block
+   - Priority encoder (highest-priority matching entry wins)
+   - AXI-Lite write FSM with staging registers + COMMIT for atomic updates
+   - Initial values from YAML rules via Tera loop
+   - `{% raw %}...{% endraw %}` to escape Verilog bit replication syntax
+
+**Batch 3: Verilog Generation Integration**
+5. Added `generate_dynamic()` to `src/verilog_gen.rs` — renders flow_table.v.tera and dynamic top
+6. Added `rule_to_flow_entry()` — converts YAML rules to template data with pre-formatted hex strings
+7. Created `templates/packet_filter_dynamic_top.v.tera` — wires frame_parser → flow_table
+8. Added 4 integration tests (AXI-Lite ports, initial values, entry count, default action)
+
+**Batch 4: cocotb Tests + Example**
+9. Created `templates/test_flow_table.py.tera` with 6 cocotb tests (initial rules, modify entry, add entry, disable entry, commit atomicity, priority ordering)
+10. Added `generate_dynamic_tests()` to `src/cocotb_gen.rs`
+11. Created `rules/examples/dynamic_firewall.yaml` (5 L2/L3/L4 rules)
+12. Added 4 integration tests
+
+**Batch 5: Estimator, Lint, Formal Updates**
+13. Added `--dynamic`/`--dynamic-entries` to Estimate and Lint commands
+14. Added `compute_dynamic_estimate()` — per-entry ~30 LUTs + ~295 FFs
+15. Added LINT016 (warn >64 entries) and LINT017 (V1 field limitations info)
+16. Added `--dynamic`/`--dynamic-entries` to Formal command
+17. Updated formal handler to call `generate_with_dynamic()`
+18. Added dynamic SVA assertions to `assertions.sv.tera` (rule idx bounds, decision stability, cover points)
+19. Added 3 integration tests (estimate, lint, formal)
+
+**Batch 6: Documentation + CI**
+20. Updated CLAUDE.md — feature summary, architecture, CLI commands, key files, status
+21. Updated OVERVIEW.md — Phase 17 entry
+22. Updated REQUIREMENTS.md — 25 new requirements (REQ-1100 to REQ-1162)
+23. Updated docs/management/roadmap.md — Phase 17 section + milestones
+24. Updated README.md — features, examples table (22), CLI reference (--dynamic flags), quality metrics
+25. Updated docs/RESEARCH.md — marked runtime flow tables as IMPLEMENTED
+26. Updated .github/workflows/ci.yml — dynamic compile, lint, and Verilog lint steps
+
+### Test Results
+- 242 unit tests passing
+- 165 integration tests passing (14 new dynamic tests)
+- 407 total Rust tests
+- 47 Python scoreboard tests unchanged
+
+### Git Operations
+- Commits pushed to https://github.com/joemooney/pacgate.git
+  - `bedabc0` — Phase 17 Batches 1-5: Runtime-updateable flow tables (--dynamic)

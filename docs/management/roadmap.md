@@ -13,22 +13,22 @@ Make FPGA packet filter development as easy as writing a YAML config file, with 
 
 ```
 2026 Q1 ████████████████████████████████████████████████████████████████████████
-│ Phase 1:  Basic L2 filter (single rule, frame parser, cocotb tests)    DONE │
-│ Phase 2:  Multi-rule + coverage (7 rules, scoreboard, 85%+ coverage)   DONE │
-│ Phase 3:  Stateful FSM (sequence detection, timeout counters)          DONE │
-│ Phase 4:  Synthesis (AXI-Stream, Yosys, formal verification, property) DONE │
-│ Phase 5:  Docs + examples (12 examples, lint, workshops, license)      DONE │
-│ Phase 6:  L3/L4 matching (IPv4/TCP/UDP, counters, PCAP, VXLAN)        DONE │
-│ Phase 7:  Advanced (byte-match, HSM, Mermaid, multi-port, conntrack)   DONE │
-│ Phase 8:  IPv6 + simulation (IPv6, rate limiting, overlap detection)   DONE │
-│ Phase 9:  Analysis (PCAP analysis, synthesis gen, mutation, templates)  DONE │
-│ Phase 10: Verification (full-stack scoreboard, directed L3/L4, formal) DONE │
-│ Phase 11: Reachability, PCAP output, benchmarking, HTML diff           DONE │
-│ Phase 12: Protocols (GTP-U, MPLS, IGMP/MLD)                           DONE │
-│ Phase 13: Verification framework (coverage closure, MCY, boundary)     DONE │
-│ Phase 14: Protocol verification (scoreboard, factory, SVA, overlap)    DONE │
-│ Phase 15: Verification depth (reachability, mutations, Hypothesis, CI) DONE │
-│ Phase 16: Simulator completeness (rate-limit, conntrack, --stateful)   DONE │
+│ Phase 1:  Basic L2 filter (single rule, frame parser, cocotb tests)    DONE  │
+│ Phase 2:  Multi-rule + coverage (7 rules, scoreboard, 85%+ coverage)   DONE  │
+│ Phase 3:  Stateful FSM (sequence detection, timeout counters)          DONE  │
+│ Phase 4:  Synthesis (AXI-Stream, Yosys, formal verification, property) DONE  │
+│ Phase 5:  Docs + examples (12 examples, lint, workshops, license)      DONE  │
+│ Phase 6:  L3/L4 matching (IPv4/TCP/UDP, counters, PCAP, VXLAN)         DONE  │
+│ Phase 7:  Advanced (byte-match, HSM, Mermaid, multi-port, conntrack)   DONE  │
+│ Phase 8:  IPv6 + simulation (IPv6, rate limiting, overlap detection)   DONE  │
+│ Phase 9:  Analysis (PCAP analysis, synthesis gen, mutation, templates) DONE  │
+│ Phase 10: Verification (full-stack scoreboard, directed L3/L4, formal) DONE  │
+│ Phase 11: Reachability, PCAP output, benchmarking, HTML diff           DONE  │
+│ Phase 12: Protocols (GTP-U, MPLS, IGMP/MLD)                            DONE  │
+│ Phase 13: Verification framework (coverage closure, MCY, boundary)     DONE  │
+│ Phase 14: Protocol verification (scoreboard, factory, SVA, overlap)    DONE  │
+│ Phase 15: Verification depth (reachability, mutations, Hypothesis, CI) DONE  │
+│ Phase 16: Simulator completeness (rate-limit, conntrack, --stateful)   DONE  │
 ████████████████████████████████████████████████████████████████████████████████
 
 Future
@@ -156,6 +156,17 @@ Future
 - byte_match in HTML documentation output
 - CI expansion (conntrack simulate, formal generate, rate-limit simulate)
 
+### Phase 17: Runtime-Updateable Flow Tables (COMPLETE)
+- `--dynamic` compile flag: register-based flow table replaces static per-rule matchers
+- `--dynamic-entries N` flag: configurable entry count (1-256, default 16)
+- `flow_table.v` RTL: parallel match, priority encoder, AXI-Lite CRUD, staging+commit atomicity
+- Initial values from YAML rules loaded at reset; software updates at runtime
+- Validation: rejects FSM, conntrack, IPv6/GTP/MPLS/IGMP/MLD/byte_match/VXLAN (V1 scope)
+- cocotb tests: 6 tests covering initial rules, AXI-Lite modify/add/disable, commit atomicity, priority
+- Estimate, lint (LINT016-017), formal (SVA bounds+stability) support for dynamic mode
+- `dynamic_firewall.yaml` example (22 total examples)
+- 242 unit + 165 integration = 407 Rust tests
+
 ## Key Milestones
 
 | Milestone | Status |
@@ -169,4 +180,5 @@ Future
 | GTP-U + MPLS + IGMP/MLD | DONE |
 | Full verification completeness (388 Rust + 47 Python tests) | DONE |
 | Stateful software simulation (rate-limit + conntrack) | DONE |
-| 21 production-quality examples | DONE |
+| Runtime-updateable flow tables (--dynamic) | DONE |
+| 22 production-quality examples | DONE |

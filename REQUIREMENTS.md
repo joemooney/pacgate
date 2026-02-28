@@ -655,3 +655,49 @@
 - REQ-1070: 237 Rust unit tests (through Phase 16) [IMPLEMENTED]
 - REQ-1071: 151 Rust integration tests (through Phase 16) [IMPLEMENTED]
 - REQ-1072: 47 Python scoreboard unit tests (through Phase 16) [IMPLEMENTED]
+
+## Phase 17: Runtime-Updateable Flow Tables
+
+### CLI Flags
+- REQ-1100: `--dynamic` compile flag replaces static per-rule matchers with register-based flow table [IMPLEMENTED]
+- REQ-1101: `--dynamic-entries N` flag sets max flow table entries (1-256, default 16) [IMPLEMENTED]
+- REQ-1102: `--dynamic` incompatible with stateful/FSM rules (compile-time error) [IMPLEMENTED]
+- REQ-1103: `--dynamic` incompatible with `--conntrack` (compile-time error) [IMPLEMENTED]
+- REQ-1104: `--dynamic` V1 scope: reject IPv6, GTP-U, MPLS, IGMP/MLD, byte_match, VXLAN rules [IMPLEMENTED]
+
+### Flow Table RTL
+- REQ-1110: flow_table.v module with NUM_ENTRIES parameter (register-based match entries) [IMPLEMENTED]
+- REQ-1111: Per-entry match fields: ethertype, dst_mac, src_mac, vlan_id, ip_protocol, src_ip, dst_ip, src/dst port range [IMPLEMENTED]
+- REQ-1112: Per-entry valid, action, priority registers [IMPLEMENTED]
+- REQ-1113: Parallel combinational matching across all entries (O(1) latency) [IMPLEMENTED]
+- REQ-1114: Priority encoder selects highest-priority matching entry [IMPLEMENTED]
+- REQ-1115: AXI-Lite write interface with staging registers + COMMIT for atomic updates [IMPLEMENTED]
+- REQ-1116: AXI-Lite read interface for entry inspection [IMPLEMENTED]
+- REQ-1117: Initial values loaded from YAML rules at reset [IMPLEMENTED]
+
+### Dynamic Top-Level
+- REQ-1120: packet_filter_dynamic_top.v wires frame_parser → flow_table (no per-rule matchers) [IMPLEMENTED]
+- REQ-1121: Same packet interface as static mode (drop-in compatible) [IMPLEMENTED]
+- REQ-1122: AXI-Lite port passthrough for flow table updates [IMPLEMENTED]
+
+### cocotb Tests
+- REQ-1130: test_initial_rules — verify YAML rules work after reset [IMPLEMENTED]
+- REQ-1131: test_axi_lite_modify_entry — modify entry via AXI-Lite, verify new behavior [IMPLEMENTED]
+- REQ-1132: test_add_new_entry — enable previously-invalid entry [IMPLEMENTED]
+- REQ-1133: test_disable_entry — set valid=0, verify no match [IMPLEMENTED]
+- REQ-1134: test_commit_atomicity — partial staging doesn't take effect until commit [IMPLEMENTED]
+- REQ-1135: test_priority_ordering — higher priority entry wins [IMPLEMENTED]
+
+### Estimator, Lint, Formal
+- REQ-1140: `estimate --dynamic` shows per-entry LUT/FF resource usage [IMPLEMENTED]
+- REQ-1141: LINT016 warns when --dynamic-entries > 64 (high resource usage) [IMPLEMENTED]
+- REQ-1142: LINT017 info message about V1 field limitations [IMPLEMENTED]
+- REQ-1143: `formal --dynamic` generates SVA assertions for rule index bounds, decision stability [IMPLEMENTED]
+
+### Example
+- REQ-1150: dynamic_firewall.yaml example with 5 L2/L3/L4 rules [IMPLEMENTED]
+
+### Testing
+- REQ-1160: 242 Rust unit tests (through Phase 17) [IMPLEMENTED]
+- REQ-1161: 165 Rust integration tests (through Phase 17) [IMPLEMENTED]
+- REQ-1162: 47 Python scoreboard unit tests (through Phase 17) [IMPLEMENTED]
