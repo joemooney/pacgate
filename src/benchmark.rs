@@ -53,6 +53,7 @@ fn synthetic_config(num_rules: usize) -> FilterConfig {
             fsm: None,
             ports: None,
             rate_limit: None,
+            rewrite: None,
         });
     }
     FilterConfig {

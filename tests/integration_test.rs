@@ -2797,3 +2797,91 @@ fn dynamic_formal_assertions() {
     assert!(assertions.contains("p_dynamic_decision_stable"), "Missing dynamic decision stability assertion");
     assert!(tmp.path().join("formal/packet_filter.sby").exists(), "Missing SBY task file");
 }
+
+// --- Rewrite action tests (Phase 18) ---
+
+#[test]
+fn rewrite_validate_accepts_valid() {
+    let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: nat_outbound
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        src_ip: "10.0.0.0/8"
+      action: pass
+      rewrite:
+        set_src_ip: "203.0.113.1"
+        set_dst_mac: "00:11:22:33:44:55"
+        dec_ttl: true
+"#;
+    let tmp = tempfile::tempdir().unwrap();
+    let rules_path = tmp.path().join("rewrite.yaml");
+    std::fs::write(&rules_path, yaml).unwrap();
+    let output = pacgate_bin()
+        .args(["validate", rules_path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "Valid rewrite rejected: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn rewrite_reject_ttl_mutual_exclusion() {
+    let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: bad_rule
+      priority: 100
+      match:
+        ethertype: "0x0800"
+      action: pass
+      rewrite:
+        set_ttl: 64
+        dec_ttl: true
+"#;
+    let tmp = tempfile::tempdir().unwrap();
+    let rules_path = tmp.path().join("bad_rewrite.yaml");
+    std::fs::write(&rules_path, yaml).unwrap();
+    let output = pacgate_bin()
+        .args(["validate", rules_path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "Should reject mutually exclusive set_ttl + dec_ttl");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("mutually exclusive"), "Error should mention mutual exclusion: {}", stderr);
+}
+
+#[test]
+fn rewrite_reject_ip_rewrite_without_ipv4_match() {
+    let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: bad_nat
+      priority: 100
+      match:
+        ethertype: "0x0806"
+      action: pass
+      rewrite:
+        set_src_ip: "10.0.0.1"
+"#;
+    let tmp = tempfile::tempdir().unwrap();
+    let rules_path = tmp.path().join("bad_rewrite2.yaml");
+    std::fs::write(&rules_path, yaml).unwrap();
+    let output = pacgate_bin()
+        .args(["validate", rules_path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "Should reject IP rewrite without ethertype 0x0800");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("0x0800"), "Error should mention ethertype requirement: {}", stderr);
+}

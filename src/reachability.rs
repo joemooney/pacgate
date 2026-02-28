@@ -380,7 +380,7 @@ mod tests {
                     ..Default::default()
                 },
                 action: Some(Action::Pass),
-                rule_type: None, fsm: None, ports: None, rate_limit: None,
+                rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -403,7 +403,7 @@ mod tests {
                     ..Default::default()
                 },
                 action: Some(Action::Pass),
-                rule_type: None, fsm: None, ports: None, rate_limit: None,
+                rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -424,7 +424,7 @@ mod tests {
                     ..Default::default()
                 },
                 action: Some(Action::Pass),
-                rule_type: None, fsm: None, ports: None, rate_limit: None,
+                rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -446,7 +446,7 @@ mod tests {
                     ..Default::default()
                 },
                 action: Some(Action::Pass),
-                rule_type: None, fsm: None, ports: None, rate_limit: None,
+                rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -475,7 +475,7 @@ mod tests {
                     ..Default::default()
                 },
                 action: Some(Action::Pass),
-                rule_type: None, fsm: None, ports: None, rate_limit: None,
+                rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -496,7 +496,7 @@ mod tests {
                     ..Default::default()
                 },
                 action: Some(Action::Pass),
-                rule_type: None, fsm: None, ports: None, rate_limit: None,
+                rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -518,7 +518,7 @@ mod tests {
                     ..Default::default()
                 },
                 action: Some(Action::Pass),
-                rule_type: None, fsm: None, ports: None, rate_limit: None,
+                rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
             },
             StatelessRule {
                 name: "mld_rule".to_string(),
@@ -528,7 +528,7 @@ mod tests {
                     ..Default::default()
                 },
                 action: Some(Action::Pass),
-                rule_type: None, fsm: None, ports: None, rate_limit: None,
+                rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -553,13 +553,14 @@ mod tests {
                 }),
                 ports: None,
                 rate_limit: None,
+                rewrite: None,
             },
             StatelessRule {
                 name: "stateless_rule".to_string(),
                 priority: 90,
                 match_criteria: MatchCriteria::default(),
                 action: Some(Action::Pass),
-                rule_type: None, fsm: None, ports: None, rate_limit: None,
+                rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
             },
         ];
         let config = make_config(rules, Action::Drop);

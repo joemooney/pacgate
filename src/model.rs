@@ -303,6 +303,62 @@ pub struct FsmDefinition {
     pub variables: Option<Vec<FsmVariable>>,
 }
 
+// --- Packet rewrite actions ---
+
+/// In-place packet header rewrite actions applied after filtering
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct RewriteAction {
+    /// Overwrite destination MAC address (48-bit, format xx:xx:xx:xx:xx:xx)
+    #[serde(default)]
+    pub set_dst_mac: Option<String>,
+    /// Overwrite source MAC address (48-bit, format xx:xx:xx:xx:xx:xx)
+    #[serde(default)]
+    pub set_src_mac: Option<String>,
+    /// Overwrite VLAN ID (12-bit, 0-4095) — requires VLAN-tagged frame
+    #[serde(default)]
+    pub set_vlan_id: Option<u16>,
+    /// Set TTL to a fixed value (8-bit) — mutually exclusive with dec_ttl
+    #[serde(default)]
+    pub set_ttl: Option<u8>,
+    /// Decrement TTL by 1 — mutually exclusive with set_ttl
+    #[serde(default)]
+    pub dec_ttl: Option<bool>,
+    /// Overwrite source IPv4 address (dotted decimal, no CIDR)
+    #[serde(default)]
+    pub set_src_ip: Option<String>,
+    /// Overwrite destination IPv4 address (dotted decimal, no CIDR)
+    #[serde(default)]
+    pub set_dst_ip: Option<String>,
+}
+
+impl RewriteAction {
+    /// Returns true if no rewrite operations are specified
+    pub fn is_empty(&self) -> bool {
+        self.set_dst_mac.is_none()
+            && self.set_src_mac.is_none()
+            && self.set_vlan_id.is_none()
+            && self.set_ttl.is_none()
+            && (self.dec_ttl.is_none() || self.dec_ttl == Some(false))
+            && self.set_src_ip.is_none()
+            && self.set_dst_ip.is_none()
+    }
+
+    /// Returns the set of rewrite flags for Verilog generation
+    /// [0]=set_dst_mac [1]=set_src_mac [2]=set_vlan_id
+    /// [3]=set_ttl [4]=dec_ttl [5]=set_src_ip [6]=set_dst_ip
+    pub fn flags(&self) -> u8 {
+        let mut f: u8 = 0;
+        if self.set_dst_mac.is_some() { f |= 1 << 0; }
+        if self.set_src_mac.is_some() { f |= 1 << 1; }
+        if self.set_vlan_id.is_some() { f |= 1 << 2; }
+        if self.set_ttl.is_some() { f |= 1 << 3; }
+        if self.dec_ttl == Some(true) { f |= 1 << 4; }
+        if self.set_src_ip.is_some() { f |= 1 << 5; }
+        if self.set_dst_ip.is_some() { f |= 1 << 6; }
+        f
+    }
+}
+
 // --- Rate limiting ---
 
 /// Token-bucket rate limiter configuration
@@ -336,6 +392,9 @@ pub struct StatelessRule {
     /// Per-rule rate limiting (token bucket)
     #[serde(default)]
     pub rate_limit: Option<RateLimit>,
+    /// Packet rewrite actions (applied to passed packets in AXI output path)
+    #[serde(default)]
+    pub rewrite: Option<RewriteAction>,
 }
 
 impl StatelessRule {
@@ -346,6 +405,11 @@ impl StatelessRule {
     /// Get action (required for stateless, not for stateful)
     pub fn action(&self) -> Action {
         self.action.clone().unwrap_or(Action::Drop)
+    }
+
+    /// Returns true if this rule has any rewrite actions
+    pub fn has_rewrite(&self) -> bool {
+        self.rewrite.as_ref().map(|r| !r.is_empty()).unwrap_or(false)
     }
 }
 
@@ -752,6 +816,7 @@ mod tests {
             fsm: None,
             ports: None,
             rate_limit: None,
+            rewrite: None,
         };
         assert_eq!(rule.action(), Action::Drop);
     }
@@ -767,6 +832,7 @@ mod tests {
             fsm: None,
             ports: None,
             rate_limit: None,
+            rewrite: None,
         };
         assert_eq!(rule.action(), Action::Pass);
     }
@@ -782,6 +848,7 @@ mod tests {
             fsm: None,
             ports: None,
             rate_limit: None,
+            rewrite: None,
         };
         assert!(rule.is_stateful());
     }
@@ -797,6 +864,7 @@ mod tests {
             fsm: None,
             ports: None,
             rate_limit: None,
+            rewrite: None,
         };
         assert!(!rule.is_stateful());
     }
@@ -1077,5 +1145,127 @@ pacgate:
         let config: FilterConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(config.pacgate.rules[0].match_criteria.igmp_type, Some(22));
         assert_eq!(config.pacgate.rules[1].match_criteria.mld_type, Some(131));
+    }
+
+    // --- RewriteAction tests ---
+
+    #[test]
+    fn rewrite_action_default_is_empty() {
+        let rw = RewriteAction::default();
+        assert!(rw.is_empty());
+        assert_eq!(rw.flags(), 0);
+    }
+
+    #[test]
+    fn rewrite_action_flags_set_dst_mac() {
+        let rw = RewriteAction {
+            set_dst_mac: Some("00:11:22:33:44:55".to_string()),
+            ..Default::default()
+        };
+        assert!(!rw.is_empty());
+        assert_eq!(rw.flags(), 0b0000001);
+    }
+
+    #[test]
+    fn rewrite_action_flags_all() {
+        let rw = RewriteAction {
+            set_dst_mac: Some("00:11:22:33:44:55".to_string()),
+            set_src_mac: Some("aa:bb:cc:dd:ee:ff".to_string()),
+            set_vlan_id: Some(100),
+            set_ttl: Some(64),
+            dec_ttl: None,
+            set_src_ip: Some("10.0.0.1".to_string()),
+            set_dst_ip: Some("192.168.1.1".to_string()),
+        };
+        assert!(!rw.is_empty());
+        // flags: dst_mac=1, src_mac=2, vlan=4, set_ttl=8, src_ip=32, dst_ip=64
+        assert_eq!(rw.flags(), 0b1101111);
+    }
+
+    #[test]
+    fn rewrite_action_flags_dec_ttl() {
+        let rw = RewriteAction {
+            dec_ttl: Some(true),
+            ..Default::default()
+        };
+        assert!(!rw.is_empty());
+        assert_eq!(rw.flags(), 0b0010000);
+    }
+
+    #[test]
+    fn rewrite_action_dec_ttl_false_is_empty() {
+        let rw = RewriteAction {
+            dec_ttl: Some(false),
+            ..Default::default()
+        };
+        assert!(rw.is_empty());
+        assert_eq!(rw.flags(), 0);
+    }
+
+    #[test]
+    fn has_rewrite_true() {
+        let rule = StatelessRule {
+            name: "test".to_string(),
+            priority: 100,
+            match_criteria: MatchCriteria::default(),
+            action: Some(Action::Pass),
+            rule_type: None,
+            fsm: None,
+            ports: None,
+            rate_limit: None,
+            rewrite: Some(RewriteAction {
+                set_dst_mac: Some("00:11:22:33:44:55".to_string()),
+                ..Default::default()
+            }),
+        };
+        assert!(rule.has_rewrite());
+    }
+
+    #[test]
+    fn has_rewrite_false_none() {
+        let rule = StatelessRule {
+            name: "test".to_string(),
+            priority: 100,
+            match_criteria: MatchCriteria::default(),
+            action: Some(Action::Pass),
+            rule_type: None,
+            fsm: None,
+            ports: None,
+            rate_limit: None,
+            rewrite: None,
+        };
+        assert!(!rule.has_rewrite());
+    }
+
+    #[test]
+    fn deserialize_rewrite_action() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: nat_rule
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        src_ip: "10.0.0.0/8"
+      action: pass
+      rewrite:
+        set_src_ip: "203.0.113.1"
+        set_dst_mac: "00:11:22:33:44:55"
+        dec_ttl: true
+"#;
+        let config: FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let rule = &config.pacgate.rules[0];
+        assert!(rule.has_rewrite());
+        let rw = rule.rewrite.as_ref().unwrap();
+        assert_eq!(rw.set_src_ip.as_deref(), Some("203.0.113.1"));
+        assert_eq!(rw.set_dst_mac.as_deref(), Some("00:11:22:33:44:55"));
+        assert_eq!(rw.dec_ttl, Some(true));
+        assert!(rw.set_src_mac.is_none());
+        assert!(rw.set_vlan_id.is_none());
+        assert!(rw.set_ttl.is_none());
+        assert!(rw.set_dst_ip.is_none());
     }
 }

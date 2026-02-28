@@ -383,6 +383,7 @@ mod tests {
                         fsm: None,
                         ports: None,
                         rate_limit: None,
+                        rewrite: None,
                     },
                     StatelessRule {
                         name: "allow_ipv4".to_string(),
@@ -396,6 +397,7 @@ mod tests {
                         fsm: None,
                         ports: None,
                         rate_limit: None,
+                        rewrite: None,
                     },
                 ],
                 conntrack: None,
@@ -480,7 +482,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
                     },
                 ],
                 conntrack: None,
@@ -507,7 +509,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
                     },
                 ],
                 conntrack: None,
@@ -533,7 +535,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
                     },
                 ],
                 conntrack: None,
@@ -559,7 +561,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
                     },
                 ],
                 conntrack: None,

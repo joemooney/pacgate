@@ -817,6 +817,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
+                rewrite: None,
             },
             StatelessRule {
                 name: "allow_ipv4".to_string(),
@@ -830,6 +831,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
+                rewrite: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -855,6 +857,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
+                rewrite: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -880,6 +883,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
+                rewrite: None,
             },
             StatelessRule {
                 name: "high_pri".to_string(),
@@ -893,6 +897,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
+                rewrite: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -917,6 +922,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
+                rewrite: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -943,6 +949,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
+                rewrite: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -969,6 +976,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
+                rewrite: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -997,6 +1005,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
+                rewrite: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1030,6 +1039,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
+                rewrite: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1079,6 +1089,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
+                rewrite: None,
             },
         ];
         let config = make_config(rules, Action::Pass);
@@ -1103,6 +1114,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
+                rewrite: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1129,6 +1141,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
+                rewrite: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1155,6 +1168,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
+                rewrite: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1193,6 +1207,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
+                rewrite: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1244,6 +1259,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
+                rewrite: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1270,6 +1286,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
+                rewrite: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1302,6 +1319,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
+                rewrite: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1360,6 +1378,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
+                rewrite: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1388,6 +1407,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
+                rewrite: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1416,6 +1436,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
+                rewrite: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1443,6 +1464,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
+                rewrite: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1469,6 +1491,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: Some(RateLimit { pps: 100, burst: 10 }),
+                rewrite: None,
             },
             StatelessRule {
                 name: "allow_arp".to_string(),
@@ -1482,6 +1505,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
+                rewrite: None,
             },
         ];
         make_config(rules, Action::Drop)

@@ -145,6 +145,7 @@ mod tests {
                         fsm: None,
                         ports: None,
                         rate_limit: None,
+                        rewrite: None,
                     },
                 ],
                 conntrack: None,

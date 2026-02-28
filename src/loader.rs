@@ -122,6 +122,69 @@ fn validate_port_match(pm: &crate::model::PortMatch, field: &str, rule_name: &st
     Ok(())
 }
 
+fn validate_rewrite(rw: &crate::model::RewriteAction, rule: &crate::model::StatelessRule, rule_name: &str) -> Result<()> {
+    // Rewrite on stateful rules is not supported
+    if rule.is_stateful() {
+        anyhow::bail!("rewrite actions not supported on stateful rules (rule '{}')", rule_name);
+    }
+
+    // Validate MAC format
+    if let Some(ref mac) = rw.set_dst_mac {
+        crate::model::MacAddress::parse(mac)
+            .map_err(|e| anyhow::anyhow!("Bad set_dst_mac '{}' in rule '{}': {}", mac, rule_name, e))?;
+    }
+    if let Some(ref mac) = rw.set_src_mac {
+        crate::model::MacAddress::parse(mac)
+            .map_err(|e| anyhow::anyhow!("Bad set_src_mac '{}' in rule '{}': {}", mac, rule_name, e))?;
+    }
+
+    // Validate VLAN ID range
+    if let Some(vid) = rw.set_vlan_id {
+        if vid > 4095 {
+            anyhow::bail!("set_vlan_id must be 0-4095, got {} in rule '{}'", vid, rule_name);
+        }
+        // Require rule to match on VLAN (ethertype 0x8100 or vlan_id)
+        let matches_vlan = rule.match_criteria.vlan_id.is_some()
+            || rule.match_criteria.ethertype.as_deref() == Some("0x8100");
+        if !matches_vlan {
+            anyhow::bail!("set_vlan_id requires rule to match on vlan_id or ethertype 0x8100 in rule '{}'", rule_name);
+        }
+    }
+
+    // set_ttl and dec_ttl are mutually exclusive
+    if rw.set_ttl.is_some() && rw.dec_ttl == Some(true) {
+        anyhow::bail!("set_ttl and dec_ttl are mutually exclusive in rule '{}'", rule_name);
+    }
+
+    // IP rewrites and TTL require ethertype 0x0800 match
+    let needs_ipv4 = rw.set_src_ip.is_some() || rw.set_dst_ip.is_some()
+        || rw.set_ttl.is_some() || rw.dec_ttl == Some(true);
+    if needs_ipv4 {
+        let has_ipv4_match = rule.match_criteria.ethertype.as_deref() == Some("0x0800");
+        if !has_ipv4_match {
+            anyhow::bail!("IP/TTL rewrite requires ethertype 0x0800 match in rule '{}'", rule_name);
+        }
+    }
+
+    // Validate IP address format (dotted decimal, no CIDR)
+    if let Some(ref ip) = rw.set_src_ip {
+        if ip.contains('/') {
+            anyhow::bail!("set_src_ip must be a host address (no CIDR), got '{}' in rule '{}'", ip, rule_name);
+        }
+        crate::model::Ipv4Prefix::parse(ip)
+            .map_err(|e| anyhow::anyhow!("Bad set_src_ip '{}' in rule '{}': {}", ip, rule_name, e))?;
+    }
+    if let Some(ref ip) = rw.set_dst_ip {
+        if ip.contains('/') {
+            anyhow::bail!("set_dst_ip must be a host address (no CIDR), got '{}' in rule '{}'", ip, rule_name);
+        }
+        crate::model::Ipv4Prefix::parse(ip)
+            .map_err(|e| anyhow::anyhow!("Bad set_dst_ip '{}' in rule '{}': {}", ip, rule_name, e))?;
+    }
+
+    Ok(())
+}
+
 fn validate(config: &FilterConfig) -> Result<()> {
     if config.pacgate.rules.is_empty() {
         anyhow::bail!("No rules defined");
@@ -185,6 +248,11 @@ fn validate(config: &FilterConfig) -> Result<()> {
             if ports.is_empty() {
                 anyhow::bail!("Empty ports list in rule '{}'", rule.name);
             }
+        }
+
+        // Validate rewrite actions if specified
+        if let Some(ref rw) = rule.rewrite {
+            validate_rewrite(rw, rule, &rule.name)?;
         }
     }
 
@@ -1013,6 +1081,7 @@ pacgate:
                 fsm: None,
                 ports: None,
                 rate_limit: None,
+                rewrite: None,
             },
             StatelessRule {
                 name: "allow_ipv4".to_string(),
@@ -1026,6 +1095,7 @@ pacgate:
                 fsm: None,
                 ports: None,
                 rate_limit: None,
+                rewrite: None,
             },
         ];
         let warnings = check_rule_overlaps(&rules);
@@ -1049,6 +1119,7 @@ pacgate:
                 fsm: None,
                 ports: None,
                 rate_limit: None,
+                rewrite: None,
             },
             StatelessRule {
                 name: "drop_arp".to_string(),
@@ -1062,6 +1133,7 @@ pacgate:
                 fsm: None,
                 ports: None,
                 rate_limit: None,
+                rewrite: None,
             },
         ];
         let warnings = check_rule_overlaps(&rules);
@@ -1084,6 +1156,7 @@ pacgate:
                 fsm: None,
                 ports: None,
                 rate_limit: None,
+                rewrite: None,
             },
             StatelessRule {
                 name: "allow_ipv4".to_string(),
@@ -1097,6 +1170,7 @@ pacgate:
                 fsm: None,
                 ports: None,
                 rate_limit: None,
+                rewrite: None,
             },
         ];
         let warnings = check_rule_overlaps(&rules);
@@ -1116,6 +1190,7 @@ pacgate:
                 fsm: None,
                 ports: None,
                 rate_limit: None,
+                rewrite: None,
             },
         ];
         let warnings = check_rule_overlaps(&rules);

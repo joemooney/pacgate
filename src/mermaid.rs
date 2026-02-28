@@ -255,6 +255,7 @@ pub fn to_yaml(diagram: ParsedDiagram, rule_name: &str, priority: u32) -> Filter
                 fsm: Some(fsm),
                 ports: None,
                 rate_limit: None,
+                rewrite: None,
             }],
             conntrack: None,
         },
