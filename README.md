@@ -28,7 +28,7 @@ ___FPGA Packet Switch Verification Gateway___
 ---
 
 <p align="center">
-  <img src="docs/images/pacinet_familu.png" alt="PaciNet Family" width="300"/>
+  <img src="docs/images/pacinet_family.png" alt="PaciNet Family" width="300"/>
 </p>
 
 ---
