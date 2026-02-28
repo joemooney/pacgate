@@ -373,6 +373,66 @@ module packet_filter_assertions (
     cover property (@(posedge clk) disable iff (!rst_n) parsed_icmp_valid && (parsed_icmp_type_field == 8'd0));
 {% endif %}
 
+{% if has_icmpv6_rules %}
+    // --- ICMPv6 Assertions ---
+    // ICMPv6 prerequisite: valid only with icmpv6_valid signal
+    assert_icmpv6_prereq: assert property (@(posedge clk) disable iff (!rst_n)
+        (icmpv6_valid |-> ipv6_valid))
+        else $error("ICMPv6 valid without IPv6 valid");
+
+    // Cover NDP types (133-137)
+{% for idx in icmpv6_rule_indices %}
+    cover_icmpv6_rule_{{ idx }}: cover property (@(posedge clk) disable iff (!rst_n)
+        match_hit_{{ idx }});
+{% endfor %}
+    cover_icmpv6_ndp_rs: cover property (@(posedge clk) disable iff (!rst_n)
+        icmpv6_valid && icmpv6_type == 8'd133);
+    cover_icmpv6_ndp_ra: cover property (@(posedge clk) disable iff (!rst_n)
+        icmpv6_valid && icmpv6_type == 8'd134);
+    cover_icmpv6_ndp_ns: cover property (@(posedge clk) disable iff (!rst_n)
+        icmpv6_valid && icmpv6_type == 8'd135);
+    cover_icmpv6_ndp_na: cover property (@(posedge clk) disable iff (!rst_n)
+        icmpv6_valid && icmpv6_type == 8'd136);
+{% endif %}
+
+{% if has_arp_rules %}
+    // --- ARP Assertions ---
+    // ARP prerequisite: valid only with ethertype 0x0806
+    assert_arp_prereq: assert property (@(posedge clk) disable iff (!rst_n)
+        (arp_valid |-> ethertype == 16'h0806))
+        else $error("ARP valid without ethertype 0x0806");
+
+    // Cover ARP request and reply
+{% for idx in arp_rule_indices %}
+    cover_arp_rule_{{ idx }}: cover property (@(posedge clk) disable iff (!rst_n)
+        match_hit_{{ idx }});
+{% endfor %}
+    cover_arp_request: cover property (@(posedge clk) disable iff (!rst_n)
+        arp_valid && arp_opcode == 16'd1);
+    cover_arp_reply: cover property (@(posedge clk) disable iff (!rst_n)
+        arp_valid && arp_opcode == 16'd2);
+{% endif %}
+
+{% if has_ipv6_ext_rules %}
+    // --- IPv6 Extension Assertions ---
+    // Flow label bounds: must be 20-bit (≤ 0xFFFFF)
+    assert_ipv6_flow_label_bounds: assert property (@(posedge clk) disable iff (!rst_n)
+        (ipv6_valid |-> ipv6_flow_label <= 20'hFFFFF))
+        else $error("IPv6 flow label exceeds 20-bit range");
+
+    // Cover hop limit values
+{% for idx in ipv6_ext_rule_indices %}
+    cover_ipv6_ext_rule_{{ idx }}: cover property (@(posedge clk) disable iff (!rst_n)
+        match_hit_{{ idx }});
+{% endfor %}
+    cover_ipv6_hop_limit_1: cover property (@(posedge clk) disable iff (!rst_n)
+        ipv6_valid && ipv6_hop_limit == 8'd1);
+    cover_ipv6_hop_limit_64: cover property (@(posedge clk) disable iff (!rst_n)
+        ipv6_valid && ipv6_hop_limit == 8'd64);
+    cover_ipv6_hop_limit_255: cover property (@(posedge clk) disable iff (!rst_n)
+        ipv6_valid && ipv6_hop_limit == 8'd255);
+{% endif %}
+
 {% if has_rewrite_rules %}
     // ── Rewrite Engine Assertions ───────────────────────────────────
     // Rewrite must only be applied when the packet is passed (not dropped).

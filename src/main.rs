@@ -1365,6 +1365,13 @@ fn generate_rule_documentation(
         }
         if let Some(t) = rule.match_criteria.icmp_type { match_fields.push(format!("icmp_type: {}", t)); }
         if let Some(c) = rule.match_criteria.icmp_code { match_fields.push(format!("icmp_code: {}", c)); }
+        if let Some(t) = rule.match_criteria.icmpv6_type { match_fields.push(format!("icmpv6_type: {}", t)); }
+        if let Some(c) = rule.match_criteria.icmpv6_code { match_fields.push(format!("icmpv6_code: {}", c)); }
+        if let Some(op) = rule.match_criteria.arp_opcode { match_fields.push(format!("arp_opcode: {}", op)); }
+        if let Some(ref spa) = rule.match_criteria.arp_spa { match_fields.push(format!("arp_spa: {}", spa)); }
+        if let Some(ref tpa) = rule.match_criteria.arp_tpa { match_fields.push(format!("arp_tpa: {}", tpa)); }
+        if let Some(hl) = rule.match_criteria.ipv6_hop_limit { match_fields.push(format!("ipv6_hop_limit: {}", hl)); }
+        if let Some(fl) = rule.match_criteria.ipv6_flow_label { match_fields.push(format!("ipv6_flow_label: {}", fl)); }
         if let Some(ref bms) = rule.match_criteria.byte_match {
             for bm in bms {
                 match_fields.push(format!("byte_match: offset={}, value={}, mask={}", bm.offset, bm.value, bm.mask.as_deref().unwrap_or("FF")));
@@ -1608,6 +1615,13 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
     let mut uses_tcp_flags = 0;
     let mut uses_icmp_type = 0;
     let mut uses_icmp_code = 0;
+    let mut uses_icmpv6_type = 0;
+    let mut uses_icmpv6_code = 0;
+    let mut uses_arp_opcode = 0;
+    let mut uses_arp_spa = 0;
+    let mut uses_arp_tpa = 0;
+    let mut uses_ipv6_hop_limit = 0;
+    let mut uses_ipv6_flow_label = 0;
     let mut match_field_count = Vec::new();
 
     for rule in rules.iter().filter(|r| !r.is_stateful()) {
@@ -1637,6 +1651,13 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
         if mc.tcp_flags.is_some() { uses_tcp_flags += 1; count += 1; }
         if mc.icmp_type.is_some() { uses_icmp_type += 1; count += 1; }
         if mc.icmp_code.is_some() { uses_icmp_code += 1; count += 1; }
+        if mc.icmpv6_type.is_some() { uses_icmpv6_type += 1; count += 1; }
+        if mc.icmpv6_code.is_some() { uses_icmpv6_code += 1; count += 1; }
+        if mc.arp_opcode.is_some() { uses_arp_opcode += 1; count += 1; }
+        if mc.arp_spa.is_some() { uses_arp_spa += 1; count += 1; }
+        if mc.arp_tpa.is_some() { uses_arp_tpa += 1; count += 1; }
+        if mc.ipv6_hop_limit.is_some() { uses_ipv6_hop_limit += 1; count += 1; }
+        if mc.ipv6_flow_label.is_some() { uses_ipv6_flow_label += 1; count += 1; }
         match_field_count.push(count);
     }
 
@@ -1685,6 +1706,13 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
             "tcp_flags": uses_tcp_flags,
             "icmp_type": uses_icmp_type,
             "icmp_code": uses_icmp_code,
+            "icmpv6_type": uses_icmpv6_type,
+            "icmpv6_code": uses_icmpv6_code,
+            "arp_opcode": uses_arp_opcode,
+            "arp_spa": uses_arp_spa,
+            "arp_tpa": uses_arp_tpa,
+            "ipv6_hop_limit": uses_ipv6_hop_limit,
+            "ipv6_flow_label": uses_ipv6_flow_label,
         },
         "match_complexity": {
             "avg_fields_per_rule": format!("{:.1}", avg_fields),
@@ -1728,6 +1756,9 @@ fn print_stats(config: &model::FilterConfig) {
     let mut uses_ipv6_ecn = 0usize;
     let mut uses_tcp_flags = 0usize;
     let mut uses_icmp_type = 0usize;
+    let mut uses_icmpv6_type = 0usize;
+    let mut uses_arp_opcode = 0usize;
+    let mut uses_ipv6_hop_limit = 0usize;
 
     for rule in rules.iter().filter(|r| !r.is_stateful()) {
         let mc = &rule.match_criteria;
@@ -1746,6 +1777,9 @@ fn print_stats(config: &model::FilterConfig) {
         if mc.ipv6_ecn.is_some() { uses_ipv6_ecn += 1; }
         if mc.tcp_flags.is_some() { uses_tcp_flags += 1; }
         if mc.icmp_type.is_some() { uses_icmp_type += 1; }
+        if mc.icmpv6_type.is_some() { uses_icmpv6_type += 1; }
+        if mc.arp_opcode.is_some() { uses_arp_opcode += 1; }
+        if mc.ipv6_hop_limit.is_some() { uses_ipv6_hop_limit += 1; }
     }
 
     // Priority spacing
@@ -1798,6 +1832,15 @@ fn print_stats(config: &model::FilterConfig) {
         }
         if uses_icmp_type > 0 {
             println!("  icmp_type  [{:>2}/{}] |{}|", uses_icmp_type, stateless, bar(uses_icmp_type));
+        }
+        if uses_icmpv6_type > 0 {
+            println!("  icmpv6_type [{:>2}/{}] |{}|", uses_icmpv6_type, stateless, bar(uses_icmpv6_type));
+        }
+        if uses_arp_opcode > 0 {
+            println!("  arp_opcode [{:>2}/{}] |{}|", uses_arp_opcode, stateless, bar(uses_arp_opcode));
+        }
+        if uses_ipv6_hop_limit > 0 {
+            println!("  ipv6_hop_limit [{:>2}/{}] |{}|", uses_ipv6_hop_limit, stateless, bar(uses_ipv6_hop_limit));
         }
     }
     println!();
@@ -1868,6 +1911,13 @@ fn print_dot_graph(config: &model::FilterConfig) {
             if let Some(flags) = mc.tcp_flags { criteria.push(format!("tcp_flags=0x{:02X}", flags)); }
             if let Some(t) = mc.icmp_type { criteria.push(format!("icmp_type={}", t)); }
             if let Some(c) = mc.icmp_code { criteria.push(format!("icmp_code={}", c)); }
+            if let Some(t) = mc.icmpv6_type { criteria.push(format!("icmpv6_type={}", t)); }
+            if let Some(c) = mc.icmpv6_code { criteria.push(format!("icmpv6_code={}", c)); }
+            if let Some(op) = mc.arp_opcode { criteria.push(format!("arp_opcode={}", op)); }
+            if let Some(ref spa) = mc.arp_spa { criteria.push(format!("arp_spa={}", spa)); }
+            if let Some(ref tpa) = mc.arp_tpa { criteria.push(format!("arp_tpa={}", tpa)); }
+            if let Some(hl) = mc.ipv6_hop_limit { criteria.push(format!("ipv6_hop_limit={}", hl)); }
+            if let Some(fl) = mc.ipv6_flow_label { criteria.push(format!("ipv6_flow_label={}", fl)); }
         } else {
             criteria.push("(FSM states)".to_string());
         }
@@ -2047,6 +2097,34 @@ fn diff_rules(old: &model::FilterConfig, new: &model::FilterConfig, json: bool) 
                     changes.push(format!("icmp_code: {:?} -> {:?}",
                         old_rule.match_criteria.icmp_code, new_rule.match_criteria.icmp_code));
                 }
+                if old_rule.match_criteria.icmpv6_type != new_rule.match_criteria.icmpv6_type {
+                    changes.push(format!("icmpv6_type: {:?} -> {:?}",
+                        old_rule.match_criteria.icmpv6_type, new_rule.match_criteria.icmpv6_type));
+                }
+                if old_rule.match_criteria.icmpv6_code != new_rule.match_criteria.icmpv6_code {
+                    changes.push(format!("icmpv6_code: {:?} -> {:?}",
+                        old_rule.match_criteria.icmpv6_code, new_rule.match_criteria.icmpv6_code));
+                }
+                if old_rule.match_criteria.arp_opcode != new_rule.match_criteria.arp_opcode {
+                    changes.push(format!("arp_opcode: {:?} -> {:?}",
+                        old_rule.match_criteria.arp_opcode, new_rule.match_criteria.arp_opcode));
+                }
+                if old_rule.match_criteria.arp_spa != new_rule.match_criteria.arp_spa {
+                    changes.push(format!("arp_spa: {:?} -> {:?}",
+                        old_rule.match_criteria.arp_spa, new_rule.match_criteria.arp_spa));
+                }
+                if old_rule.match_criteria.arp_tpa != new_rule.match_criteria.arp_tpa {
+                    changes.push(format!("arp_tpa: {:?} -> {:?}",
+                        old_rule.match_criteria.arp_tpa, new_rule.match_criteria.arp_tpa));
+                }
+                if old_rule.match_criteria.ipv6_hop_limit != new_rule.match_criteria.ipv6_hop_limit {
+                    changes.push(format!("ipv6_hop_limit: {:?} -> {:?}",
+                        old_rule.match_criteria.ipv6_hop_limit, new_rule.match_criteria.ipv6_hop_limit));
+                }
+                if old_rule.match_criteria.ipv6_flow_label != new_rule.match_criteria.ipv6_flow_label {
+                    changes.push(format!("ipv6_flow_label: {:?} -> {:?}",
+                        old_rule.match_criteria.ipv6_flow_label, new_rule.match_criteria.ipv6_flow_label));
+                }
                 if old_rule.is_stateful() != new_rule.is_stateful() {
                     changes.push(format!("type: {} -> {}",
                         if old_rule.is_stateful() { "stateful" } else { "stateless" },
@@ -2190,6 +2268,13 @@ fn generate_diff_html(
         if let Some(bos) = mc.mpls_bos { parts.push(format!("mpls_bos={}", bos)); }
         if let Some(igmp) = mc.igmp_type { parts.push(format!("igmp_type=0x{:02X}", igmp)); }
         if let Some(mld) = mc.mld_type { parts.push(format!("mld_type={}", mld)); }
+        if let Some(t) = mc.icmpv6_type { parts.push(format!("icmpv6_type={}", t)); }
+        if let Some(c) = mc.icmpv6_code { parts.push(format!("icmpv6_code={}", c)); }
+        if let Some(op) = mc.arp_opcode { parts.push(format!("arp_opcode={}", op)); }
+        if let Some(ref spa) = mc.arp_spa { parts.push(format!("arp_spa={}", spa)); }
+        if let Some(ref tpa) = mc.arp_tpa { parts.push(format!("arp_tpa={}", tpa)); }
+        if let Some(hl) = mc.ipv6_hop_limit { parts.push(format!("ipv6_hop_limit={}", hl)); }
+        if let Some(fl) = mc.ipv6_flow_label { parts.push(format!("ipv6_flow_label={}", fl)); }
         if parts.is_empty() { "any".to_string() } else { parts.join(", ") }
     };
 
@@ -2417,6 +2502,55 @@ fn generate_diff_html(
                         "new_value": format!("{:?}", new_rule.match_criteria.icmp_code),
                     }));
                 }
+                if old_rule.match_criteria.icmpv6_type != new_rule.match_criteria.icmpv6_type {
+                    changes.push(serde_json::json!({
+                        "field": "icmpv6_type",
+                        "old_value": format!("{:?}", old_rule.match_criteria.icmpv6_type),
+                        "new_value": format!("{:?}", new_rule.match_criteria.icmpv6_type),
+                    }));
+                }
+                if old_rule.match_criteria.icmpv6_code != new_rule.match_criteria.icmpv6_code {
+                    changes.push(serde_json::json!({
+                        "field": "icmpv6_code",
+                        "old_value": format!("{:?}", old_rule.match_criteria.icmpv6_code),
+                        "new_value": format!("{:?}", new_rule.match_criteria.icmpv6_code),
+                    }));
+                }
+                if old_rule.match_criteria.arp_opcode != new_rule.match_criteria.arp_opcode {
+                    changes.push(serde_json::json!({
+                        "field": "arp_opcode",
+                        "old_value": format!("{:?}", old_rule.match_criteria.arp_opcode),
+                        "new_value": format!("{:?}", new_rule.match_criteria.arp_opcode),
+                    }));
+                }
+                if old_rule.match_criteria.arp_spa != new_rule.match_criteria.arp_spa {
+                    changes.push(serde_json::json!({
+                        "field": "arp_spa",
+                        "old_value": format!("{:?}", old_rule.match_criteria.arp_spa),
+                        "new_value": format!("{:?}", new_rule.match_criteria.arp_spa),
+                    }));
+                }
+                if old_rule.match_criteria.arp_tpa != new_rule.match_criteria.arp_tpa {
+                    changes.push(serde_json::json!({
+                        "field": "arp_tpa",
+                        "old_value": format!("{:?}", old_rule.match_criteria.arp_tpa),
+                        "new_value": format!("{:?}", new_rule.match_criteria.arp_tpa),
+                    }));
+                }
+                if old_rule.match_criteria.ipv6_hop_limit != new_rule.match_criteria.ipv6_hop_limit {
+                    changes.push(serde_json::json!({
+                        "field": "ipv6_hop_limit",
+                        "old_value": format!("{:?}", old_rule.match_criteria.ipv6_hop_limit),
+                        "new_value": format!("{:?}", new_rule.match_criteria.ipv6_hop_limit),
+                    }));
+                }
+                if old_rule.match_criteria.ipv6_flow_label != new_rule.match_criteria.ipv6_flow_label {
+                    changes.push(serde_json::json!({
+                        "field": "ipv6_flow_label",
+                        "old_value": format!("{:?}", old_rule.match_criteria.ipv6_flow_label),
+                        "new_value": format!("{:?}", new_rule.match_criteria.ipv6_flow_label),
+                    }));
+                }
 
                 if changes.is_empty() {
                     unchanged_count += 1;
@@ -2562,6 +2696,13 @@ fn compute_resource_estimate(config: &model::FilterConfig) -> serde_json::Value 
             if mc.tcp_flags.is_some() { fields += 2; }   // 8-bit comparator with mask
             if mc.icmp_type.is_some() { fields += 1; }   // 8-bit comparator
             if mc.icmp_code.is_some() { fields += 1; }   // 8-bit comparator
+            if mc.icmpv6_type.is_some() { fields += 1; }   // 8-bit comparator
+            if mc.icmpv6_code.is_some() { fields += 1; }   // 8-bit comparator
+            if mc.arp_opcode.is_some() { fields += 1; }     // 16-bit comparator
+            if mc.arp_spa.is_some() { fields += 2; }        // 32-bit comparator
+            if mc.arp_tpa.is_some() { fields += 2; }        // 32-bit comparator
+            if mc.ipv6_hop_limit.is_some() { fields += 1; } // 8-bit comparator
+            if mc.ipv6_flow_label.is_some() { fields += 2; } // 20-bit comparator
             rule_luts += 10 + fields * 12;
         }
     }
@@ -2680,6 +2821,13 @@ fn print_resource_estimate(config: &model::FilterConfig) {
             if mc.tcp_flags.is_some() { fields += 2; }
             if mc.icmp_type.is_some() { fields += 1; }
             if mc.icmp_code.is_some() { fields += 1; }
+            if mc.icmpv6_type.is_some() { fields += 1; }
+            if mc.icmpv6_code.is_some() { fields += 1; }
+            if mc.arp_opcode.is_some() { fields += 1; }
+            if mc.arp_spa.is_some() { fields += 2; }
+            if mc.arp_tpa.is_some() { fields += 2; }
+            if mc.ipv6_hop_limit.is_some() { fields += 1; }
+            if mc.ipv6_flow_label.is_some() { fields += 2; }
             rule_luts += 10 + fields * 12;
         }
     }
@@ -3286,6 +3434,52 @@ fn lint_rules(config: &model::FilterConfig, warnings: &[String], dynamic: bool, 
                     "code": "LINT025",
                     "message": format!("Rule '{}' uses icmp_type/icmp_code without ip_protocol: 1 — may match non-ICMP traffic", rule.name),
                     "suggestion": "Add 'ip_protocol: 1' to ensure ICMP matching is only applied to ICMP packets"
+                }));
+            }
+        }
+    }
+
+    // LINT026: ICMPv6 without IPv6 ethertype or next_header 58
+    for rule in &config.pacgate.rules {
+        if rule.match_criteria.uses_icmpv6() {
+            let has_ipv6 = rule.match_criteria.ethertype.as_deref() == Some("0x86DD");
+            let has_nh58 = rule.match_criteria.ipv6_next_header == Some(58);
+            if !has_ipv6 && !has_nh58 {
+                findings.push(serde_json::json!({
+                    "level": "warning",
+                    "code": "LINT026",
+                    "message": format!("Rule '{}' uses icmpv6_type/icmpv6_code without ethertype: 0x86DD or ipv6_next_header: 58 — may match non-ICMPv6 traffic", rule.name),
+                    "suggestion": "Add 'ethertype: \"0x86DD\"' and 'ipv6_next_header: 58' to ensure ICMPv6 matching is only applied to ICMPv6 packets"
+                }));
+            }
+        }
+    }
+
+    // LINT027: ARP without ethertype 0x0806
+    for rule in &config.pacgate.rules {
+        if rule.match_criteria.uses_arp() {
+            let has_arp_etype = rule.match_criteria.ethertype.as_deref() == Some("0x0806");
+            if !has_arp_etype {
+                findings.push(serde_json::json!({
+                    "level": "warning",
+                    "code": "LINT027",
+                    "message": format!("Rule '{}' uses arp_opcode/arp_spa/arp_tpa without ethertype: 0x0806 — may match non-ARP traffic", rule.name),
+                    "suggestion": "Add 'ethertype: \"0x0806\"' to ensure ARP matching is only applied to ARP packets"
+                }));
+            }
+        }
+    }
+
+    // LINT028: IPv6 extension fields without IPv6 ethertype
+    for rule in &config.pacgate.rules {
+        if rule.match_criteria.uses_ipv6_ext() {
+            let has_ipv6 = rule.match_criteria.ethertype.as_deref() == Some("0x86DD");
+            if !has_ipv6 {
+                findings.push(serde_json::json!({
+                    "level": "warning",
+                    "code": "LINT028",
+                    "message": format!("Rule '{}' uses ipv6_hop_limit/ipv6_flow_label without ethertype: 0x86DD — may match non-IPv6 traffic", rule.name),
+                    "suggestion": "Add 'ethertype: \"0x86DD\"' to ensure IPv6 extension field matching is only applied to IPv6 packets"
                 }));
             }
         }

@@ -1875,3 +1875,32 @@ Implement Phase 19: Platform Integration Targets. Add `--target opennic` and `--
 
 ### Git Operations
 - Commits pushed to https://github.com/joemooney/pacgate.git
+
+## Session — Phase 23: ARP + ICMPv6 + IPv6 Extension Fields (2026-02-28)
+
+**Prompt**: Implement Phase 23 — ARP matching, ICMPv6 type/code, and IPv6 extension fields.
+
+**Actions**:
+- Batch 1: Model, Parser, Generation, Simulator
+  - Added 7 fields to MatchCriteria: icmpv6_type, icmpv6_code, arp_opcode, arp_spa, arp_tpa, ipv6_hop_limit, ipv6_flow_label
+  - Added 3 helper methods: uses_icmpv6(), uses_arp(), uses_ipv6_ext()
+  - Added validation: icmpv6_code requires type, arp_opcode 1-2 only, arp_spa/tpa valid IPv4, flow_label 20-bit
+  - Updated frame_parser.v: S_ICMPV6_HDR (state 15), S_ARP_HDR (state 16), IPv6 hop_limit/flow_label extraction, localparam 4'd→5'd
+  - Updated verilog_gen.rs: 3 new GlobalProtocolFlags, condition expressions for all 7 fields
+  - Updated all 3 templates: conditional ports for ICMPv6/ARP/IPv6-ext
+  - Updated simulator: SimPacket + parse + match for all 7 fields
+  - 8 Batch 1 integration tests
+
+- Batch 2: Verification + Tools + Examples + Docs
+  - Updated scoreboard.py: 7 new fields + matching
+  - Updated cocotb_gen.rs: test generation + property test flags
+  - Updated formal_gen.rs + assertions.sv.tera: SVA for ICMPv6/ARP/IPv6-ext
+  - Updated mutation.rs: 3 new mutations (17-19)
+  - Updated main.rs: LINT026-028, estimate, diff, doc, stats, graph for all 7 fields
+  - Created arp_security.yaml (5 rules) and icmpv6_firewall.yaml (8 rules)
+  - Updated CI: added arp_security + icmpv6_firewall to simulate matrix (12 total)
+  - 6 Batch 2 integration tests
+  - Documentation updates
+
+**Test results**: 324 unit + 244 integration = 568 total tests passing
+**Git**: Committed as Phase 23 Batch 1 + Batch 2

@@ -66,7 +66,9 @@ fn validate_all_examples() {
                      "ipv6_firewall", "rate_limited",
                      "dynamic_firewall",
                      "opennic_l3l4",
-                     "corundum_datacenter"] {
+                     "corundum_datacenter",
+                     "arp_security",
+                     "icmpv6_firewall"] {
         let path = format!("rules/examples/{}.yaml", example);
         let output = pacgate_bin()
             .args(["validate", &path])
@@ -4539,4 +4541,155 @@ pacgate:
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("icmpv6_code requires icmpv6_type"), "should reject icmpv6_code without type");
+}
+
+// ── Phase 23 Batch 2 integration tests ─────────────────────────────
+
+#[test]
+fn lint_icmpv6_no_ethertype() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("icmpv6_no_etype.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: icmpv6_no_prereq
+      priority: 100
+      match:
+        icmpv6_type: 128
+      action: pass
+"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["lint", yaml.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("LINT026"), "should emit LINT026 for icmpv6 without ethertype");
+}
+
+#[test]
+fn lint_arp_no_ethertype() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("arp_no_etype.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: arp_no_prereq
+      priority: 100
+      match:
+        arp_opcode: 1
+      action: pass
+"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["lint", yaml.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("LINT027"), "should emit LINT027 for arp without ethertype");
+}
+
+#[test]
+fn lint_ipv6_ext_no_ethertype() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("ipv6_ext_no_etype.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: ipv6_ext_no_prereq
+      priority: 100
+      match:
+        ipv6_hop_limit: 64
+      action: pass
+"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["lint", yaml.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("LINT028"), "should emit LINT028 for ipv6 ext without ethertype");
+}
+
+#[test]
+fn estimate_arp_rule() {
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["estimate", "rules/examples/arp_security.yaml", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    let total_luts = json["total"]["luts"].as_u64().unwrap();
+    assert!(total_luts > 0, "estimate should report LUTs > 0 for ARP rules");
+}
+
+#[test]
+fn diff_arp_opcode_change() {
+    let tmp = tempfile::tempdir().unwrap();
+    let old_yaml = tmp.path().join("old.yaml");
+    let new_yaml = tmp.path().join("new.yaml");
+    std::fs::write(&old_yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: arp_rule
+      priority: 100
+      match:
+        ethertype: "0x0806"
+        arp_opcode: 1
+      action: pass
+"#).unwrap();
+    std::fs::write(&new_yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: arp_rule
+      priority: 100
+      match:
+        ethertype: "0x0806"
+        arp_opcode: 2
+      action: pass
+"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["diff", old_yaml.to_str().unwrap(), new_yaml.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("arp_opcode"), "diff should detect arp_opcode change");
+}
+
+#[test]
+fn formal_icmpv6_arp() {
+    let tmp = tempfile::tempdir().unwrap();
+    // First compile to generate RTL
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["compile", "rules/examples/icmpv6_firewall.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // Then generate formal assertions
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["formal", "rules/examples/icmpv6_firewall.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "formal failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let assertions = std::fs::read_to_string(tmp.path().join("formal/assertions.sv")).unwrap();
+    assert!(assertions.contains("icmpv6"), "SVA should contain ICMPv6 assertions");
 }

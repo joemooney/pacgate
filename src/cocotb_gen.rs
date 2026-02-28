@@ -138,6 +138,37 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
             tc.insert("icmp_code".to_string(), c.to_string());
             tc.insert("has_icmp".to_string(), "true".to_string());
         }
+        // ICMPv6 fields
+        if let Some(t) = rule.match_criteria.icmpv6_type {
+            tc.insert("icmpv6_type".to_string(), t.to_string());
+            tc.insert("has_icmpv6".to_string(), "true".to_string());
+        }
+        if let Some(c) = rule.match_criteria.icmpv6_code {
+            tc.insert("icmpv6_code".to_string(), c.to_string());
+            tc.insert("has_icmpv6".to_string(), "true".to_string());
+        }
+        // ARP fields
+        if let Some(op) = rule.match_criteria.arp_opcode {
+            tc.insert("arp_opcode".to_string(), op.to_string());
+            tc.insert("has_arp".to_string(), "true".to_string());
+        }
+        if let Some(ref spa) = rule.match_criteria.arp_spa {
+            tc.insert("arp_spa".to_string(), spa.clone());
+            tc.insert("has_arp".to_string(), "true".to_string());
+        }
+        if let Some(ref tpa) = rule.match_criteria.arp_tpa {
+            tc.insert("arp_tpa".to_string(), tpa.clone());
+            tc.insert("has_arp".to_string(), "true".to_string());
+        }
+        // IPv6 extension fields
+        if let Some(hl) = rule.match_criteria.ipv6_hop_limit {
+            tc.insert("ipv6_hop_limit".to_string(), hl.to_string());
+            tc.insert("has_ipv6_ext".to_string(), "true".to_string());
+        }
+        if let Some(fl) = rule.match_criteria.ipv6_flow_label {
+            tc.insert("ipv6_flow_label".to_string(), fl.to_string());
+            tc.insert("has_ipv6_ext".to_string(), "true".to_string());
+        }
         test_cases.push(tc);
     }
 
@@ -349,6 +380,30 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         if let Some(c) = rule.match_criteria.icmp_code {
             sr.insert("icmp_code".to_string(), c.to_string());
         }
+        // ICMPv6 scoreboard fields
+        if let Some(t) = rule.match_criteria.icmpv6_type {
+            sr.insert("icmpv6_type".to_string(), t.to_string());
+        }
+        if let Some(c) = rule.match_criteria.icmpv6_code {
+            sr.insert("icmpv6_code".to_string(), c.to_string());
+        }
+        // ARP scoreboard fields
+        if let Some(op) = rule.match_criteria.arp_opcode {
+            sr.insert("arp_opcode".to_string(), op.to_string());
+        }
+        if let Some(ref spa) = rule.match_criteria.arp_spa {
+            sr.insert("arp_spa".to_string(), spa.clone());
+        }
+        if let Some(ref tpa) = rule.match_criteria.arp_tpa {
+            sr.insert("arp_tpa".to_string(), tpa.clone());
+        }
+        // IPv6 extension scoreboard fields
+        if let Some(hl) = rule.match_criteria.ipv6_hop_limit {
+            sr.insert("ipv6_hop_limit".to_string(), hl.to_string());
+        }
+        if let Some(fl) = rule.match_criteria.ipv6_flow_label {
+            sr.insert("ipv6_flow_label".to_string(), fl.to_string());
+        }
         scoreboard_rules.push(sr);
     }
 
@@ -378,6 +433,9 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         ctx.insert("has_ipv6_tc_rules", &rules.iter().any(|r| r.match_criteria.uses_ipv6_tc()));
         ctx.insert("has_tcp_flags_rules", &rules.iter().any(|r| r.match_criteria.uses_tcp_flags()));
         ctx.insert("has_icmp_rules", &rules.iter().any(|r| r.match_criteria.uses_icmp()));
+        ctx.insert("has_icmpv6_rules", &rules.iter().any(|r| r.match_criteria.uses_icmpv6()));
+        ctx.insert("has_arp_rules", &rules.iter().any(|r| r.match_criteria.uses_arp()));
+        ctx.insert("has_ipv6_ext_rules", &rules.iter().any(|r| r.match_criteria.uses_ipv6_ext()));
 
         let rendered = tera.render("test_properties.py.tera", &ctx)?;
         std::fs::write(tb_dir.join("test_properties.py"), &rendered)?;

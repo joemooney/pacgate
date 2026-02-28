@@ -99,6 +99,19 @@ pub fn generate_with_dynamic(config: &FilterConfig, templates_dir: &Path, output
         .filter(|(_, r)| r.has_rewrite())
         .map(|(i, _)| i).collect();
 
+    let has_icmpv6_rules = rules.iter().any(|r| r.match_criteria.uses_icmpv6());
+    let has_arp_rules = rules.iter().any(|r| r.match_criteria.uses_arp());
+    let has_ipv6_ext_rules = rules.iter().any(|r| r.match_criteria.uses_ipv6_ext());
+    let icmpv6_rule_indices: Vec<usize> = rules.iter().enumerate()
+        .filter(|(_, r)| r.match_criteria.uses_icmpv6())
+        .map(|(i, _)| i).collect();
+    let arp_rule_indices: Vec<usize> = rules.iter().enumerate()
+        .filter(|(_, r)| r.match_criteria.uses_arp())
+        .map(|(i, _)| i).collect();
+    let ipv6_ext_rule_indices: Vec<usize> = rules.iter().enumerate()
+        .filter(|(_, r)| r.match_criteria.uses_ipv6_ext())
+        .map(|(i, _)| i).collect();
+
     // Render SVA assertions
     {
         let mut ctx = tera::Context::new();
@@ -127,6 +140,12 @@ pub fn generate_with_dynamic(config: &FilterConfig, templates_dir: &Path, output
         ctx.insert("icmp_rule_indices", &icmp_rule_indices);
         ctx.insert("has_rewrite_rules", &has_rewrite_rules);
         ctx.insert("rewrite_rule_indices", &rewrite_rule_indices);
+        ctx.insert("has_icmpv6_rules", &has_icmpv6_rules);
+        ctx.insert("icmpv6_rule_indices", &icmpv6_rule_indices);
+        ctx.insert("has_arp_rules", &has_arp_rules);
+        ctx.insert("arp_rule_indices", &arp_rule_indices);
+        ctx.insert("has_ipv6_ext_rules", &has_ipv6_ext_rules);
+        ctx.insert("ipv6_ext_rule_indices", &ipv6_ext_rule_indices);
         ctx.insert("has_dynamic", &dynamic);
         ctx.insert("dynamic_num_entries", &num_entries);
 

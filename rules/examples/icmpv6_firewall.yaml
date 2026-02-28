@@ -1,0 +1,69 @@
+# ICMPv6 Firewall — NDP, echo, MLD, and IPv6 traffic management
+# Uses icmpv6_type, icmpv6_code, mld_type, ipv6_hop_limit fields
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+
+  rules:
+    - name: allow_ndp_rs
+      priority: 1000
+      action: pass
+      match:
+        ethertype: "0x86DD"
+        ipv6_next_header: 58
+        icmpv6_type: 133
+
+    - name: allow_ndp_ra
+      priority: 990
+      action: pass
+      match:
+        ethertype: "0x86DD"
+        ipv6_next_header: 58
+        icmpv6_type: 134
+
+    - name: allow_ndp_ns
+      priority: 980
+      action: pass
+      match:
+        ethertype: "0x86DD"
+        ipv6_next_header: 58
+        icmpv6_type: 135
+
+    - name: allow_ndp_na
+      priority: 970
+      action: pass
+      match:
+        ethertype: "0x86DD"
+        ipv6_next_header: 58
+        icmpv6_type: 136
+
+    - name: allow_icmpv6_echo
+      priority: 900
+      action: pass
+      match:
+        ethertype: "0x86DD"
+        ipv6_next_header: 58
+        icmpv6_type: 128
+
+    - name: allow_icmpv6_echo_reply
+      priority: 890
+      action: pass
+      match:
+        ethertype: "0x86DD"
+        ipv6_next_header: 58
+        icmpv6_type: 129
+
+    - name: allow_mld_query
+      priority: 800
+      action: pass
+      match:
+        ethertype: "0x86DD"
+        mld_type: 130
+
+    - name: allow_ipv6_traffic
+      priority: 500
+      action: pass
+      match:
+        ethertype: "0x86DD"
+        ipv6_hop_limit: 64

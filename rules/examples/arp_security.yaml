@@ -1,0 +1,42 @@
+# ARP Security — ARP inspection and spoofing prevention
+# Uses arp_opcode, arp_spa, arp_tpa fields for ARP request/reply filtering
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+
+  rules:
+    - name: allow_arp_request
+      priority: 1000
+      action: pass
+      match:
+        ethertype: "0x0806"
+        arp_opcode: 1
+
+    - name: allow_arp_reply_gateway
+      priority: 900
+      action: pass
+      match:
+        ethertype: "0x0806"
+        arp_opcode: 2
+        arp_spa: "10.0.0.1"
+
+    - name: drop_arp_spoofed
+      priority: 800
+      action: drop
+      match:
+        ethertype: "0x0806"
+        arp_opcode: 2
+        arp_spa: "192.168.1.1"
+
+    - name: allow_ipv4
+      priority: 500
+      action: pass
+      match:
+        ethertype: "0x0800"
+
+    - name: allow_ipv6
+      priority: 400
+      action: pass
+      match:
+        ethertype: "0x86DD"

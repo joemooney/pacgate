@@ -932,3 +932,45 @@
 ### Testing
 - REQ-1616: 23 unit tests for IPv6 TC/TCP flags/ICMP (model, loader, simulator, mutation) [IMPLEMENTED]
 - REQ-1617: 14 integration tests for IPv6 TC/TCP flags/ICMP (compile, simulate, validate, lint, estimate, diff, formal) [IMPLEMENTED]
+
+## Phase 23: ARP + ICMPv6 + IPv6 Extension Fields [IMPLEMENTED]
+
+### ICMPv6 Match Fields
+- REQ-1700: Match on ICMPv6 type (icmpv6_type, 8-bit, 0-255) for IPv6 ICMPv6 classification (NDP, echo, unreachable) [IMPLEMENTED]
+- REQ-1701: Match on ICMPv6 code (icmpv6_code, 8-bit, 0-255) — requires icmpv6_type to be set [IMPLEMENTED]
+- REQ-1702: MLD backward compatibility — ICMPv6 types 130-132 still set mld_type/mld_valid for existing MLD rules [IMPLEMENTED]
+
+### ARP Match Fields
+- REQ-1703: Match on ARP opcode (arp_opcode, 1=request, 2=reply only, validated at load time) [IMPLEMENTED]
+- REQ-1704: Match on ARP sender protocol address (arp_spa, IPv4 dotted-quad format) [IMPLEMENTED]
+- REQ-1705: Match on ARP target protocol address (arp_tpa, IPv4 dotted-quad format) [IMPLEMENTED]
+
+### IPv6 Extension Fields
+- REQ-1706: Match on IPv6 hop limit (ipv6_hop_limit, 8-bit, 0-255) for IPv6 TTL-based filtering [IMPLEMENTED]
+- REQ-1707: Match on IPv6 flow label (ipv6_flow_label, 20-bit, 0-0xFFFFF) for flow classification [IMPLEMENTED]
+
+### Frame Parser
+- REQ-1708: S_ICMPV6_HDR parser state (state 15) for ICMPv6 type/code extraction after IPv6 next_header 58 detection [IMPLEMENTED]
+- REQ-1709: S_ARP_HDR parser state (state 16) for ARP header extraction (opcode bytes 6-7, SPA bytes 14-17, TPA bytes 24-27) [IMPLEMENTED]
+
+### Lint Rules
+- REQ-1710: LINT026 — ICMPv6 type/code without IPv6 ethertype (0x86DD) and ipv6_next_header 58 prerequisite warning [IMPLEMENTED]
+- REQ-1711: LINT027 — ARP opcode/SPA/TPA without ARP ethertype (0x0806) prerequisite warning [IMPLEMENTED]
+- REQ-1712: LINT028 — IPv6 hop_limit/flow_label without IPv6 ethertype (0x86DD) prerequisite warning [IMPLEMENTED]
+
+### Formal Verification
+- REQ-1713: SVA assertions for ICMPv6 bounds (icmpv6_type valid range), ARP prerequisite (match → ethertype == 0x0806), IPv6 extension cover properties [IMPLEMENTED]
+
+### Mutation Testing
+- REQ-1714: 3 new mutation types: remove_icmpv6_type, remove_arp_opcode, remove_ipv6_hop_limit (19 total) [IMPLEMENTED]
+
+### Python Verification
+- REQ-1715: Python scoreboard Rule dataclass includes icmpv6_type, icmpv6_code, arp_opcode, arp_spa, arp_tpa, ipv6_hop_limit, ipv6_flow_label fields with matching in matches() [IMPLEMENTED]
+
+### Examples
+- REQ-1716: arp_security.yaml example with 5 rules for ARP security (opcode filtering, SPA/TPA validation, gratuitous ARP detection) [IMPLEMENTED]
+- REQ-1717: icmpv6_firewall.yaml example with 8 rules for ICMPv6 filtering (NDP permit, echo request/reply, unreachable, MLD multicast) [IMPLEMENTED]
+
+### Testing
+- REQ-1718: 26 unit tests for ICMPv6/ARP/IPv6-ext (model, loader, simulator, mutation) [IMPLEMENTED]
+- REQ-1719: 14 integration tests for ICMPv6/ARP/IPv6-ext (compile, simulate, validate, lint, estimate, diff, formal) [IMPLEMENTED]

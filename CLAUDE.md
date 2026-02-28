@@ -13,6 +13,9 @@
 - **QoS matching**: ip_dscp (6-bit DSCP, 0-63), ip_ecn (2-bit ECN, 0-3) from IPv4 TOS byte; ipv6_dscp/ipv6_ecn from IPv6 Traffic Class
 - **TCP flags matching**: tcp_flags (8-bit) with tcp_flags_mask for flexible SYN/ACK/FIN/RST/Xmas detection
 - **ICMP type/code**: icmp_type (0-255), icmp_code (0-255) for IPv4 ICMP classification
+- **ICMPv6 type/code**: icmpv6_type (0-255), icmpv6_code (0-255) for IPv6 ICMPv6 classification (NDP, echo, unreachable)
+- **ARP matching**: arp_opcode (1=request, 2=reply), arp_spa/arp_tpa (sender/target protocol address) for ARP security
+- **IPv6 extensions**: ipv6_hop_limit (0-255), ipv6_flow_label (20-bit) for IPv6 TTL and flow classification
 - **Byte-offset matching**: raw byte inspection at any packet offset with value/mask (`byte_match`)
 - **Hierarchical State Machines**: nested states, variables (1-32 bit), guards, entry/exit/transition actions
 - **Mermaid import/export**: bidirectional stateDiagram-v2 conversion (`from-mermaid`, `to-mermaid`)
@@ -38,7 +41,7 @@
 - **HTML diff visualization**: color-coded side-by-side HTML diff report (`diff --html`)
 - **Performance benchmarking**: compile time, simulation throughput (pkts/sec), LUT/FF scaling curves (`bench` subcommand)
 - Rule overlap and shadow detection with warnings
-- **Full-stack scoreboard**: Python reference model matches L2/L3/L4/IPv6/VXLAN/GTP-U/MPLS/IGMP/MLD/DSCP/ECN/IPv6-TC/TCP-flags/ICMP/byte-match fields
+- **Full-stack scoreboard**: Python reference model matches L2/L3/L4/IPv6/VXLAN/GTP-U/MPLS/IGMP/MLD/DSCP/ECN/IPv6-TC/TCP-flags/ICMP/ICMPv6/ARP/IPv6-ext/byte-match fields
 - **Directed L3/L4 tests**: generated tests construct proper IPv4/IPv6/TCP/UDP headers
 - **Byte-match simulation**: software simulator evaluates byte_match rules with raw_bytes
 - **Enhanced formal**: SVA assertions for IPv6 CIDR, port range, rate limiter enforcement, byte-match, GTP-U/MPLS/IGMP/MLD prerequisite + bounds assertions with protocol cover statements
@@ -48,7 +51,7 @@
 - **Coverage-directed closure**: CoverageDirector wired into test loop with XML export
 - **Boundary test generation**: auto-derived CIDR/port boundary tests + formally-derived negative tests
 - **Enhanced property tests**: 9 Hypothesis-based tests including CIDR/port/IPv6 boundary checks
-- `lint` subcommand for best-practice analysis and security checks (25 lint rules)
+- `lint` subcommand for best-practice analysis and security checks (28 lint rules)
 - FPGA resource estimation (LUTs/FFs for Artix-7) + timing/pipeline analysis
 - `--json` flag on compile/validate/estimate/diff/formal/lint for CI/scripting integration
 - `diff` subcommand for rule set change management
@@ -62,8 +65,8 @@
 - Coverage XML export with merge support across runs
 - Coverage-directed test generation (verification/coverage_driven.py)
 - Enhanced overlap detection with CIDR containment and port range analysis
-- 27 real-world YAML examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite, OpenNIC, Corundum, TCP flags/ICMP)
-- 298 Rust unit tests + 230 integration tests = 528 total, 47 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
+- 29 real-world YAML examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite, OpenNIC, Corundum, TCP flags/ICMP, ARP security, ICMPv6 firewall)
+- 324 Rust unit tests + 244 integration tests = 568 total, 47 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
 
 ## Architecture
 ```
@@ -150,6 +153,9 @@ pacgate simulate rules.yaml --packet "ethertype=0x0800,ip_dscp=46"  # DSCP QoS c
 pacgate simulate rules.yaml --packet "ethertype=0x86DD,ipv6_dscp=46"  # IPv6 Traffic Class simulation
 pacgate simulate rules.yaml --packet "ethertype=0x0800,ip_protocol=6,tcp_flags=0x02"  # TCP SYN matching
 pacgate simulate rules.yaml --packet "ethertype=0x0800,ip_protocol=1,icmp_type=8"    # ICMP echo request
+pacgate simulate rules.yaml --packet "ethertype=0x86DD,ipv6_next_header=58,icmpv6_type=128"  # ICMPv6 echo request
+pacgate simulate rules.yaml --packet "ethertype=0x0806,arp_opcode=1"                 # ARP request matching
+pacgate simulate rules.yaml --packet "ethertype=0x86DD,ipv6_hop_limit=64,ipv6_flow_label=12345"  # IPv6 ext fields
 pacgate simulate rules.yaml --packet "..." --pcap-out trace.pcap     # Write simulation results to PCAP
 pacgate pcap-analyze capture.pcap      # Analyze PCAP + suggest rules
 pacgate pcap-analyze capture.pcap -m whitelist --output-yaml rules.yaml  # Generate rules from PCAP
@@ -173,7 +179,7 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 ```
 
 ## Key Files
-- `src/model.rs` — Data model (Action, MatchCriteria, ByteMatch, Ipv6Prefix, RateLimit, FsmVariable, HSM types, ConntrackConfig, GtpTeid, MplsLabel, IgmpType, MldType, IpDscp, IpEcn, Ipv6Dscp, Ipv6Ecn, TcpFlags, IcmpType, IcmpCode, RewriteAction)
+- `src/model.rs` — Data model (Action, MatchCriteria, ByteMatch, Ipv6Prefix, RateLimit, FsmVariable, HSM types, ConntrackConfig, GtpTeid, MplsLabel, IgmpType, MldType, IpDscp, IpEcn, Ipv6Dscp, Ipv6Ecn, TcpFlags, IcmpType, IcmpCode, ICMPv6Type, ICMPv6Code, ArpOpcode, ArpSpa, ArpTpa, Ipv6HopLimit, Ipv6FlowLabel, RewriteAction)
 - `src/loader.rs` — YAML loading + validation + CIDR/port overlap detection + HSM/byte_match/conntrack validation
 - `src/verilog_gen.rs` — Tera-based Verilog generation (L2/L3/L4/IPv6/VXLAN/GTP-U/MPLS/IGMP/MLD/byte-match, HSM flattening, multiport)
 - `src/cocotb_gen.rs` — cocotb test harness + AXI tests + property test generation
@@ -189,7 +195,7 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 - `src/benchmark.rs` — Performance benchmarking engine (compile time, sim throughput, LUT/FF scaling)
 - `src/mcy_gen.rs` — MCY (Mutation Cover with Yosys) config generation
 - `src/main.rs` — clap CLI (29 subcommands)
-- `rtl/frame_parser.v` — Hand-written Ethernet/IPv4/IPv6/TCP/UDP/VXLAN/GTP-U/MPLS/IGMP/MLD/ICMP parser FSM with TCP flags + IPv6 TC extraction
+- `rtl/frame_parser.v` — Hand-written Ethernet/IPv4/IPv6/TCP/UDP/VXLAN/GTP-U/MPLS/IGMP/MLD/ICMP/ICMPv6/ARP parser FSM with TCP flags + IPv6 TC + hop_limit + flow_label extraction
 - `rtl/rule_counters.v` — Per-rule 64-bit packet/byte counters
 - `rtl/axi_lite_csr.v` — AXI4-Lite register interface for counters
 - `rtl/axi_stream_adapter.v` — AXI-Stream to pkt_* interface bridge
@@ -207,14 +213,14 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 - `templates/pacgate_opennic_250.v.tera` — OpenNIC Shell 250MHz user box wrapper template
 - `templates/pacgate_corundum_app.v.tera` — Corundum mqnic_app_block wrapper template
 - `verification/` — Python verification framework (packet, scoreboard, coverage, driver, properties, coverage_driven, test_scoreboard)
-- `rules/examples/` — 27 YAML examples
+- `rules/examples/` — 29 YAML examples
 - `rules/templates/` — 7 rule template YAML snippets
 - `.github/workflows/ci.yml` — GitHub Actions CI pipeline
 
 ## Design Decisions
 - Decision output is **latched** (stays valid until next pkt_sof)
 - Rules sorted by priority (highest first); priority encoder is if/else chain
-- Frame parser handles 802.1Q VLAN, IPv4, IPv6, TCP/UDP, VXLAN, GTP-U, MPLS, IGMP, MLD, DSCP/ECN, IPv6 TC, TCP flags, ICMP
+- Frame parser handles 802.1Q VLAN, IPv4, IPv6, TCP/UDP, VXLAN, GTP-U, MPLS, IGMP, MLD, DSCP/ECN, IPv6 TC, TCP flags, ICMP, ICMPv6, ARP, IPv6 hop_limit/flow_label
 - Stateless evaluation is combinational (O(1) clock cycles)
 - Stateful rules use registered FSM with 32-bit timeout counters
 - HSM flattening: composite states converted to flat "parent_child" Verilog states (max 4 levels)
@@ -227,6 +233,9 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 - MPLS detection: EtherType 0x8847 (unicast) or 0x8848 (multicast), extract 20-bit label, 3-bit TC, 1-bit BOS
 - IGMP detection: IPv4 protocol == 2, extract type byte from IGMP header
 - MLD detection: ICMPv6 (next_header 58), types 130-132 (query, report v1, done)
+- ICMPv6 detection: IPv6 next_header 58, S_ICMPV6_HDR state extracts type/code bytes; MLD types 130-132 still set mld_type/mld_valid for backward compatibility
+- ARP detection: EtherType 0x0806, S_ARP_HDR state extracts opcode (bytes 6-7), sender protocol address (bytes 14-17), target protocol address (bytes 24-27)
+- IPv6 hop_limit: extracted from IPv6 header byte 7; flow_label: extracted from IPv6 header bytes 1-3 (lower 20 bits)
 - Multi-port: N independent filter instances sharing same rule set
 - Connection tracking: CRC-based hash, open-addressing linear probing, timestamp-based timeout
 - Rate limiting: token-bucket per rule (parameterized PPS/BURST, 16-bit tokens, 32-bit refill counter)
@@ -266,3 +275,4 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 - **Phase 20**: Complete — cocotb 2.0 migration: pin cocotb>=2.0.0 + cocotb-tools, fix `.value.integer` → `int(.value)`, generate `run_sim.py` runner scripts (cocotb_tools.runner API) alongside Makefiles for all test modes (main, AXI, conntrack, rate limiter, dynamic), platform target width converter inclusion, CI updated to use runner, 260 unit + 204 integration = 464 tests
 - **Phase 21**: Complete — DSCP/ECN QoS matching + DSCP rewrite: ip_dscp (6-bit, 0-63) and ip_ecn (2-bit, 0-3) match fields from IPv4 TOS byte, set_dscp rewrite action with RFC 1624 incremental checksum, frame parser TOS byte extraction, qos_classification.yaml example (7 rules: EF/AF41/AF31/CS6/BE+ECT1/remark/ARP), LINT022 (DSCP/ECN without IPv4), SVA DSCP/ECN bounds assertions, Python scoreboard DSCP/ECN matching, 13 mutation types, 275 unit + 216 integration = 491 tests
 - **Phase 22**: Complete — IPv6 Traffic Class + TCP Flags + ICMP Type/Code: 6 new match fields (ipv6_dscp, ipv6_ecn, tcp_flags, tcp_flags_mask, icmp_type, icmp_code), frame parser IPv6 TC extraction + TCP flags at byte 13 + ICMP state machine, mask-aware TCP flags matching, LINT023-025 (IPv6 TC/TCP flags/ICMP prerequisite checks), SVA assertions (IPv6 TC bounds, TCP flags prereq, ICMP covers), 16 mutation types, tcp_flags_icmp.yaml example (7 rules: SYN/established/Xmas/ICMP echo/reply/IPv6 EF/ARP), Python scoreboard + cocotb + formal support, 298 unit + 230 integration = 528 tests
+- **Phase 23**: Complete — ARP matching (arp_opcode/arp_spa/arp_tpa), ICMPv6 type/code (icmpv6_type/icmpv6_code with MLD backward compatibility), IPv6 extension fields (ipv6_hop_limit/ipv6_flow_label), frame parser S_ICMPV6_HDR + S_ARP_HDR states, LINT026-028 (ICMPv6/ARP/IPv6-ext prerequisite checks), SVA assertions, 19 mutation types, arp_security.yaml + icmpv6_firewall.yaml examples, 324 unit + 244 integration = 568 tests

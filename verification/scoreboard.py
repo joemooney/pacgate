@@ -111,6 +111,16 @@ class Rule:
     # ICMP Type/Code
     icmp_type: Optional[int] = None
     icmp_code: Optional[int] = None
+    # ICMPv6 Type/Code
+    icmpv6_type: Optional[int] = None
+    icmpv6_code: Optional[int] = None
+    # ARP fields
+    arp_opcode: Optional[int] = None
+    arp_spa: Optional[str] = None
+    arp_tpa: Optional[str] = None
+    # IPv6 extension fields
+    ipv6_hop_limit: Optional[int] = None
+    ipv6_flow_label: Optional[int] = None
 
     def matches(self, frame: EthernetFrame, extracted: Optional[dict] = None) -> bool:
         """Check if this rule matches the given frame.
@@ -266,6 +276,40 @@ class Rule:
         if self.icmp_code is not None:
             pkt_icmp_code = extracted.get("icmp_code")
             if pkt_icmp_code is None or pkt_icmp_code != self.icmp_code:
+                return False
+
+        # ICMPv6 Type/Code matching
+        if self.icmpv6_type is not None:
+            pkt_icmpv6_type = extracted.get("icmpv6_type")
+            if pkt_icmpv6_type is None or pkt_icmpv6_type != self.icmpv6_type:
+                return False
+        if self.icmpv6_code is not None:
+            pkt_icmpv6_code = extracted.get("icmpv6_code")
+            if pkt_icmpv6_code is None or pkt_icmpv6_code != self.icmpv6_code:
+                return False
+
+        # ARP fields matching
+        if self.arp_opcode is not None:
+            pkt_arp_opcode = extracted.get("arp_opcode")
+            if pkt_arp_opcode is None or pkt_arp_opcode != self.arp_opcode:
+                return False
+        if self.arp_spa is not None:
+            pkt_arp_spa = extracted.get("arp_spa")
+            if pkt_arp_spa is None or not ipv4_matches_cidr(pkt_arp_spa, self.arp_spa):
+                return False
+        if self.arp_tpa is not None:
+            pkt_arp_tpa = extracted.get("arp_tpa")
+            if pkt_arp_tpa is None or not ipv4_matches_cidr(pkt_arp_tpa, self.arp_tpa):
+                return False
+
+        # IPv6 extension fields matching
+        if self.ipv6_hop_limit is not None:
+            pkt_hop_limit = extracted.get("ipv6_hop_limit")
+            if pkt_hop_limit is None or pkt_hop_limit != self.ipv6_hop_limit:
+                return False
+        if self.ipv6_flow_label is not None:
+            pkt_flow_label = extracted.get("ipv6_flow_label")
+            if pkt_flow_label is None or pkt_flow_label != self.ipv6_flow_label:
                 return False
 
         return True

@@ -269,6 +269,52 @@ pub fn generate_mutations(config: &FilterConfig) -> Vec<(Mutation, FilterConfig)
         }
     }
 
+    // Mutation 17: Remove icmpv6_type (also removes icmpv6_code)
+    for (i, rule) in config.pacgate.rules.iter().enumerate() {
+        if !rule.is_stateful() && rule.match_criteria.icmpv6_type.is_some() {
+            let mut mutated = config.clone();
+            mutated.pacgate.rules[i].match_criteria.icmpv6_type = None;
+            mutated.pacgate.rules[i].match_criteria.icmpv6_code = None;
+            mutations.push((Mutation {
+                name: format!("remove_icmpv6_type_{}", rule.name),
+                description: format!("Remove icmpv6_type match from rule '{}'", rule.name),
+                mutant_index: index,
+            }, mutated));
+            index += 1;
+        }
+    }
+
+    // Mutation 18: Remove arp_opcode (also removes arp_spa, arp_tpa)
+    for (i, rule) in config.pacgate.rules.iter().enumerate() {
+        if !rule.is_stateful() && rule.match_criteria.arp_opcode.is_some() {
+            let mut mutated = config.clone();
+            mutated.pacgate.rules[i].match_criteria.arp_opcode = None;
+            mutated.pacgate.rules[i].match_criteria.arp_spa = None;
+            mutated.pacgate.rules[i].match_criteria.arp_tpa = None;
+            mutations.push((Mutation {
+                name: format!("remove_arp_opcode_{}", rule.name),
+                description: format!("Remove arp_opcode match from rule '{}'", rule.name),
+                mutant_index: index,
+            }, mutated));
+            index += 1;
+        }
+    }
+
+    // Mutation 19: Remove ipv6_hop_limit (also removes ipv6_flow_label)
+    for (i, rule) in config.pacgate.rules.iter().enumerate() {
+        if !rule.is_stateful() && rule.match_criteria.ipv6_hop_limit.is_some() {
+            let mut mutated = config.clone();
+            mutated.pacgate.rules[i].match_criteria.ipv6_hop_limit = None;
+            mutated.pacgate.rules[i].match_criteria.ipv6_flow_label = None;
+            mutations.push((Mutation {
+                name: format!("remove_ipv6_hop_limit_{}", rule.name),
+                description: format!("Remove ipv6_hop_limit match from rule '{}'", rule.name),
+                mutant_index: index,
+            }, mutated));
+            index += 1;
+        }
+    }
+
     mutations
 }
 
@@ -776,5 +822,91 @@ mod tests {
         let mutations = generate_mutations(&config);
         let rm = mutations.iter().find(|(m, _)| m.name.starts_with("remove_ipv6_dscp_")).unwrap();
         assert!(rm.1.pacgate.rules[0].match_criteria.ipv6_dscp.is_none());
+    }
+
+    #[test]
+    fn remove_icmpv6_type_mutation() {
+        let config = FilterConfig {
+            pacgate: PacgateConfig {
+                version: "1.0".to_string(),
+                defaults: Defaults { action: Action::Drop },
+                rules: vec![
+                    StatelessRule {
+                        name: "ndp_rule".to_string(),
+                        priority: 100,
+                        match_criteria: MatchCriteria {
+                            icmpv6_type: Some(135),
+                            icmpv6_code: Some(0),
+                            ..Default::default()
+                        },
+                        action: Some(Action::Pass),
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
+                    },
+                ],
+                conntrack: None,
+            },
+        };
+        let mutations = generate_mutations(&config);
+        let rm = mutations.iter().find(|(m, _)| m.name.starts_with("remove_icmpv6_type_")).unwrap();
+        assert!(rm.1.pacgate.rules[0].match_criteria.icmpv6_type.is_none());
+        assert!(rm.1.pacgate.rules[0].match_criteria.icmpv6_code.is_none());
+    }
+
+    #[test]
+    fn remove_arp_opcode_mutation() {
+        let config = FilterConfig {
+            pacgate: PacgateConfig {
+                version: "1.0".to_string(),
+                defaults: Defaults { action: Action::Drop },
+                rules: vec![
+                    StatelessRule {
+                        name: "arp_rule".to_string(),
+                        priority: 100,
+                        match_criteria: MatchCriteria {
+                            arp_opcode: Some(1),
+                            arp_spa: Some("10.0.0.1".to_string()),
+                            arp_tpa: Some("10.0.0.2".to_string()),
+                            ..Default::default()
+                        },
+                        action: Some(Action::Pass),
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
+                    },
+                ],
+                conntrack: None,
+            },
+        };
+        let mutations = generate_mutations(&config);
+        let rm = mutations.iter().find(|(m, _)| m.name.starts_with("remove_arp_opcode_")).unwrap();
+        assert!(rm.1.pacgate.rules[0].match_criteria.arp_opcode.is_none());
+        assert!(rm.1.pacgate.rules[0].match_criteria.arp_spa.is_none());
+        assert!(rm.1.pacgate.rules[0].match_criteria.arp_tpa.is_none());
+    }
+
+    #[test]
+    fn remove_ipv6_hop_limit_mutation() {
+        let config = FilterConfig {
+            pacgate: PacgateConfig {
+                version: "1.0".to_string(),
+                defaults: Defaults { action: Action::Drop },
+                rules: vec![
+                    StatelessRule {
+                        name: "hop_rule".to_string(),
+                        priority: 100,
+                        match_criteria: MatchCriteria {
+                            ipv6_hop_limit: Some(64),
+                            ipv6_flow_label: Some(12345),
+                            ..Default::default()
+                        },
+                        action: Some(Action::Pass),
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
+                    },
+                ],
+                conntrack: None,
+            },
+        };
+        let mutations = generate_mutations(&config);
+        let rm = mutations.iter().find(|(m, _)| m.name.starts_with("remove_ipv6_hop_limit_")).unwrap();
+        assert!(rm.1.pacgate.rules[0].match_criteria.ipv6_hop_limit.is_none());
+        assert!(rm.1.pacgate.rules[0].match_criteria.ipv6_flow_label.is_none());
     }
 }
