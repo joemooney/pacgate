@@ -433,6 +433,84 @@ module packet_filter_assertions (
         ipv6_valid && ipv6_hop_limit == 8'd255);
 {% endif %}
 
+{% if has_qinq %}
+    // ── QinQ (802.1ad) Assertions ────────────────────────────────────
+    // QinQ: outer service VLAN tag (S-TAG) with outer_vlan_id (12-bit) and outer_vlan_pcp (3-bit).
+
+    // QinQ prerequisite: outer_vlan fields valid only when outer_vlan_valid asserted
+    assert_qinq_prereq: assert property (@(posedge clk) disable iff (!rst_n)
+{% for idx in qinq_rule_indices %}
+        (match_hit_{{ idx }} |-> outer_vlan_valid){% if not loop.last %} and{% endif %}
+
+{% endfor %}
+    )
+        else $error("ASSERT FAIL: QinQ rule matched without outer_vlan_valid");
+
+    // outer_vlan_id bounds: must be <= 4095 (12-bit)
+    assert_qinq_vlan_id_bounds: assert property (@(posedge clk) disable iff (!rst_n)
+        (outer_vlan_valid |-> outer_vlan_id <= 12'd4095))
+        else $error("ASSERT FAIL: outer_vlan_id exceeds 12-bit range (> 4095)");
+
+    // outer_vlan_pcp bounds: must be <= 7 (3-bit)
+    assert_qinq_vlan_pcp_bounds: assert property (@(posedge clk) disable iff (!rst_n)
+        (outer_vlan_valid |-> outer_vlan_pcp <= 3'd7))
+        else $error("ASSERT FAIL: outer_vlan_pcp exceeds 3-bit range (> 7)");
+
+    // Cover: QinQ frame detected
+    cover_qinq_valid: cover property (@(posedge clk) disable iff (!rst_n) outer_vlan_valid);
+
+    // Cover: each QinQ rule exercised
+{% for idx in qinq_rule_indices %}
+    cover_qinq_rule_{{ idx }}: cover property (@(posedge clk) disable iff (!rst_n)
+        match_hit_{{ idx }});
+{% endfor %}
+{% endif %}
+
+{% if has_ip_frag %}
+    // ── IP Fragmentation Assertions ──────────────────────────────────
+    // IPv4 flags (DF, MF) and 13-bit fragment offset from header bytes 6-7.
+
+    // IP frag prerequisite: ip_frag fields valid only when ip_frag_valid asserted
+    assert_ip_frag_prereq: assert property (@(posedge clk) disable iff (!rst_n)
+{% for idx in ip_frag_rule_indices %}
+        (match_hit_{{ idx }} |-> ip_frag_valid){% if not loop.last %} and{% endif %}
+
+{% endfor %}
+    )
+        else $error("ASSERT FAIL: IP fragmentation rule matched without ip_frag_valid");
+
+    // ip_frag_offset bounds: must be <= 8191 (13-bit)
+    assert_ip_frag_offset_bounds: assert property (@(posedge clk) disable iff (!rst_n)
+        (ip_frag_valid |-> ip_frag_offset <= 13'd8191))
+        else $error("ASSERT FAIL: ip_frag_offset exceeds 13-bit range (> 8191)");
+
+    // Cover: DF (Don't Fragment) flag set
+    cover_ip_frag_df: cover property (@(posedge clk) disable iff (!rst_n)
+        ip_frag_valid && ip_dont_fragment);
+
+    // Cover: MF (More Fragments) flag set
+    cover_ip_frag_mf: cover property (@(posedge clk) disable iff (!rst_n)
+        ip_frag_valid && ip_more_fragments);
+
+    // Cover: non-fragmented packet (DF=0, MF=0, offset=0)
+    cover_ip_frag_none: cover property (@(posedge clk) disable iff (!rst_n)
+        ip_frag_valid && !ip_dont_fragment && !ip_more_fragments && (ip_frag_offset == 13'd0));
+
+    // Cover: first fragment (MF=1, offset=0)
+    cover_ip_frag_first: cover property (@(posedge clk) disable iff (!rst_n)
+        ip_frag_valid && ip_more_fragments && (ip_frag_offset == 13'd0));
+
+    // Cover: subsequent fragment (offset > 0)
+    cover_ip_frag_subsequent: cover property (@(posedge clk) disable iff (!rst_n)
+        ip_frag_valid && (ip_frag_offset > 13'd0));
+
+    // Cover: each IP frag rule exercised
+{% for idx in ip_frag_rule_indices %}
+    cover_ip_frag_rule_{{ idx }}: cover property (@(posedge clk) disable iff (!rst_n)
+        match_hit_{{ idx }});
+{% endfor %}
+{% endif %}
+
 {% if has_rewrite_rules %}
     // ── Rewrite Engine Assertions ───────────────────────────────────
     // Rewrite must only be applied when the packet is passed (not dropped).
@@ -454,6 +532,10 @@ module packet_filter_assertions (
 
     // Cover: pass without rewrite (plain passthrough)
     cover property (@(posedge clk) disable iff (!rst_n) decision_valid && decision_pass && !rewrite_en);
+
+    // Cover: port substitution rewrite (src_port or dst_port rewrite active)
+    cover_rewrite_port_sub: cover property (@(posedge clk) disable iff (!rst_n)
+        decision_valid && rewrite_en && (rewrite_flags[8] || rewrite_flags[9]));
 {% endif %}
 
 {% if has_dynamic %}

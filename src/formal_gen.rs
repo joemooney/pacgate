@@ -102,6 +102,8 @@ pub fn generate_with_dynamic(config: &FilterConfig, templates_dir: &Path, output
     let has_icmpv6_rules = rules.iter().any(|r| r.match_criteria.uses_icmpv6());
     let has_arp_rules = rules.iter().any(|r| r.match_criteria.uses_arp());
     let has_ipv6_ext_rules = rules.iter().any(|r| r.match_criteria.uses_ipv6_ext());
+    let has_qinq = rules.iter().any(|r| r.match_criteria.uses_qinq());
+    let has_ip_frag = rules.iter().any(|r| r.match_criteria.uses_ip_frag());
     let icmpv6_rule_indices: Vec<usize> = rules.iter().enumerate()
         .filter(|(_, r)| r.match_criteria.uses_icmpv6())
         .map(|(i, _)| i).collect();
@@ -110,6 +112,12 @@ pub fn generate_with_dynamic(config: &FilterConfig, templates_dir: &Path, output
         .map(|(i, _)| i).collect();
     let ipv6_ext_rule_indices: Vec<usize> = rules.iter().enumerate()
         .filter(|(_, r)| r.match_criteria.uses_ipv6_ext())
+        .map(|(i, _)| i).collect();
+    let qinq_rule_indices: Vec<usize> = rules.iter().enumerate()
+        .filter(|(_, r)| r.match_criteria.uses_qinq())
+        .map(|(i, _)| i).collect();
+    let ip_frag_rule_indices: Vec<usize> = rules.iter().enumerate()
+        .filter(|(_, r)| r.match_criteria.uses_ip_frag())
         .map(|(i, _)| i).collect();
 
     // Render SVA assertions
@@ -146,6 +154,10 @@ pub fn generate_with_dynamic(config: &FilterConfig, templates_dir: &Path, output
         ctx.insert("arp_rule_indices", &arp_rule_indices);
         ctx.insert("has_ipv6_ext_rules", &has_ipv6_ext_rules);
         ctx.insert("ipv6_ext_rule_indices", &ipv6_ext_rule_indices);
+        ctx.insert("has_qinq", &has_qinq);
+        ctx.insert("qinq_rule_indices", &qinq_rule_indices);
+        ctx.insert("has_ip_frag", &has_ip_frag);
+        ctx.insert("ip_frag_rule_indices", &ip_frag_rule_indices);
         ctx.insert("has_dynamic", &dynamic);
         ctx.insert("dynamic_num_entries", &num_entries);
 
