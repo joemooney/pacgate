@@ -325,6 +325,210 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
     Ok(())
 }
 
+/// Generate dynamic flow table RTL (register-based, AXI-Lite writable).
+/// Replaces per-rule static matchers with a single flow_table module.
+pub fn generate_dynamic(config: &FilterConfig, templates_dir: &Path, output_dir: &Path, num_entries: u16) -> Result<()> {
+    let glob = format!("{}/**/*.tera", templates_dir.display());
+    let tera = Tera::new(&glob)
+        .with_context(|| format!("Failed to load templates from {}", templates_dir.display()))?;
+
+    let rtl_dir = output_dir.join("rtl");
+    std::fs::create_dir_all(&rtl_dir)?;
+
+    // Sort rules by priority (highest first)
+    let mut rules = config.pacgate.rules.clone();
+    rules.sort_by(|a, b| b.priority.cmp(&a.priority));
+
+    let default_pass = config.pacgate.defaults.action == Action::Pass;
+
+    // Build initial entry data from YAML rules
+    let initial_entries: Vec<std::collections::HashMap<String, serde_json::Value>> = rules.iter().enumerate().map(|(idx, rule)| {
+        rule_to_flow_entry(idx, rule)
+    }).collect();
+
+    // Calculate index bit width
+    let idx_bits = if num_entries <= 1 { 1 } else {
+        ((num_entries as f64).log2().ceil() as usize).max(1)
+    };
+
+    // Render flow_table.v
+    {
+        let mut ctx = tera::Context::new();
+        ctx.insert("num_entries", &num_entries);
+        ctx.insert("num_initial_entries", &initial_entries.len());
+        ctx.insert("default_pass", &default_pass);
+        ctx.insert("initial_entries", &initial_entries);
+        ctx.insert("idx_bits", &idx_bits);
+
+        let rendered = tera.render("flow_table.v.tera", &ctx)?;
+        std::fs::write(rtl_dir.join("flow_table.v"), &rendered)?;
+        log::info!("Generated flow_table.v ({} entries, {} initial)", num_entries, initial_entries.len());
+    }
+
+    // Render dynamic top-level
+    {
+        let mut ctx = tera::Context::new();
+        ctx.insert("num_entries", &num_entries);
+        ctx.insert("idx_bits", &idx_bits);
+        ctx.insert("default_pass", &default_pass);
+
+        let rendered = tera.render("packet_filter_dynamic_top.v.tera", &ctx)?;
+        std::fs::write(rtl_dir.join("packet_filter_top.v"), &rendered)?;
+        log::info!("Generated packet_filter_top.v (dynamic mode)");
+    }
+
+    // Copy frame_parser.v (still needed)
+    {
+        let src = Path::new("rtl").join("frame_parser.v");
+        if src.exists() {
+            let dst = rtl_dir.join("frame_parser.v");
+            std::fs::copy(&src, &dst)
+                .with_context(|| "Failed to copy frame_parser.v to output")?;
+            log::info!("Copied frame_parser.v to {}", dst.display());
+        }
+    }
+
+    Ok(())
+}
+
+/// Convert a YAML rule to flow table entry data for template rendering.
+/// All numeric values are pre-formatted as hex or decimal strings for direct template use.
+fn rule_to_flow_entry(idx: usize, rule: &crate::model::StatelessRule) -> std::collections::HashMap<String, serde_json::Value> {
+    let mc = &rule.match_criteria;
+    let mut entry = std::collections::HashMap::new();
+
+    entry.insert("index".to_string(), serde_json::json!(idx));
+    entry.insert("name".to_string(), serde_json::json!(rule.name));
+    entry.insert("priority".to_string(), serde_json::json!(rule.priority));
+    entry.insert("action_pass".to_string(), serde_json::json!(rule.action() == Action::Pass));
+
+    // Ethertype (hex strings)
+    if let Some(ref et) = mc.ethertype {
+        if let Ok(val) = parse_ethertype(et) {
+            entry.insert("ethertype_val_hex".to_string(), serde_json::json!(format!("{:04x}", val)));
+            entry.insert("ethertype_msk_hex".to_string(), serde_json::json!("ffff"));
+        }
+    }
+    if !entry.contains_key("ethertype_val_hex") {
+        entry.insert("ethertype_val_hex".to_string(), serde_json::json!("0000"));
+        entry.insert("ethertype_msk_hex".to_string(), serde_json::json!("0000"));
+    }
+
+    // DST MAC (hex strings, 12 chars)
+    if let Some(ref mac_str) = mc.dst_mac {
+        if let Ok(mac) = MacAddress::parse(mac_str) {
+            entry.insert("dst_mac_val".to_string(), serde_json::json!(format!(
+                "{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+                mac.value[0], mac.value[1], mac.value[2],
+                mac.value[3], mac.value[4], mac.value[5]
+            )));
+            entry.insert("dst_mac_msk".to_string(), serde_json::json!(format!(
+                "{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+                mac.mask[0], mac.mask[1], mac.mask[2],
+                mac.mask[3], mac.mask[4], mac.mask[5]
+            )));
+        }
+    }
+    if !entry.contains_key("dst_mac_val") {
+        entry.insert("dst_mac_val".to_string(), serde_json::json!("000000000000"));
+        entry.insert("dst_mac_msk".to_string(), serde_json::json!("000000000000"));
+    }
+
+    // SRC MAC (hex strings, 12 chars)
+    if let Some(ref mac_str) = mc.src_mac {
+        if let Ok(mac) = MacAddress::parse(mac_str) {
+            entry.insert("src_mac_val".to_string(), serde_json::json!(format!(
+                "{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+                mac.value[0], mac.value[1], mac.value[2],
+                mac.value[3], mac.value[4], mac.value[5]
+            )));
+            entry.insert("src_mac_msk".to_string(), serde_json::json!(format!(
+                "{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+                mac.mask[0], mac.mask[1], mac.mask[2],
+                mac.mask[3], mac.mask[4], mac.mask[5]
+            )));
+        }
+    }
+    if !entry.contains_key("src_mac_val") {
+        entry.insert("src_mac_val".to_string(), serde_json::json!("000000000000"));
+        entry.insert("src_mac_msk".to_string(), serde_json::json!("000000000000"));
+    }
+
+    // VLAN ID (decimal values)
+    entry.insert("vlan_id_val".to_string(), serde_json::json!(mc.vlan_id.unwrap_or(0)));
+    entry.insert("vlan_id_msk_hex".to_string(), serde_json::json!(
+        if mc.vlan_id.is_some() { "fff" } else { "000" }
+    ));
+
+    // IP protocol (decimal values)
+    entry.insert("ip_protocol_val".to_string(), serde_json::json!(mc.ip_protocol.unwrap_or(0)));
+    entry.insert("ip_protocol_msk_hex".to_string(), serde_json::json!(
+        if mc.ip_protocol.is_some() { "ff" } else { "00" }
+    ));
+
+    // SRC IP (CIDR → hex value/mask)
+    if let Some(ref ip) = mc.src_ip {
+        if let Ok(prefix) = Ipv4Prefix::parse(ip) {
+            let val = u32::from_be_bytes(prefix.addr);
+            let msk = u32::from_be_bytes(prefix.mask);
+            entry.insert("src_ip_val_hex".to_string(), serde_json::json!(format!("{:08x}", val)));
+            entry.insert("src_ip_msk_hex".to_string(), serde_json::json!(format!("{:08x}", msk)));
+        }
+    }
+    if !entry.contains_key("src_ip_val_hex") {
+        entry.insert("src_ip_val_hex".to_string(), serde_json::json!("00000000"));
+        entry.insert("src_ip_msk_hex".to_string(), serde_json::json!("00000000"));
+    }
+
+    // DST IP (CIDR → hex value/mask)
+    if let Some(ref ip) = mc.dst_ip {
+        if let Ok(prefix) = Ipv4Prefix::parse(ip) {
+            let val = u32::from_be_bytes(prefix.addr);
+            let msk = u32::from_be_bytes(prefix.mask);
+            entry.insert("dst_ip_val_hex".to_string(), serde_json::json!(format!("{:08x}", val)));
+            entry.insert("dst_ip_msk_hex".to_string(), serde_json::json!(format!("{:08x}", msk)));
+        }
+    }
+    if !entry.contains_key("dst_ip_val_hex") {
+        entry.insert("dst_ip_val_hex".to_string(), serde_json::json!("00000000"));
+        entry.insert("dst_ip_msk_hex".to_string(), serde_json::json!("00000000"));
+    }
+
+    // SRC port (min/max decimal)
+    match &mc.src_port {
+        Some(crate::model::PortMatch::Exact(port)) => {
+            entry.insert("src_port_min".to_string(), serde_json::json!(port));
+            entry.insert("src_port_max".to_string(), serde_json::json!(port));
+        }
+        Some(crate::model::PortMatch::Range { range }) => {
+            entry.insert("src_port_min".to_string(), serde_json::json!(range[0]));
+            entry.insert("src_port_max".to_string(), serde_json::json!(range[1]));
+        }
+        None => {
+            entry.insert("src_port_min".to_string(), serde_json::json!(0u16));
+            entry.insert("src_port_max".to_string(), serde_json::json!(65535u16));
+        }
+    }
+
+    // DST port (min/max decimal)
+    match &mc.dst_port {
+        Some(crate::model::PortMatch::Exact(port)) => {
+            entry.insert("dst_port_min".to_string(), serde_json::json!(port));
+            entry.insert("dst_port_max".to_string(), serde_json::json!(port));
+        }
+        Some(crate::model::PortMatch::Range { range }) => {
+            entry.insert("dst_port_min".to_string(), serde_json::json!(range[0]));
+            entry.insert("dst_port_max".to_string(), serde_json::json!(range[1]));
+        }
+        None => {
+            entry.insert("dst_port_min".to_string(), serde_json::json!(0u16));
+            entry.insert("dst_port_max".to_string(), serde_json::json!(65535u16));
+        }
+    }
+
+    entry
+}
+
 /// Generate multi-port wrapper that instantiates N independent packet_filter_top instances.
 pub fn generate_multiport(config: &FilterConfig, templates_dir: &Path, output_dir: &Path, num_ports: u16) -> Result<()> {
     let glob = format!("{}/**/*.tera", templates_dir.display());

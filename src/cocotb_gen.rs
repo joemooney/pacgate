@@ -551,3 +551,111 @@ pub fn generate_rate_limiter_tests(templates_dir: &Path, output_dir: &Path) -> R
 
     Ok(())
 }
+
+/// Generate cocotb tests for dynamic flow table mode.
+/// Tests initial rules, AXI-Lite entry modification, add/disable, commit atomicity, priority.
+pub fn generate_dynamic_tests(config: &FilterConfig, templates_dir: &Path, output_dir: &Path, num_entries: u16) -> Result<()> {
+    let glob = format!("{}/**/*.tera", templates_dir.display());
+    let tera = Tera::new(&glob)
+        .with_context(|| format!("Failed to load templates from {}", templates_dir.display()))?;
+
+    let tb_dir = output_dir.join("tb");
+    std::fs::create_dir_all(&tb_dir)?;
+
+    // Sort rules by priority (highest first) — same order as verilog_gen
+    let mut rules = config.pacgate.rules.clone();
+    rules.sort_by(|a, b| b.priority.cmp(&a.priority));
+
+    let default_pass = config.pacgate.defaults.action == Action::Pass;
+
+    // Build test case data for initial rules
+    let mut test_cases: Vec<std::collections::HashMap<String, String>> = Vec::new();
+    for rule in rules.iter().filter(|r| !r.is_stateful()) {
+        let ethertype = if let Some(ref et) = rule.match_criteria.ethertype {
+            format!("0x{:04X}", parse_ethertype(et).unwrap_or(0x0800))
+        } else {
+            "0x0800".to_string()
+        };
+
+        let dst_mac = if let Some(ref mac) = rule.match_criteria.dst_mac {
+            generate_matching_mac(mac)
+        } else {
+            "02:00:00:00:00:01".to_string()
+        };
+
+        let src_mac = if let Some(ref mac) = rule.match_criteria.src_mac {
+            generate_matching_mac(mac)
+        } else {
+            "02:00:00:00:00:02".to_string()
+        };
+
+        let expect_pass = (rule.action() == Action::Pass).to_string();
+
+        let mut tc = std::collections::HashMap::new();
+        tc.insert("name".to_string(), rule.name.clone());
+        tc.insert("ethertype".to_string(), ethertype);
+        tc.insert("dst_mac".to_string(), dst_mac);
+        tc.insert("src_mac".to_string(), src_mac);
+        tc.insert("expect_pass".to_string(), expect_pass);
+
+        // L3/L4 fields
+        if let Some(ref ip) = rule.match_criteria.src_ip {
+            tc.insert("src_ip".to_string(), generate_matching_ip(ip));
+            tc.insert("has_l3".to_string(), "true".to_string());
+        }
+        if let Some(ref ip) = rule.match_criteria.dst_ip {
+            tc.insert("dst_ip".to_string(), generate_matching_ip(ip));
+            tc.insert("has_l3".to_string(), "true".to_string());
+        }
+        if let Some(proto) = rule.match_criteria.ip_protocol {
+            tc.insert("ip_protocol".to_string(), proto.to_string());
+            tc.insert("has_l3".to_string(), "true".to_string());
+        }
+        if let Some(ref pm) = rule.match_criteria.src_port {
+            tc.insert("src_port".to_string(), generate_matching_port(pm));
+            tc.insert("has_l3".to_string(), "true".to_string());
+        }
+        if let Some(ref pm) = rule.match_criteria.dst_port {
+            tc.insert("dst_port".to_string(), generate_matching_port(pm));
+            tc.insert("has_l3".to_string(), "true".to_string());
+        }
+        if let Some(vid) = rule.match_criteria.vlan_id {
+            tc.insert("vlan_id".to_string(), vid.to_string());
+            tc.insert("has_vlan".to_string(), "true".to_string());
+        }
+
+        test_cases.push(tc);
+    }
+
+    // Render test_flow_table.py
+    {
+        let mut ctx = tera::Context::new();
+        ctx.insert("test_cases", &test_cases);
+        ctx.insert("num_entries", &num_entries);
+        ctx.insert("default_pass", &default_pass);
+        ctx.insert("num_rules", &rules.len());
+
+        let rendered = tera.render("test_flow_table.py.tera", &ctx)?;
+        std::fs::write(tb_dir.join("test_flow_table.py"), &rendered)?;
+        log::info!("Generated test_flow_table.py");
+    }
+
+    // Render Makefile for flow table tests
+    {
+        let mut ctx = tera::Context::new();
+        ctx.insert("module_name", "packet_filter_top");
+        let verilog_files: Vec<String> = vec![
+            "../rtl/frame_parser.v".to_string(),
+            "../rtl/flow_table.v".to_string(),
+            "../rtl/packet_filter_top.v".to_string(),
+        ];
+        ctx.insert("verilog_files", &verilog_files);
+        let rendered = tera.render("test_makefile.tera", &ctx)?;
+        // Update the test module name for dynamic mode
+        let rendered = rendered.replace("test_packet_filter", "test_flow_table");
+        std::fs::write(tb_dir.join("Makefile"), &rendered)?;
+        log::info!("Generated tb/Makefile (dynamic mode)");
+    }
+
+    Ok(())
+}

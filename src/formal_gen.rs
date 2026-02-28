@@ -6,6 +6,11 @@ use crate::model::{Action, FilterConfig};
 
 /// Generate SVA assertions and SymbiYosys task file from the filter configuration.
 pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) -> Result<()> {
+    generate_with_dynamic(config, templates_dir, output_dir, false, 0)
+}
+
+/// Generate SVA assertions with optional dynamic flow table assertions.
+pub fn generate_with_dynamic(config: &FilterConfig, templates_dir: &Path, output_dir: &Path, dynamic: bool, num_entries: u16) -> Result<()> {
     let glob = format!("{}/**/*.tera", templates_dir.display());
     let tera = Tera::new(&glob)
         .with_context(|| format!("Failed to load templates from {}", templates_dir.display()))?;
@@ -92,6 +97,8 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         ctx.insert("mpls_rule_indices", &mpls_rule_indices);
         ctx.insert("igmp_rule_indices", &igmp_rule_indices);
         ctx.insert("mld_rule_indices", &mld_rule_indices);
+        ctx.insert("has_dynamic", &dynamic);
+        ctx.insert("dynamic_num_entries", &num_entries);
 
         let rendered = tera.render("assertions.sv.tera", &ctx)?;
         std::fs::write(formal_dir.join("assertions.sv"), &rendered)?;

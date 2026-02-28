@@ -63,7 +63,8 @@ fn validate_all_examples() {
                      "iot_gateway", "syn_flood_detect", "arp_spoof_detect",
                      "l3l4_firewall", "vxlan_datacenter",
                      "byte_match", "hsm_conntrack",
-                     "ipv6_firewall", "rate_limited"] {
+                     "ipv6_firewall", "rate_limited",
+                     "dynamic_firewall"] {
         let path = format!("rules/examples/{}.yaml", example);
         let output = pacgate_bin()
             .args(["validate", &path])
@@ -2620,4 +2621,179 @@ fn reachability_shows_protocol_fields() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("gtp_teid=1000"), "reachability should show gtp_teid in additional fields");
+}
+
+// --- Dynamic flow table tests ---
+
+#[test]
+fn dynamic_flag_accepted() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml", "--dynamic", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile --dynamic failed: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn dynamic_entries_flag_accepted() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml", "--dynamic", "--dynamic-entries", "32", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile --dynamic --dynamic-entries 32 failed: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn dynamic_rejects_fsm_rule() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/stateful_sequence.yaml", "--dynamic", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "should reject --dynamic with FSM rules");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("stateful"), "error should mention stateful: {}", stderr);
+}
+
+#[test]
+fn dynamic_generates_flow_table() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml", "--dynamic", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile --dynamic failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(tmp.path().join("rtl/flow_table.v").exists(), "flow_table.v should be generated");
+}
+
+#[test]
+fn dynamic_no_rule_match_modules() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml", "--dynamic", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert!(!tmp.path().join("rtl/rule_match_0.v").exists(), "rule_match_0.v should not exist in dynamic mode");
+    assert!(!tmp.path().join("rtl/decision_logic.v").exists(), "decision_logic.v should not exist in dynamic mode");
+}
+
+#[test]
+fn dynamic_top_has_axi_lite_ports() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml", "--dynamic", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let top_v = std::fs::read_to_string(tmp.path().join("rtl/packet_filter_top.v")).unwrap();
+    assert!(top_v.contains("s_axil_awaddr"), "dynamic top should have AXI-Lite ports");
+    assert!(top_v.contains("flow_table"), "dynamic top should instantiate flow_table");
+}
+
+#[test]
+fn dynamic_initial_values_from_yaml() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml", "--dynamic", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let flow_v = std::fs::read_to_string(tmp.path().join("rtl/flow_table.v")).unwrap();
+    assert!(flow_v.contains("entry_valid[0]"), "flow_table should have initial entries from YAML");
+    assert!(flow_v.contains("entry_ethertype_val"), "flow_table should have ethertype initial values");
+}
+
+#[test]
+fn dynamic_correct_num_entries() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml", "--dynamic", "--dynamic-entries", "32", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let flow_v = std::fs::read_to_string(tmp.path().join("rtl/flow_table.v")).unwrap();
+    assert!(flow_v.contains("NUM_ENTRIES   = 32"), "NUM_ENTRIES should be 32");
+}
+
+#[test]
+fn dynamic_default_action_propagated() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml", "--dynamic", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let flow_v = std::fs::read_to_string(tmp.path().join("rtl/flow_table.v")).unwrap();
+    assert!(flow_v.contains("default_action = 1'b0"), "default action should be drop (1'b0)");
+}
+
+#[test]
+fn dynamic_cocotb_test_generated() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml", "--dynamic", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert!(tmp.path().join("tb/test_flow_table.py").exists(), "cocotb test should be generated");
+    let test_py = std::fs::read_to_string(tmp.path().join("tb/test_flow_table.py")).unwrap();
+    assert!(test_py.contains("test_initial_rules"), "test should include initial rules test");
+    assert!(test_py.contains("test_commit_atomicity"), "test should include commit atomicity test");
+}
+
+#[test]
+fn dynamic_example_compiles() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/dynamic_firewall.yaml", "--dynamic", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "dynamic_firewall.yaml --dynamic failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(tmp.path().join("rtl/flow_table.v").exists());
+    assert!(tmp.path().join("tb/test_flow_table.py").exists());
+}
+
+#[test]
+fn dynamic_estimate_shows_flow_table() {
+    let output = pacgate_bin()
+        .args(["estimate", "rules/examples/dynamic_firewall.yaml", "--dynamic", "--dynamic-entries", "32", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "estimate --dynamic failed: {}", String::from_utf8_lossy(&output.stderr));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["mode"], "dynamic");
+    assert_eq!(json["num_entries"], 32);
+    assert!(json["components"]["flow_table_entries"]["ffs"].as_u64().unwrap() > 0);
+    assert!(json["total"]["luts"].as_u64().unwrap() > 0);
+}
+
+#[test]
+fn dynamic_lint_warns_large() {
+    let output = pacgate_bin()
+        .args(["lint", "rules/examples/dynamic_firewall.yaml", "--dynamic", "--dynamic-entries", "128", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "lint --dynamic failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let findings = json["findings"].as_array().unwrap();
+    assert!(findings.iter().any(|f| f["code"] == "LINT016"), "Expected LINT016 warning for 128 entries");
+    assert!(findings.iter().any(|f| f["code"] == "LINT017"), "Expected LINT017 info for dynamic mode");
+}
+
+#[test]
+fn dynamic_formal_assertions() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["formal", "rules/examples/dynamic_firewall.yaml", "--dynamic", "--dynamic-entries", "16", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "formal --dynamic failed: {}", String::from_utf8_lossy(&output.stderr));
+    let assertions = std::fs::read_to_string(tmp.path().join("formal/assertions.sv")).unwrap();
+    assert!(assertions.contains("p_dynamic_rule_idx_bounds"), "Missing dynamic rule idx bounds assertion");
+    assert!(assertions.contains("p_dynamic_decision_stable"), "Missing dynamic decision stability assertion");
+    assert!(tmp.path().join("formal/packet_filter.sby").exists(), "Missing SBY task file");
 }

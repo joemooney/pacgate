@@ -1,0 +1,45 @@
+# dynamic_firewall.yaml — Example ruleset for --dynamic flow table mode
+# Runtime-updateable via AXI-Lite register writes
+# Uses L2/L3/L4 fields only (dynamic V1 scope)
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_arp
+      priority: 200
+      match:
+        ethertype: "0x0806"
+      action: pass
+
+    - name: allow_http
+      priority: 150
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 80
+      action: pass
+
+    - name: allow_https
+      priority: 140
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 443
+      action: pass
+
+    - name: allow_dns
+      priority: 130
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17
+        dst_port: 53
+      action: pass
+
+    - name: block_telnet
+      priority: 120
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 23
+      action: drop

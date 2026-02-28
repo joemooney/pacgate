@@ -764,6 +764,55 @@ fn mac_patterns_overlap(a: &str, b: &str) -> bool {
     true
 }
 
+/// Validate constraints for --dynamic mode.
+/// Called from main.rs before code generation.
+pub fn validate_dynamic(config: &FilterConfig, conntrack: bool, dynamic_entries: u16) -> Result<()> {
+    // Dynamic entries bounds
+    if dynamic_entries < 1 || dynamic_entries > 256 {
+        anyhow::bail!("--dynamic-entries must be 1-256, got {}", dynamic_entries);
+    }
+
+    // Incompatible with conntrack
+    if conntrack || config.pacgate.conntrack.is_some() {
+        anyhow::bail!("--dynamic is incompatible with --conntrack (connection tracking modifies decision flow)");
+    }
+
+    // Incompatible with stateful/FSM rules
+    for rule in &config.pacgate.rules {
+        if rule.is_stateful() {
+            anyhow::bail!("--dynamic is incompatible with stateful/FSM rules (rule '{}' is stateful)", rule.name);
+        }
+    }
+
+    // V1 scope: no IPv6, GTP, MPLS, IGMP/MLD, byte_match, VXLAN
+    for rule in &config.pacgate.rules {
+        let mc = &rule.match_criteria;
+        if mc.uses_ipv6() {
+            anyhow::bail!("--dynamic V1 does not support IPv6 fields (rule '{}' uses IPv6). IPv6 support planned for V2.", rule.name);
+        }
+        if mc.uses_gtp() {
+            anyhow::bail!("--dynamic V1 does not support GTP-U fields (rule '{}' uses gtp_teid). GTP support planned for V2.", rule.name);
+        }
+        if mc.uses_mpls() {
+            anyhow::bail!("--dynamic V1 does not support MPLS fields (rule '{}' uses MPLS). MPLS support planned for V2.", rule.name);
+        }
+        if mc.uses_multicast() {
+            anyhow::bail!("--dynamic V1 does not support IGMP/MLD fields (rule '{}' uses multicast). Multicast support planned for V2.", rule.name);
+        }
+        if mc.uses_byte_match() {
+            anyhow::bail!("--dynamic V1 does not support byte_match fields (rule '{}' uses byte_match). Byte-match support planned for V2.", rule.name);
+        }
+        if mc.vxlan_vni.is_some() {
+            anyhow::bail!("--dynamic V1 does not support VXLAN VNI (rule '{}' uses vxlan_vni). VXLAN support planned for V2.", rule.name);
+        }
+    }
+
+    // More rules than entries is a warning, not error (excess rules won't be loaded)
+    // The actual cap is handled in verilog_gen
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1252,5 +1301,89 @@ pacgate:
         assert!(!port_ranges_overlap(&PortMatch::Range { range: [1, 100] }, &PortMatch::Range { range: [101, 200] }));
         assert!(port_ranges_overlap(&PortMatch::Exact(80), &PortMatch::Range { range: [1, 1024] }));
         assert!(!port_ranges_overlap(&PortMatch::Exact(80), &PortMatch::Exact(443)));
+    }
+
+    // --- Dynamic mode validation ---
+
+    fn make_simple_config() -> FilterConfig {
+        serde_yaml::from_str(r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_http
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        dst_port: 80
+      action: pass
+"#).unwrap()
+    }
+
+    #[test]
+    fn dynamic_rejects_fsm_rules() {
+        let config: FilterConfig = serde_yaml::from_str(r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: fsm_rule
+      type: stateful
+      priority: 100
+      fsm:
+        initial_state: idle
+        states:
+          idle:
+            transitions:
+              - match:
+                  ethertype: "0x0806"
+                next_state: idle
+                action: pass
+"#).unwrap();
+        let result = validate_dynamic(&config, false, 16);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("stateful"));
+    }
+
+    #[test]
+    fn dynamic_rejects_conntrack() {
+        let config = make_simple_config();
+        let result = validate_dynamic(&config, true, 16);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("conntrack"));
+    }
+
+    #[test]
+    fn dynamic_rejects_ipv6() {
+        let config: FilterConfig = serde_yaml::from_str(r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: ipv6_rule
+      priority: 100
+      match:
+        src_ipv6: "2001:db8::/32"
+      action: pass
+"#).unwrap();
+        let result = validate_dynamic(&config, false, 16);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("IPv6"));
+    }
+
+    #[test]
+    fn dynamic_rejects_entries_out_of_bounds() {
+        let config = make_simple_config();
+        assert!(validate_dynamic(&config, false, 0).is_err());
+        assert!(validate_dynamic(&config, false, 257).is_err());
+    }
+
+    #[test]
+    fn dynamic_accepts_valid_l2l3l4() {
+        let config = make_simple_config();
+        assert!(validate_dynamic(&config, false, 16).is_ok());
     }
 }

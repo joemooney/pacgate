@@ -287,6 +287,46 @@ module packet_filter_assertions (
     cover property (@(posedge clk) disable iff (!rst_n) parsed_mld_valid);
 {% endif %}
 
+{% if has_dynamic %}
+    // ── Dynamic Flow Table Assertions ───────────────────────────────
+
+    // Decision rule index must be within bounds
+    property p_dynamic_rule_idx_bounds;
+        @(posedge clk) disable iff (!rst_n)
+        decision_valid |-> (decision_rule_idx < {{ dynamic_num_entries }});
+    endproperty
+    assert property (p_dynamic_rule_idx_bounds)
+        else $error("ASSERT FAIL: decision_rule_idx out of bounds (>= {{ dynamic_num_entries }})");
+
+    // Default decision implies no entry matched
+    property p_dynamic_default_no_match;
+        @(posedge clk) disable iff (!rst_n)
+        (decision_valid && decision_default) |-> (decision_rule_idx == 0);
+    endproperty
+    assert property (p_dynamic_default_no_match)
+        else $error("ASSERT FAIL: default decision but rule_idx nonzero");
+
+    // Decision must be stable between frames (no glitching)
+    property p_dynamic_decision_stable;
+        @(posedge clk) disable iff (!rst_n)
+        (decision_valid && !pkt_sof) |=> $stable(decision_pass) || pkt_sof;
+    endproperty
+    assert property (p_dynamic_decision_stable)
+        else $error("ASSERT FAIL: dynamic flow table decision unstable between frames");
+
+    // Cover: at least one entry matches
+    cover property (@(posedge clk) disable iff (!rst_n) decision_valid && !decision_default);
+
+    // Cover: default action taken (no entry matched)
+    cover property (@(posedge clk) disable iff (!rst_n) decision_valid && decision_default);
+
+    // Cover: pass decision from flow table
+    cover property (@(posedge clk) disable iff (!rst_n) decision_valid && decision_pass && !decision_default);
+
+    // Cover: drop decision from flow table
+    cover property (@(posedge clk) disable iff (!rst_n) decision_valid && !decision_pass && !decision_default);
+{% endif %}
+
     // ── Cover Points ───────────────────────────────────────────────
 
 {% for rule in rules %}

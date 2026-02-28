@@ -64,6 +64,14 @@ enum Commands {
         /// Include rate limiter RTL for rules with rate_limit
         #[arg(long)]
         rate_limit: bool,
+
+        /// Generate runtime-updateable flow table instead of static matchers
+        #[arg(long)]
+        dynamic: bool,
+
+        /// Maximum number of flow table entries (1-256, default 16)
+        #[arg(long, default_value = "16")]
+        dynamic_entries: u16,
     },
     /// Validate YAML rules without generating output
     Validate {
@@ -88,6 +96,14 @@ enum Commands {
         /// Output JSON instead of human-readable text
         #[arg(long)]
         json: bool,
+
+        /// Estimate for dynamic flow table mode
+        #[arg(long)]
+        dynamic: bool,
+
+        /// Number of flow table entries (for dynamic estimation)
+        #[arg(long, default_value = "16")]
+        dynamic_entries: u16,
     },
     /// Output a DOT graph of the rule set for visualization
     Graph {
@@ -136,6 +152,14 @@ enum Commands {
         /// Output JSON instead of human-readable text
         #[arg(long)]
         json: bool,
+
+        /// Lint for dynamic flow table mode
+        #[arg(long)]
+        dynamic: bool,
+
+        /// Number of flow table entries (for dynamic lint)
+        #[arg(long, default_value = "16")]
+        dynamic_entries: u16,
     },
     /// Generate SVA assertions and SymbiYosys formal verification files
     Formal {
@@ -153,6 +177,14 @@ enum Commands {
         /// Output JSON summary instead of human-readable text
         #[arg(long)]
         json: bool,
+
+        /// Generate assertions for dynamic flow table mode
+        #[arg(long)]
+        dynamic: bool,
+
+        /// Number of flow table entries (for dynamic formal)
+        #[arg(long, default_value = "16")]
+        dynamic_entries: u16,
     },
     /// Generate HTML coverage report for a rule set
     Report {
@@ -419,12 +451,21 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Compile { rules, output, templates, json, axi, counters, ports, conntrack, rate_limit } => {
+        Commands::Compile { rules, output, templates, json, axi, counters, ports, conntrack, rate_limit, dynamic, dynamic_entries } => {
             log::info!("Compiling rules from {}", rules.display());
             let (config, warnings) = loader::load_rules_with_warnings(&rules)?;
 
+            // Validate dynamic mode constraints
+            if dynamic {
+                loader::validate_dynamic(&config, conntrack, dynamic_entries)?;
+            }
+
             // Generate Verilog
-            verilog_gen::generate(&config, &templates, &output)?;
+            if dynamic {
+                verilog_gen::generate_dynamic(&config, &templates, &output, dynamic_entries)?;
+            } else {
+                verilog_gen::generate(&config, &templates, &output)?;
+            }
 
             // Generate multi-port wrapper if --ports > 1
             if ports > 1 {
@@ -453,7 +494,11 @@ fn main() -> Result<()> {
             }
 
             // Generate cocotb tests
-            cocotb_gen::generate(&config, &templates, &output)?;
+            if dynamic {
+                cocotb_gen::generate_dynamic_tests(&config, &templates, &output, dynamic_entries)?;
+            } else {
+                cocotb_gen::generate(&config, &templates, &output)?;
+            }
 
             // Generate AXI-Stream cocotb tests if --axi
             if axi {
@@ -482,6 +527,8 @@ fn main() -> Result<()> {
                     "ports": ports,
                     "conntrack": conntrack,
                     "rate_limit": has_rate_limit,
+                    "dynamic": dynamic,
+                    "dynamic_entries": if dynamic { Some(dynamic_entries) } else { None },
                     "generated": {
                         "verilog_dir": format!("{}/rtl", output.display()),
                         "cocotb_dir": format!("{}/tb", output.display()),
@@ -520,6 +567,10 @@ fn main() -> Result<()> {
                 }
                 if counters {
                     println!("  Generated per-rule counters + AXI-Lite CSR in {}/rtl/", output.display());
+                }
+                if dynamic {
+                    println!("  Generated dynamic flow table ({} entries) in {}/rtl/", dynamic_entries, output.display());
+                    println!("  Note: simulation evaluates initial rules only; runtime changes require cocotb/RTL sim");
                 }
                 println!("  Compilation complete.");
             }
@@ -595,24 +646,28 @@ fn main() -> Result<()> {
                 diff_rules(&old_config, &new_config, json)?;
             }
         }
-        Commands::Lint { rules, json } => {
+        Commands::Lint { rules, json, dynamic, dynamic_entries } => {
             let (config, warnings) = loader::load_rules_with_warnings(&rules)?;
-            let findings = lint_rules(&config, &warnings);
+            let findings = lint_rules(&config, &warnings, dynamic, dynamic_entries);
             if json {
                 println!("{}", serde_json::to_string_pretty(&findings)?);
             } else {
                 print_lint_results(&findings);
             }
         }
-        Commands::Formal { rules, output, templates, json } => {
+        Commands::Formal { rules, output, templates, json, dynamic, dynamic_entries } => {
             log::info!("Generating formal verification files from {}", rules.display());
             let (config, warnings) = loader::load_rules_with_warnings(&rules)?;
 
             // First generate RTL (needed for formal)
-            verilog_gen::generate(&config, &templates, &output)?;
+            if dynamic {
+                verilog_gen::generate_dynamic(&config, &templates, &output, dynamic_entries)?;
+            } else {
+                verilog_gen::generate(&config, &templates, &output)?;
+            }
 
             // Generate SVA assertions + SBY task file
-            formal_gen::generate(&config, &templates, &output)?;
+            formal_gen::generate_with_dynamic(&config, &templates, &output, dynamic, dynamic_entries)?;
 
             if json {
                 let summary = serde_json::json!({
@@ -640,17 +695,31 @@ fn main() -> Result<()> {
                 println!("  cd {}/formal && sby -f packet_filter.sby", output.display());
             }
         }
-        Commands::Estimate { rules, json } => {
+        Commands::Estimate { rules, json, dynamic, dynamic_entries } => {
             let (config, warnings) = loader::load_rules_with_warnings(&rules)?;
-            if json {
-                let mut estimate = compute_resource_estimate(&config);
-                estimate.as_object_mut().unwrap().insert("warnings".to_string(), serde_json::json!(warnings));
-                println!("{}", serde_json::to_string_pretty(&estimate)?);
-            } else {
-                for w in &warnings {
-                    eprintln!("Warning: {}", w);
+            if dynamic {
+                let estimate = compute_dynamic_estimate(dynamic_entries);
+                if json {
+                    let mut est = estimate;
+                    est.as_object_mut().unwrap().insert("warnings".to_string(), serde_json::json!(warnings));
+                    println!("{}", serde_json::to_string_pretty(&est)?);
+                } else {
+                    for w in &warnings {
+                        eprintln!("Warning: {}", w);
+                    }
+                    print_dynamic_estimate(dynamic_entries);
                 }
-                print_resource_estimate(&config);
+            } else {
+                if json {
+                    let mut estimate = compute_resource_estimate(&config);
+                    estimate.as_object_mut().unwrap().insert("warnings".to_string(), serde_json::json!(warnings));
+                    println!("{}", serde_json::to_string_pretty(&estimate)?);
+                } else {
+                    for w in &warnings {
+                        eprintln!("Warning: {}", w);
+                    }
+                    print_resource_estimate(&config);
+                }
             }
         }
         Commands::Report { rules, output, templates } => {
@@ -2403,7 +2472,82 @@ fn print_resource_estimate(config: &model::FilterConfig) {
     println!();
 }
 
-fn lint_rules(config: &model::FilterConfig, warnings: &[String]) -> serde_json::Value {
+fn compute_dynamic_estimate(num_entries: u16) -> serde_json::Value {
+    let n = num_entries as usize;
+    // Per-entry: ~30 LUTs (comparators) + ~295 FFs (registers for all fields)
+    let entry_luts = n * 30;
+    let entry_ffs = n * 295;
+    // AXI-Lite interface: ~100 LUTs + ~50 FFs
+    let axil_luts = 100;
+    let axil_ffs = 50;
+    // Priority encoder: ~10*N LUTs
+    let priority_luts = n * 10;
+    // Frame parser (same as static)
+    let parser_luts = 180;
+    let parser_ffs = 160;
+
+    let total_luts = parser_luts + entry_luts + priority_luts + axil_luts;
+    let total_ffs = parser_ffs + entry_ffs + axil_ffs;
+
+    serde_json::json!({
+        "mode": "dynamic",
+        "num_entries": n,
+        "components": {
+            "frame_parser": { "luts": parser_luts, "ffs": parser_ffs },
+            "flow_table_entries": { "luts": entry_luts, "ffs": entry_ffs },
+            "priority_encoder": { "luts": priority_luts, "ffs": 0 },
+            "axi_lite_interface": { "luts": axil_luts, "ffs": axil_ffs },
+        },
+        "total": { "luts": total_luts, "ffs": total_ffs },
+        "utilization": {
+            "xc7a35t": {
+                "lut_percent": format!("{:.1}", total_luts as f64 / 20800.0 * 100.0),
+                "ff_percent": format!("{:.1}", total_ffs as f64 / 41600.0 * 100.0),
+            },
+        },
+        "note": "Dynamic mode uses significantly more FFs due to register-based entry storage"
+    })
+}
+
+fn print_dynamic_estimate(num_entries: u16) {
+    let n = num_entries as usize;
+    let entry_luts = n * 30;
+    let entry_ffs = n * 295;
+    let axil_luts = 100;
+    let axil_ffs = 50;
+    let priority_luts = n * 10;
+    let parser_luts = 180;
+    let parser_ffs = 160;
+    let total_luts = parser_luts + entry_luts + priority_luts + axil_luts;
+    let total_ffs = parser_ffs + entry_ffs + axil_ffs;
+
+    println!();
+    println!("  PacGate Resource Estimate (Dynamic Flow Table)");
+    println!("  ════════════════════════════════════════════");
+    println!("  Flow table entries: {}", n);
+    println!();
+    println!("  Component             Est. LUTs   Est. FFs");
+    println!("  ───────────────────── ────────── ─────────");
+    println!("  Frame parser              {:>5}     {:>5}", parser_luts, parser_ffs);
+    println!("  Flow table entries        {:>5}     {:>5}", entry_luts, entry_ffs);
+    println!("  Priority encoder          {:>5}         -", priority_luts);
+    println!("  AXI-Lite interface        {:>5}     {:>5}", axil_luts, axil_ffs);
+    println!("  ───────────────────── ────────── ─────────");
+    println!("  TOTAL                     {:>5}     {:>5}", total_luts, total_ffs);
+    println!();
+    println!("  Artix-7 XC7A35T:  {:.1}% LUTs, {:.1}% FFs",
+        total_luts as f64 / 20800.0 * 100.0,
+        total_ffs as f64 / 41600.0 * 100.0);
+    println!();
+    println!("  Note: Dynamic mode uses significantly more FFs than static");
+    println!("  due to register-based entry storage (~295 FFs per entry).");
+    if n > 64 {
+        println!("  WARNING: {} entries is resource-heavy. Consider reducing.", n);
+    }
+    println!();
+}
+
+fn lint_rules(config: &model::FilterConfig, warnings: &[String], dynamic: bool, dynamic_entries: u16) -> serde_json::Value {
     let rules = &config.pacgate.rules;
     let mut findings: Vec<serde_json::Value> = Vec::new();
 
@@ -2715,6 +2859,27 @@ fn lint_rules(config: &model::FilterConfig, warnings: &[String]) -> serde_json::
                 "suggestion": "Add ipv6_next_header: 58 to ensure MLD (ICMPv6) packets are correctly identified"
             }));
         }
+    }
+
+    // Check 16: Dynamic mode with large entry count
+    if dynamic && dynamic_entries > 64 {
+        findings.push(serde_json::json!({
+            "level": "warning",
+            "code": "LINT016",
+            "message": format!("Dynamic flow table with {} entries — high FPGA resource usage (~{} FFs for entry registers)",
+                dynamic_entries, dynamic_entries as usize * 295),
+            "suggestion": "Consider reducing --dynamic-entries to 64 or fewer for Artix-7 targets"
+        }));
+    }
+
+    // Check 17: Dynamic mode V1 field limitations reminder
+    if dynamic {
+        findings.push(serde_json::json!({
+            "level": "info",
+            "code": "LINT017",
+            "message": "Dynamic flow table V1: supports L2/L3/L4 fields only (ethertype, MAC, IP, ports, VLAN)",
+            "suggestion": "IPv6, GTP-U, MPLS, IGMP/MLD, byte_match, and VXLAN VNI are not yet supported in dynamic mode"
+        }));
     }
 
     // Include overlap warnings
