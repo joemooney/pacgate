@@ -418,6 +418,150 @@ pub fn generate_axi_tests(_config: &FilterConfig, templates_dir: &Path, output_d
     Ok(())
 }
 
+/// Generate cocotb 2.0 runner script (run_sim.py) for main packet filter tests.
+/// Uses cocotb_tools.runner API for programmatic, cross-platform simulation.
+pub fn generate_runner(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) -> Result<()> {
+    let glob = format!("{}/**/*.tera", templates_dir.display());
+    let tera = Tera::new(&glob)
+        .with_context(|| format!("Failed to load templates from {}", templates_dir.display()))?;
+
+    let tb_dir = output_dir.join("tb");
+    std::fs::create_dir_all(&tb_dir)?;
+
+    let mut ctx = tera::Context::new();
+    ctx.insert("module_name", "packet_filter_top");
+    ctx.insert("test_module", "test_packet_filter");
+
+    let rtl_gen_dir = output_dir.join("rtl");
+    let mut verilog_files: Vec<String> = Vec::new();
+    verilog_files.push("../../rtl/frame_parser.v".to_string());
+
+    if rtl_gen_dir.exists() {
+        let mut entries: Vec<_> = std::fs::read_dir(&rtl_gen_dir)?
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().map(|x| x == "v").unwrap_or(false))
+            .collect();
+        entries.sort_by_key(|e| e.file_name());
+        for entry in entries {
+            verilog_files.push(format!("../rtl/{}", entry.file_name().to_string_lossy()));
+        }
+    }
+
+    ctx.insert("verilog_files", &verilog_files);
+
+    let rendered = tera.render("test_runner.py.tera", &ctx)?;
+    std::fs::write(tb_dir.join("run_sim.py"), &rendered)?;
+    log::info!("Generated tb/run_sim.py");
+
+    let _ = config; // config reserved for future use (platform target filtering)
+    Ok(())
+}
+
+/// Generate cocotb 2.0 runner script for AXI-Stream tests.
+pub fn generate_axi_runner(_config: &FilterConfig, templates_dir: &Path, output_dir: &Path) -> Result<()> {
+    let glob = format!("{}/**/*.tera", templates_dir.display());
+    let tera = Tera::new(&glob)
+        .with_context(|| format!("Failed to load templates from {}", templates_dir.display()))?;
+
+    let tb_axi_dir = output_dir.join("tb-axi");
+    std::fs::create_dir_all(&tb_axi_dir)?;
+
+    let mut ctx = tera::Context::new();
+    ctx.insert("module_name", "packet_filter_axi_top");
+    ctx.insert("test_module", "test_axi_packet_filter");
+
+    let rtl_gen_dir = output_dir.join("rtl");
+    let mut verilog_files: Vec<String> = Vec::new();
+    verilog_files.push("../../rtl/frame_parser.v".to_string());
+    verilog_files.push("../rtl/axi_stream_adapter.v".to_string());
+    verilog_files.push("../rtl/store_forward_fifo.v".to_string());
+    verilog_files.push("../rtl/packet_filter_axi_top.v".to_string());
+
+    if rtl_gen_dir.exists() {
+        let mut entries: Vec<_> = std::fs::read_dir(&rtl_gen_dir)?
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                let name = e.file_name().to_string_lossy().to_string();
+                name.ends_with(".v")
+                    && name != "axi_stream_adapter.v"
+                    && name != "store_forward_fifo.v"
+                    && name != "packet_filter_axi_top.v"
+            })
+            .collect();
+        entries.sort_by_key(|e| e.file_name());
+        for entry in entries {
+            verilog_files.push(format!("../rtl/{}", entry.file_name().to_string_lossy()));
+        }
+    }
+
+    ctx.insert("verilog_files", &verilog_files);
+
+    let rendered = tera.render("test_runner.py.tera", &ctx)?;
+    std::fs::write(tb_axi_dir.join("run_sim.py"), &rendered)?;
+    log::info!("Generated tb-axi/run_sim.py");
+
+    Ok(())
+}
+
+/// Generate cocotb 2.0 runner script for conntrack tests.
+pub fn generate_conntrack_runner(templates_dir: &Path, output_dir: &Path) -> Result<()> {
+    let glob = format!("{}/**/*.tera", templates_dir.display());
+    let tera = Tera::new(&glob)
+        .with_context(|| format!("Failed to load templates from {}", templates_dir.display()))?;
+
+    let tb_ct_dir = output_dir.join("tb-conntrack");
+    std::fs::create_dir_all(&tb_ct_dir)?;
+
+    let ctx = tera::Context::new();
+    let rendered = tera.render("test_conntrack_runner.py.tera", &ctx)?;
+    std::fs::write(tb_ct_dir.join("run_sim.py"), &rendered)?;
+    log::info!("Generated tb-conntrack/run_sim.py");
+
+    Ok(())
+}
+
+/// Generate cocotb 2.0 runner script for rate limiter tests.
+pub fn generate_rate_limiter_runner(templates_dir: &Path, output_dir: &Path) -> Result<()> {
+    let glob = format!("{}/**/*.tera", templates_dir.display());
+    let tera = Tera::new(&glob)
+        .with_context(|| format!("Failed to load templates from {}", templates_dir.display()))?;
+
+    let tb_rl_dir = output_dir.join("tb-rate-limiter");
+    std::fs::create_dir_all(&tb_rl_dir)?;
+
+    let ctx = tera::Context::new();
+    let rendered = tera.render("test_rate_limiter_runner.py.tera", &ctx)?;
+    std::fs::write(tb_rl_dir.join("run_sim.py"), &rendered)?;
+    log::info!("Generated tb-rate-limiter/run_sim.py");
+
+    Ok(())
+}
+
+/// Generate cocotb 2.0 runner script for dynamic flow table tests.
+pub fn generate_dynamic_runner(templates_dir: &Path, output_dir: &Path) -> Result<()> {
+    let glob = format!("{}/**/*.tera", templates_dir.display());
+    let tera = Tera::new(&glob)
+        .with_context(|| format!("Failed to load templates from {}", templates_dir.display()))?;
+
+    let tb_dir = output_dir.join("tb");
+    std::fs::create_dir_all(&tb_dir)?;
+
+    let mut ctx = tera::Context::new();
+    ctx.insert("module_name", "packet_filter_top");
+    let verilog_files: Vec<String> = vec![
+        "../rtl/frame_parser.v".to_string(),
+        "../rtl/flow_table.v".to_string(),
+        "../rtl/packet_filter_top.v".to_string(),
+    ];
+    ctx.insert("verilog_files", &verilog_files);
+
+    let rendered = tera.render("test_flow_table_runner.py.tera", &ctx)?;
+    std::fs::write(tb_dir.join("run_sim.py"), &rendered)?;
+    log::info!("Generated tb/run_sim.py (dynamic mode)");
+
+    Ok(())
+}
+
 /// Generate an IP address just outside a CIDR prefix (for boundary testing)
 fn generate_boundary_ip_outside(cidr: &str) -> Option<String> {
     if let Ok(prefix) = Ipv4Prefix::parse(cidr) {
@@ -658,4 +802,95 @@ pub fn generate_dynamic_tests(config: &FilterConfig, templates_dir: &Path, outpu
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::*;
+
+    fn make_test_config() -> FilterConfig {
+        FilterConfig {
+            pacgate: PacgateConfig {
+                version: "1.0".to_string(),
+                defaults: Defaults { action: Action::Drop },
+                rules: vec![
+                    StatelessRule {
+                        name: "allow_arp".to_string(),
+                        priority: 100,
+                        match_criteria: MatchCriteria {
+                            ethertype: Some("0x0806".to_string()),
+                            ..Default::default()
+                        },
+                        action: Some(Action::Pass),
+                        rule_type: None,
+                        fsm: None,
+                        ports: None,
+                        rate_limit: None,
+                        rewrite: None,
+                    },
+                ],
+                conntrack: None,
+            },
+        }
+    }
+
+    #[test]
+    fn runner_template_renders_verilog_sources() {
+        let config = make_test_config();
+        let tmp = tempfile::tempdir().unwrap();
+        let rtl_dir = tmp.path().join("rtl");
+        std::fs::create_dir_all(&rtl_dir).unwrap();
+        std::fs::write(rtl_dir.join("packet_filter_top.v"), "module pft; endmodule").unwrap();
+        std::fs::write(rtl_dir.join("rule_match_0.v"), "module rm0; endmodule").unwrap();
+
+        generate_runner(&config, Path::new("templates"), tmp.path()).unwrap();
+
+        let runner_py = std::fs::read_to_string(tmp.path().join("tb/run_sim.py")).unwrap();
+        assert!(runner_py.contains("frame_parser.v"), "runner should include frame_parser.v");
+        assert!(runner_py.contains("packet_filter_top.v"), "runner should include generated RTL");
+        assert!(runner_py.contains("rule_match_0.v"), "runner should include rule matchers");
+    }
+
+    #[test]
+    fn runner_template_renders_correct_toplevel() {
+        let config = make_test_config();
+        let tmp = tempfile::tempdir().unwrap();
+        let rtl_dir = tmp.path().join("rtl");
+        std::fs::create_dir_all(&rtl_dir).unwrap();
+        std::fs::write(rtl_dir.join("packet_filter_top.v"), "module pft; endmodule").unwrap();
+
+        generate_runner(&config, Path::new("templates"), tmp.path()).unwrap();
+
+        let runner_py = std::fs::read_to_string(tmp.path().join("tb/run_sim.py")).unwrap();
+        assert!(runner_py.contains("hdl_toplevel=\"packet_filter_top\""), "runner should have correct toplevel");
+    }
+
+    #[test]
+    fn runner_imports_cocotb_tools_runner() {
+        let config = make_test_config();
+        let tmp = tempfile::tempdir().unwrap();
+        let rtl_dir = tmp.path().join("rtl");
+        std::fs::create_dir_all(&rtl_dir).unwrap();
+        std::fs::write(rtl_dir.join("packet_filter_top.v"), "module pft; endmodule").unwrap();
+
+        generate_runner(&config, Path::new("templates"), tmp.path()).unwrap();
+
+        let runner_py = std::fs::read_to_string(tmp.path().join("tb/run_sim.py")).unwrap();
+        assert!(runner_py.contains("from cocotb_tools.runner import get_runner"), "runner should import cocotb_tools.runner");
+    }
+
+    #[test]
+    fn runner_has_sim_override() {
+        let config = make_test_config();
+        let tmp = tempfile::tempdir().unwrap();
+        let rtl_dir = tmp.path().join("rtl");
+        std::fs::create_dir_all(&rtl_dir).unwrap();
+        std::fs::write(rtl_dir.join("packet_filter_top.v"), "module pft; endmodule").unwrap();
+
+        generate_runner(&config, Path::new("templates"), tmp.path()).unwrap();
+
+        let runner_py = std::fs::read_to_string(tmp.path().join("tb/run_sim.py")).unwrap();
+        assert!(runner_py.contains("os.environ.get(\"SIM\", \"icarus\")"), "runner should support SIM env override");
+    }
 }

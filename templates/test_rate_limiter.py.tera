@@ -35,7 +35,7 @@ async def send_packet(dut, pass_in=1):
     await RisingEdge(dut.clk)
     dut.decision_valid.value = 0
     await RisingEdge(dut.clk)
-    return dut.pass_out.value.integer
+    return int(dut.pass_out.value)
 
 
 @cocotb.test()

@@ -533,26 +533,31 @@ fn main() -> Result<()> {
                 }
             }
 
-            // Generate cocotb tests
+            // Generate cocotb tests + runner scripts
             if dynamic {
                 cocotb_gen::generate_dynamic_tests(&config, &templates, &output, dynamic_entries)?;
+                cocotb_gen::generate_dynamic_runner(&templates, &output)?;
             } else {
                 cocotb_gen::generate(&config, &templates, &output)?;
+                cocotb_gen::generate_runner(&config, &templates, &output)?;
             }
 
             // Generate AXI-Stream cocotb tests if --axi
             if axi {
                 cocotb_gen::generate_axi_tests(&config, &templates, &output)?;
+                cocotb_gen::generate_axi_runner(&config, &templates, &output)?;
             }
 
             // Generate rate limiter testbench if --rate-limit
             if has_rate_limit {
                 cocotb_gen::generate_rate_limiter_tests(&templates, &output)?;
+                cocotb_gen::generate_rate_limiter_runner(&templates, &output)?;
             }
 
             // Generate connection tracking testbench if --conntrack
             if conntrack {
                 cocotb_gen::generate_conntrack_tests(&templates, &output)?;
+                cocotb_gen::generate_conntrack_runner(&templates, &output)?;
             }
 
             if json {

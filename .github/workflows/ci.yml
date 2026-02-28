@@ -55,7 +55,7 @@ jobs:
         run: |
           python -m venv .venv
           source .venv/bin/activate
-          pip install cocotb pytest hypothesis
+          pip install "cocotb>=2.0.0" cocotb-tools pytest hypothesis
 
       - name: Run scoreboard unit tests
         run: |
@@ -102,7 +102,7 @@ jobs:
         run: |
           python -m venv .venv
           source .venv/bin/activate
-          pip install cocotb pytest hypothesis
+          pip install "cocotb>=2.0.0" cocotb-tools pytest hypothesis
 
       - name: Build PacGate compiler
         run: cargo build --release
@@ -238,7 +238,7 @@ jobs:
         run: |
           python -m venv .venv
           source .venv/bin/activate
-          pip install cocotb pytest hypothesis
+          pip install "cocotb>=2.0.0" cocotb-tools pytest hypothesis
 
       - name: Build PacGate compiler
         run: cargo build --release

@@ -3461,3 +3461,97 @@ fn target_synth_includes_platform_files() {
         .unwrap();
     assert!(output.status.success(), "synth failed: {}", String::from_utf8_lossy(&output.stderr));
 }
+
+// --- Phase 20: cocotb 2.0 runner tests ---
+
+#[test]
+fn compile_generates_run_sim_py() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/allow_arp.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    assert!(tmp.path().join("tb/run_sim.py").exists(), "run_sim.py should be generated");
+
+    let runner_py = std::fs::read_to_string(tmp.path().join("tb/run_sim.py")).unwrap();
+    assert!(runner_py.contains("from cocotb_tools.runner import get_runner"), "runner should import cocotb_tools.runner");
+    assert!(runner_py.contains("packet_filter_top"), "runner should reference correct toplevel");
+}
+
+#[test]
+fn compile_conntrack_generates_runner() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/hsm_conntrack.yaml", "--conntrack", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile --conntrack failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    assert!(tmp.path().join("tb-conntrack/run_sim.py").exists(), "conntrack run_sim.py should be generated");
+
+    let runner_py = std::fs::read_to_string(tmp.path().join("tb-conntrack/run_sim.py")).unwrap();
+    assert!(runner_py.contains("conntrack_table"), "conntrack runner should reference correct toplevel");
+    assert!(runner_py.contains("from cocotb_tools.runner import get_runner"), "conntrack runner should import cocotb_tools");
+}
+
+#[test]
+fn compile_rate_limit_generates_runner() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/rate_limited.yaml", "--rate-limit", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile --rate-limit failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    assert!(tmp.path().join("tb-rate-limiter/run_sim.py").exists(), "rate limiter run_sim.py should be generated");
+
+    let runner_py = std::fs::read_to_string(tmp.path().join("tb-rate-limiter/run_sim.py")).unwrap();
+    assert!(runner_py.contains("rate_limiter"), "rate limiter runner should reference correct toplevel");
+}
+
+#[test]
+fn compile_dynamic_generates_runner() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml", "--dynamic", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile --dynamic failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    assert!(tmp.path().join("tb/run_sim.py").exists(), "dynamic run_sim.py should be generated");
+
+    let runner_py = std::fs::read_to_string(tmp.path().join("tb/run_sim.py")).unwrap();
+    assert!(runner_py.contains("flow_table"), "dynamic runner should reference flow_table");
+    assert!(runner_py.contains("test_flow_table"), "dynamic runner should use test_flow_table module");
+}
+
+#[test]
+fn runner_contains_correct_module_paths() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/allow_arp.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let runner_py = std::fs::read_to_string(tmp.path().join("tb/run_sim.py")).unwrap();
+    assert!(runner_py.contains("frame_parser.v"), "runner should include frame_parser.v source");
+    assert!(runner_py.contains("test_module=\"test_packet_filter\""), "runner should have correct test module");
+    assert!(runner_py.contains("results_xml"), "runner should produce results XML");
+}
+
+#[test]
+fn runner_coexists_with_makefile() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/allow_arp.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    // Both Makefile and run_sim.py should exist
+    assert!(tmp.path().join("tb/Makefile").exists(), "Makefile should still be generated");
+    assert!(tmp.path().join("tb/run_sim.py").exists(), "run_sim.py should also be generated");
+}
