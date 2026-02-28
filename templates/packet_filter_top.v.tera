@@ -80,6 +80,10 @@ module packet_filter_top (
     wire [7:0]  mld_type;
     wire        mld_valid;
 
+    // Frame parser outputs — QoS (DSCP/ECN)
+    wire [5:0]  ip_dscp;
+    wire [1:0]  ip_ecn;
+
     wire        fields_valid;
 
     frame_parser u_parser (
@@ -120,6 +124,8 @@ module packet_filter_top (
         .igmp_valid   (igmp_valid),
         .mld_type     (mld_type),
         .mld_valid    (mld_valid),
+        .ip_dscp      (ip_dscp),
+        .ip_ecn       (ip_ecn),
         .fields_valid (fields_valid)
     );
 
@@ -181,6 +187,10 @@ module packet_filter_top (
 {% if has_multicast %}
         .igmp_type    (igmp_type),
         .mld_type     (mld_type),
+{% endif %}
+{% if has_dscp_ecn %}
+        .ip_dscp      (ip_dscp),
+        .ip_ecn       (ip_ecn),
 {% endif %}
 {% if has_byte_capture %}
 {% for cap in byte_captures %}

@@ -104,6 +104,19 @@ fn validate_match_criteria(mc: &crate::model::MatchCriteria, rule_name: &str) ->
             }
         }
     }
+
+    // DSCP/ECN validation
+    if let Some(dscp) = mc.ip_dscp {
+        if dscp > 63 {
+            anyhow::bail!("ip_dscp must be 0-63, got {} in rule '{}'", dscp, rule_name);
+        }
+    }
+    if let Some(ecn) = mc.ip_ecn {
+        if ecn > 3 {
+            anyhow::bail!("ip_ecn must be 0-3, got {} in rule '{}'", ecn, rule_name);
+        }
+    }
+
     Ok(())
 }
 
@@ -180,6 +193,17 @@ fn validate_rewrite(rw: &crate::model::RewriteAction, rule: &crate::model::State
         }
         crate::model::Ipv4Prefix::parse(ip)
             .map_err(|e| anyhow::anyhow!("Bad set_dst_ip '{}' in rule '{}': {}", ip, rule_name, e))?;
+    }
+
+    // Validate set_dscp range and IPv4 prerequisite
+    if let Some(dscp) = rw.set_dscp {
+        if dscp > 63 {
+            anyhow::bail!("set_dscp must be 0-63, got {} in rule '{}'", dscp, rule_name);
+        }
+        let has_ipv4_match = rule.match_criteria.ethertype.as_deref() == Some("0x0800");
+        if !has_ipv4_match {
+            anyhow::bail!("set_dscp requires ethertype 0x0800 match in rule '{}'", rule_name);
+        }
     }
 
     Ok(())
@@ -693,6 +717,20 @@ pub fn criteria_shadows(a: &crate::model::MatchCriteria, b: &crate::model::Match
         }
     }
 
+    // DSCP/ECN shadow checks
+    if let Some(a_dscp) = a.ip_dscp {
+        match b.ip_dscp {
+            Some(b_dscp) if a_dscp == b_dscp => {},
+            _ => return false,
+        }
+    }
+    if let Some(a_ecn) = a.ip_ecn {
+        match b.ip_ecn {
+            Some(b_ecn) if a_ecn == b_ecn => {},
+            _ => return false,
+        }
+    }
+
     true
 }
 
@@ -788,6 +826,14 @@ fn criteria_overlaps(a: &crate::model::MatchCriteria, b: &crate::model::MatchCri
     }
     if let (Some(a_mld), Some(b_mld)) = (a.mld_type, b.mld_type) {
         if a_mld != b_mld { return false; }
+    }
+
+    // DSCP/ECN overlap checks
+    if let (Some(a_dscp), Some(b_dscp)) = (a.ip_dscp, b.ip_dscp) {
+        if a_dscp != b_dscp { return false; }
+    }
+    if let (Some(a_ecn), Some(b_ecn)) = (a.ip_ecn, b.ip_ecn) {
+        if a_ecn != b_ecn { return false; }
     }
 
     true
@@ -1460,5 +1506,43 @@ pacgate:
     fn dynamic_accepts_valid_l2l3l4() {
         let config = make_simple_config();
         assert!(validate_dynamic(&config, false, 16).is_ok());
+    }
+
+    #[test]
+    fn reject_dscp_out_of_range() {
+        let yaml = valid_yaml(
+            "    - name: bad_dscp\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n        ip_dscp: 64\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("ip_dscp must be 0-63"));
+    }
+
+    #[test]
+    fn reject_ecn_out_of_range() {
+        let yaml = valid_yaml(
+            "    - name: bad_ecn\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n        ip_ecn: 4\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("ip_ecn must be 0-3"));
+    }
+
+    #[test]
+    fn accept_valid_dscp_ecn() {
+        let yaml = valid_yaml(
+            "    - name: ef_rule\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n        ip_dscp: 46\n        ip_ecn: 1\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn accept_dscp_zero_ecn_zero() {
+        let yaml = valid_yaml(
+            "    - name: be_rule\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n        ip_dscp: 0\n        ip_ecn: 0\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_ok());
     }
 }

@@ -3597,3 +3597,147 @@ fn axi_compile_generates_axi_runner() {
     let runner_py = std::fs::read_to_string(tmp.path().join("tb-axi/run_sim.py")).unwrap();
     assert!(runner_py.contains("packet_filter_axi_top"), "AXI runner should reference AXI toplevel");
 }
+
+// --- Phase 21: DSCP/ECN QoS matching tests ---
+
+#[test]
+fn compile_dscp_rule() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("dscp.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_ef
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_dscp: 46
+      action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["compile", yaml.to_str().unwrap(), "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let rule_v = std::fs::read_to_string(tmp.path().join("rtl/rule_match_0.v")).unwrap();
+    assert!(rule_v.contains("ip_dscp == 6'd46"), "rule_match should contain DSCP comparison");
+    assert!(rule_v.contains("ip_dscp"), "rule_match should have ip_dscp port");
+}
+
+#[test]
+fn compile_ecn_rule() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("ecn.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_ecn
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_ecn: 1
+      action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["compile", yaml.to_str().unwrap(), "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let rule_v = std::fs::read_to_string(tmp.path().join("rtl/rule_match_0.v")).unwrap();
+    assert!(rule_v.contains("ip_ecn == 2'd1"), "rule_match should contain ECN comparison");
+}
+
+#[test]
+fn simulate_dscp_match() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/allow_arp.yaml",
+               "--packet", "ethertype=0x0800,ip_dscp=46", "--json"])
+        .output()
+        .unwrap();
+    // This should work even though allow_arp doesn't match DSCP — it hits default action
+    assert!(output.status.success(), "simulate failed: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn simulate_dscp_nomatch() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("dscp.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_ef
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_dscp: 46
+      action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["simulate", yaml.to_str().unwrap(),
+               "--packet", "ethertype=0x0800,ip_dscp=0", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "simulate failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("\"action\":\"drop\"") || stdout.contains("\"action\": \"drop\""),
+        "DSCP=0 should not match EF rule (DSCP=46)");
+}
+
+#[test]
+fn validate_dscp_out_of_range() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("bad_dscp.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: bad
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_dscp: 64
+      action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["validate", yaml.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "validate should reject ip_dscp=64");
+}
+
+#[test]
+fn validate_ecn_out_of_range() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("bad_ecn.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: bad
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_ecn: 4
+      action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["validate", yaml.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "validate should reject ip_ecn=4");
+}

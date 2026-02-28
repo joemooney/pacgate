@@ -32,6 +32,10 @@ module rule_match_{{ rule_index }} (
     input  wire [7:0]  igmp_type,
     input  wire [7:0]  mld_type,
 {% endif %}
+{% if has_dscp_ecn %}
+    input  wire [5:0]  ip_dscp,
+    input  wire [1:0]  ip_ecn,
+{% endif %}
 {% if has_byte_capture %}
 {% for cap in byte_captures %}
     input  wire [{{ cap.bit_width - 1 }}:0] byte_cap_{{ cap.offset }},

@@ -41,6 +41,7 @@ struct GlobalProtocolFlags {
     has_gtp: bool,
     has_mpls: bool,
     has_multicast: bool,
+    has_dscp_ecn: bool,
 }
 
 fn build_condition_expr(mc: &crate::model::MatchCriteria) -> Result<String> {
@@ -192,6 +193,14 @@ fn build_condition_expr(mc: &crate::model::MatchCriteria) -> Result<String> {
         conditions.push(format!("(mld_type == 8'd{})", mld));
     }
 
+    // QoS fields (DSCP/ECN)
+    if let Some(dscp) = mc.ip_dscp {
+        conditions.push(format!("(ip_dscp == 6'd{})", dscp));
+    }
+    if let Some(ecn) = mc.ip_ecn {
+        conditions.push(format!("(ip_ecn == 2'd{})", ecn));
+    }
+
     // Byte-offset matching
     if let Some(ref byte_matches) = mc.byte_match {
         for bm in byte_matches {
@@ -303,6 +312,7 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
     let has_gtp = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_gtp());
     let has_mpls = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_mpls());
     let has_multicast = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_multicast());
+    let has_dscp_ecn = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_dscp_ecn());
 
     // Global protocol flags — all rules in a design must have consistent port lists
     let global_protos = GlobalProtocolFlags {
@@ -310,6 +320,7 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         has_gtp,
         has_mpls,
         has_multicast,
+        has_dscp_ecn,
     };
 
     // Generate per-rule matchers (stateless: combinational, stateful: registered FSM)
@@ -343,6 +354,7 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         ctx.insert("has_gtp", &has_gtp);
         ctx.insert("has_mpls", &has_mpls);
         ctx.insert("has_multicast", &has_multicast);
+        ctx.insert("has_dscp_ecn", &has_dscp_ecn);
         ctx.insert("has_rewrite", &has_rewrite);
         ctx.insert("idx_bits", &idx_bits);
 
@@ -904,6 +916,7 @@ fn generate_stateless_rule(
     ctx.insert("has_gtp", &global_protos.has_gtp);
     ctx.insert("has_mpls", &global_protos.has_mpls);
     ctx.insert("has_multicast", &global_protos.has_multicast);
+    ctx.insert("has_dscp_ecn", &global_protos.has_dscp_ecn);
     let byte_cap_info: Vec<std::collections::HashMap<String, serde_json::Value>> = byte_offsets.iter().map(|(offset, len)| {
         let mut map = std::collections::HashMap::new();
         map.insert("offset".to_string(), serde_json::json!(offset));
@@ -1230,6 +1243,7 @@ fn generate_fsm_rule(
     ctx.insert("has_gtp", &global_protos.has_gtp);
     ctx.insert("has_mpls", &global_protos.has_mpls);
     ctx.insert("has_multicast", &global_protos.has_multicast);
+    ctx.insert("has_dscp_ecn", &global_protos.has_dscp_ecn);
 
     let rendered = tera.render("rule_fsm.v.tera", &ctx)
         .with_context(|| format!("Failed to render rule_fsm for rule {}", rule.name))?;

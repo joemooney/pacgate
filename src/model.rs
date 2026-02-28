@@ -45,6 +45,11 @@ pub struct MatchCriteria {
     pub igmp_type: Option<u8>,
     #[serde(default)]
     pub mld_type: Option<u8>,
+    // QoS fields (IPv4 TOS byte: DSCP[7:2] + ECN[1:0])
+    #[serde(default)]
+    pub ip_dscp: Option<u8>,
+    #[serde(default)]
+    pub ip_ecn: Option<u8>,
     // Byte-offset matching
     #[serde(default)]
     pub byte_match: Option<Vec<ByteMatch>>,
@@ -242,6 +247,11 @@ impl MatchCriteria {
     pub fn uses_multicast(&self) -> bool {
         self.igmp_type.is_some() || self.mld_type.is_some()
     }
+
+    /// Returns true if this criteria uses DSCP/ECN QoS fields
+    pub fn uses_dscp_ecn(&self) -> bool {
+        self.ip_dscp.is_some() || self.ip_ecn.is_some()
+    }
 }
 
 // --- Stateful FSM types ---
@@ -329,6 +339,9 @@ pub struct RewriteAction {
     /// Overwrite destination IPv4 address (dotted decimal, no CIDR)
     #[serde(default)]
     pub set_dst_ip: Option<String>,
+    /// Overwrite DSCP value (6-bit, 0-63) — QoS remarking
+    #[serde(default)]
+    pub set_dscp: Option<u8>,
 }
 
 impl RewriteAction {
@@ -341,11 +354,12 @@ impl RewriteAction {
             && (self.dec_ttl.is_none() || self.dec_ttl == Some(false))
             && self.set_src_ip.is_none()
             && self.set_dst_ip.is_none()
+            && self.set_dscp.is_none()
     }
 
     /// Returns the set of rewrite flags for Verilog generation
     /// [0]=set_dst_mac [1]=set_src_mac [2]=set_vlan_id
-    /// [3]=set_ttl [4]=dec_ttl [5]=set_src_ip [6]=set_dst_ip
+    /// [3]=set_ttl [4]=dec_ttl [5]=set_src_ip [6]=set_dst_ip [7]=set_dscp
     pub fn flags(&self) -> u8 {
         let mut f: u8 = 0;
         if self.set_dst_mac.is_some() { f |= 1 << 0; }
@@ -355,6 +369,7 @@ impl RewriteAction {
         if self.dec_ttl == Some(true) { f |= 1 << 4; }
         if self.set_src_ip.is_some() { f |= 1 << 5; }
         if self.set_dst_ip.is_some() { f |= 1 << 6; }
+        if self.set_dscp.is_some() { f |= 1 << 7; }
         f
     }
 }
@@ -1069,6 +1084,62 @@ pacgate:
         assert!(!mc.uses_multicast());
     }
 
+    // --- DSCP/ECN helpers ---
+
+    #[test]
+    fn uses_dscp_ecn_true_dscp() {
+        let mc = MatchCriteria { ip_dscp: Some(46), ..Default::default() };
+        assert!(mc.uses_dscp_ecn());
+    }
+
+    #[test]
+    fn uses_dscp_ecn_true_ecn() {
+        let mc = MatchCriteria { ip_ecn: Some(1), ..Default::default() };
+        assert!(mc.uses_dscp_ecn());
+    }
+
+    #[test]
+    fn uses_dscp_ecn_false() {
+        let mc = MatchCriteria::default();
+        assert!(!mc.uses_dscp_ecn());
+    }
+
+    #[test]
+    fn dscp_boundary_max() {
+        let mc = MatchCriteria { ip_dscp: Some(63), ..Default::default() };
+        assert!(mc.uses_dscp_ecn());
+        assert_eq!(mc.ip_dscp, Some(63));
+    }
+
+    #[test]
+    fn ecn_boundary_max() {
+        let mc = MatchCriteria { ip_ecn: Some(3), ..Default::default() };
+        assert!(mc.uses_dscp_ecn());
+        assert_eq!(mc.ip_ecn, Some(3));
+    }
+
+    #[test]
+    fn deserialize_dscp_ecn_rule() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: dscp_test
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_dscp: 46
+        ip_ecn: 1
+      action: pass
+"#;
+        let config: FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let rule = &config.pacgate.rules[0];
+        assert_eq!(rule.match_criteria.ip_dscp, Some(46));
+        assert_eq!(rule.match_criteria.ip_ecn, Some(1));
+    }
+
     // --- GTP/MPLS/multicast YAML deserialization ---
 
     #[test]
@@ -1176,10 +1247,21 @@ pacgate:
             dec_ttl: None,
             set_src_ip: Some("10.0.0.1".to_string()),
             set_dst_ip: Some("192.168.1.1".to_string()),
+            set_dscp: None,
         };
         assert!(!rw.is_empty());
         // flags: dst_mac=1, src_mac=2, vlan=4, set_ttl=8, src_ip=32, dst_ip=64
-        assert_eq!(rw.flags(), 0b1101111);
+        assert_eq!(rw.flags(), 0b01101111);
+    }
+
+    #[test]
+    fn rewrite_action_flags_set_dscp() {
+        let rw = RewriteAction {
+            set_dscp: Some(46),
+            ..Default::default()
+        };
+        assert!(!rw.is_empty());
+        assert_eq!(rw.flags(), 0b10000000);
     }
 
     #[test]

@@ -26,6 +26,8 @@ pub struct SimPacket {
     pub mpls_bos: Option<bool>,
     pub igmp_type: Option<u8>,
     pub mld_type: Option<u8>,
+    pub ip_dscp: Option<u8>,
+    pub ip_ecn: Option<u8>,
 }
 
 /// Rewrite actions that would be applied to a passed packet
@@ -38,6 +40,7 @@ pub struct SimRewrite {
     pub dec_ttl: bool,
     pub set_src_ip: Option<String>,
     pub set_dst_ip: Option<String>,
+    pub set_dscp: Option<u8>,
 }
 
 impl SimRewrite {
@@ -49,6 +52,7 @@ impl SimRewrite {
             && !self.dec_ttl
             && self.set_src_ip.is_none()
             && self.set_dst_ip.is_none()
+            && self.set_dscp.is_none()
     }
 }
 
@@ -153,6 +157,16 @@ pub fn parse_packet_spec(spec: &str) -> Result<SimPacket> {
             "mld_type" => {
                 pkt.mld_type = Some(value.parse().map_err(|e| anyhow::anyhow!("Bad mld_type '{}': {}", value, e))?);
             }
+            "ip_dscp" => {
+                let v: u8 = value.parse().map_err(|e| anyhow::anyhow!("Bad ip_dscp '{}': {}", value, e))?;
+                if v > 63 { bail!("ip_dscp must be 0-63, got {}", v); }
+                pkt.ip_dscp = Some(v);
+            }
+            "ip_ecn" => {
+                let v: u8 = value.parse().map_err(|e| anyhow::anyhow!("Bad ip_ecn '{}': {}", value, e))?;
+                if v > 3 { bail!("ip_ecn must be 0-3, got {}", v); }
+                pkt.ip_ecn = Some(v);
+            }
             _ => bail!("Unknown packet field '{}'", key),
         }
     }
@@ -174,6 +188,7 @@ fn build_sim_rewrite(rule: &crate::model::StatelessRule) -> Option<SimRewrite> {
         dec_ttl: rw.dec_ttl == Some(true),
         set_src_ip: rw.set_src_ip.clone(),
         set_dst_ip: rw.set_dst_ip.clone(),
+        set_dscp: rw.set_dscp,
     })
 }
 
@@ -660,6 +675,32 @@ pub fn match_criteria_against_packet(mc: &MatchCriteria, pkt: &SimPacket) -> (bo
         fields.push(FieldMatch {
             field: "mld_type".to_string(),
             rule_value: mld.to_string(),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // DSCP (QoS)
+    if let Some(dscp) = mc.ip_dscp {
+        let pkt_val = pkt.ip_dscp.map(|v| v.to_string()).unwrap_or("none".to_string());
+        let matches = pkt.ip_dscp.map(|v| v == dscp).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "ip_dscp".to_string(),
+            rule_value: dscp.to_string(),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // ECN (QoS)
+    if let Some(ecn) = mc.ip_ecn {
+        let pkt_val = pkt.ip_ecn.map(|v| v.to_string()).unwrap_or("none".to_string());
+        let matches = pkt.ip_ecn.map(|v| v == ecn).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "ip_ecn".to_string(),
+            rule_value: ecn.to_string(),
             packet_value: pkt_val,
             matches,
         });
@@ -1670,5 +1711,51 @@ mod tests {
 
         let rev = parse_packet_spec("src_ip=10.0.0.2,dst_ip=10.0.0.1,ip_protocol=6,src_port=80,dst_port=12345").unwrap();
         assert!(ct.check_return(&rev, 200).is_none()); // expired
+    }
+
+    #[test]
+    fn test_dscp_match() {
+        let pkt = parse_packet_spec("ethertype=0x0800,ip_dscp=46").unwrap();
+        assert_eq!(pkt.ip_dscp, Some(46));
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: ef_rule
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_dscp: 46
+      action: pass
+"#;
+        let config: crate::model::FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let result = simulate(&config, &pkt);
+        assert_eq!(result.action, Action::Pass);
+        assert_eq!(result.rule_name.as_deref(), Some("ef_rule"));
+    }
+
+    #[test]
+    fn test_ecn_match() {
+        let pkt = parse_packet_spec("ethertype=0x0800,ip_ecn=2").unwrap();
+        assert_eq!(pkt.ip_ecn, Some(2));
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: ecn_rule
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_ecn: 2
+      action: pass
+"#;
+        let config: crate::model::FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let result = simulate(&config, &pkt);
+        assert_eq!(result.action, Action::Pass);
+        assert_eq!(result.rule_name.as_deref(), Some("ecn_rule"));
     }
 }

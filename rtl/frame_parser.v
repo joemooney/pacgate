@@ -1,6 +1,7 @@
 // frame_parser.v — Ethernet frame field extractor
 // Extracts: dst_mac, src_mac, ethertype, vlan_id, vlan_pcp
 //           src_ip, dst_ip, ip_protocol, ip_ttl, ip_checksum, src_port, dst_port (IPv4/TCP/UDP)
+//           ip_dscp, ip_ecn (IPv4 TOS byte: DSCP[7:2] + ECN[1:0])
 //           src_ipv6, dst_ipv6, ipv6_next_header (IPv6)
 //           vxlan_vni (VXLAN Network Identifier)
 //           gtp_teid (GTP-U Tunnel Endpoint ID, 5G)
@@ -76,6 +77,10 @@ module frame_parser (
     output reg  [7:0]  mld_type,
     output reg         mld_valid,   // frame has MLD message
 
+    // QoS fields (IPv4 TOS byte)
+    output reg  [5:0]  ip_dscp,       // IPv4 DSCP (TOS bits [7:2])
+    output reg  [1:0]  ip_ecn,        // IPv4 ECN (TOS bits [1:0])
+
     output reg         fields_valid // pulse: all header fields extracted
 );
 
@@ -133,6 +138,8 @@ module frame_parser (
             igmp_valid   <= 1'b0;
             mld_type     <= 8'd0;
             mld_valid    <= 1'b0;
+            ip_dscp      <= 6'd0;
+            ip_ecn       <= 2'd0;
             fields_valid <= 1'b0;
         end else begin
             fields_valid <= 1'b0;  // default: deassert
@@ -172,6 +179,8 @@ module frame_parser (
                 igmp_valid  <= 1'b0;
                 mld_type    <= 8'd0;
                 mld_valid   <= 1'b0;
+                ip_dscp     <= 6'd0;
+                ip_ecn      <= 2'd0;
             end else if (pkt_valid) begin
                 case (state)
                     S_DST_MAC: begin
@@ -276,6 +285,10 @@ module frame_parser (
                         // Bytes 12-15: Source IP
                         // Bytes 16-19: Destination IP
                         case (byte_cnt)
+                            6'd1: begin
+                                ip_dscp <= pkt_data[7:2];
+                                ip_ecn  <= pkt_data[1:0];
+                            end
                             6'd8:  ip_ttl <= pkt_data;
                             6'd9:  ip_protocol <= pkt_data;
                             6'd10: ip_checksum[15:8] <= pkt_data;
