@@ -225,6 +225,50 @@ pub fn generate_mutations(config: &FilterConfig) -> Vec<(Mutation, FilterConfig)
         }
     }
 
+    // Mutation 14: Remove tcp_flags
+    for (i, rule) in config.pacgate.rules.iter().enumerate() {
+        if !rule.is_stateful() && rule.match_criteria.tcp_flags.is_some() {
+            let mut mutated = config.clone();
+            mutated.pacgate.rules[i].match_criteria.tcp_flags = None;
+            mutated.pacgate.rules[i].match_criteria.tcp_flags_mask = None;
+            mutations.push((Mutation {
+                name: format!("remove_tcp_flags_{}", rule.name),
+                description: format!("Remove tcp_flags match from rule '{}'", rule.name),
+                mutant_index: index,
+            }, mutated));
+            index += 1;
+        }
+    }
+
+    // Mutation 15: Remove icmp_type
+    for (i, rule) in config.pacgate.rules.iter().enumerate() {
+        if !rule.is_stateful() && rule.match_criteria.icmp_type.is_some() {
+            let mut mutated = config.clone();
+            mutated.pacgate.rules[i].match_criteria.icmp_type = None;
+            mutated.pacgate.rules[i].match_criteria.icmp_code = None;
+            mutations.push((Mutation {
+                name: format!("remove_icmp_type_{}", rule.name),
+                description: format!("Remove icmp_type match from rule '{}'", rule.name),
+                mutant_index: index,
+            }, mutated));
+            index += 1;
+        }
+    }
+
+    // Mutation 16: Remove ipv6_dscp
+    for (i, rule) in config.pacgate.rules.iter().enumerate() {
+        if !rule.is_stateful() && rule.match_criteria.ipv6_dscp.is_some() {
+            let mut mutated = config.clone();
+            mutated.pacgate.rules[i].match_criteria.ipv6_dscp = None;
+            mutations.push((Mutation {
+                name: format!("remove_ipv6_dscp_{}", rule.name),
+                description: format!("Remove ipv6_dscp match from rule '{}'", rule.name),
+                mutant_index: index,
+            }, mutated));
+            index += 1;
+        }
+    }
+
     mutations
 }
 
@@ -650,5 +694,87 @@ mod tests {
         let mutations = generate_mutations(&config);
         let rm = mutations.iter().find(|(m, _)| m.name.starts_with("remove_mpls_label_")).unwrap();
         assert!(rm.1.pacgate.rules[0].match_criteria.mpls_label.is_none());
+    }
+
+    #[test]
+    fn remove_tcp_flags_mutation() {
+        let config = FilterConfig {
+            pacgate: PacgateConfig {
+                version: "1.0".to_string(),
+                defaults: Defaults { action: Action::Drop },
+                rules: vec![
+                    StatelessRule {
+                        name: "syn_rule".to_string(),
+                        priority: 100,
+                        match_criteria: MatchCriteria {
+                            tcp_flags: Some(0x02),
+                            tcp_flags_mask: Some(0x12),
+                            ..Default::default()
+                        },
+                        action: Some(Action::Pass),
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
+                    },
+                ],
+                conntrack: None,
+            },
+        };
+        let mutations = generate_mutations(&config);
+        let rm = mutations.iter().find(|(m, _)| m.name.starts_with("remove_tcp_flags_")).unwrap();
+        assert!(rm.1.pacgate.rules[0].match_criteria.tcp_flags.is_none());
+        assert!(rm.1.pacgate.rules[0].match_criteria.tcp_flags_mask.is_none());
+    }
+
+    #[test]
+    fn remove_icmp_type_mutation() {
+        let config = FilterConfig {
+            pacgate: PacgateConfig {
+                version: "1.0".to_string(),
+                defaults: Defaults { action: Action::Drop },
+                rules: vec![
+                    StatelessRule {
+                        name: "echo_rule".to_string(),
+                        priority: 100,
+                        match_criteria: MatchCriteria {
+                            icmp_type: Some(8),
+                            icmp_code: Some(0),
+                            ..Default::default()
+                        },
+                        action: Some(Action::Pass),
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
+                    },
+                ],
+                conntrack: None,
+            },
+        };
+        let mutations = generate_mutations(&config);
+        let rm = mutations.iter().find(|(m, _)| m.name.starts_with("remove_icmp_type_")).unwrap();
+        assert!(rm.1.pacgate.rules[0].match_criteria.icmp_type.is_none());
+        assert!(rm.1.pacgate.rules[0].match_criteria.icmp_code.is_none());
+    }
+
+    #[test]
+    fn remove_ipv6_dscp_mutation() {
+        let config = FilterConfig {
+            pacgate: PacgateConfig {
+                version: "1.0".to_string(),
+                defaults: Defaults { action: Action::Drop },
+                rules: vec![
+                    StatelessRule {
+                        name: "ipv6_ef_rule".to_string(),
+                        priority: 100,
+                        match_criteria: MatchCriteria {
+                            ipv6_dscp: Some(46),
+                            ..Default::default()
+                        },
+                        action: Some(Action::Pass),
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
+                    },
+                ],
+                conntrack: None,
+            },
+        };
+        let mutations = generate_mutations(&config);
+        let rm = mutations.iter().find(|(m, _)| m.name.starts_with("remove_ipv6_dscp_")).unwrap();
+        assert!(rm.1.pacgate.rules[0].match_criteria.ipv6_dscp.is_none());
     }
 }

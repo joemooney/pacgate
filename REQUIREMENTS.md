@@ -896,3 +896,39 @@
 ### Testing
 - REQ-1590: 15 unit tests for DSCP/ECN (8 model + 4 loader + 2 simulator + 2 mutation) [IMPLEMENTED]
 - REQ-1591: 12 integration tests for DSCP/ECN (compile, simulate, validate, lint, estimate, diff, formal) [IMPLEMENTED]
+
+## Phase 22: IPv6 Traffic Class + TCP Flags + ICMP Type/Code [IMPLEMENTED]
+
+### Match Fields
+- REQ-1600: Match on IPv6 DSCP (ipv6_dscp, 6-bit, 0-63) from IPv6 Traffic Class byte [IMPLEMENTED]
+- REQ-1601: Match on IPv6 ECN (ipv6_ecn, 2-bit, 0-3) from IPv6 Traffic Class byte [IMPLEMENTED]
+- REQ-1602: Match on TCP flags (tcp_flags, 8-bit) with mask-aware matching: (flags & mask) == (rule_flags & mask) [IMPLEMENTED]
+- REQ-1603: TCP flags mask (tcp_flags_mask) for selective bit checking (e.g., SYN-only, ACK-only, Xmas tree) [IMPLEMENTED]
+- REQ-1604: Match on ICMP type (icmp_type, 8-bit, 0-255) for IPv4 ICMP classification [IMPLEMENTED]
+- REQ-1605: Match on ICMP code (icmp_code, 8-bit, 0-255) for IPv4 ICMP subtype filtering [IMPLEMENTED]
+
+### Frame Parser
+- REQ-1606: IPv6 Traffic Class byte extraction from IPv6 header bytes 0-1 (4-bit version + 8-bit TC + 20-bit flow label) [IMPLEMENTED]
+- REQ-1607: TCP flags extraction at TCP header byte offset 13 (8-bit flags field) [IMPLEMENTED]
+- REQ-1608: New S_ICMP_HDR parser state for ICMP type/code extraction (after IPv4 protocol 1 detection) [IMPLEMENTED]
+
+### Lint Rules
+- REQ-1609: LINT023 — IPv6 DSCP/ECN without IPv6 ethertype (0x86DD) prerequisite warning [IMPLEMENTED]
+- REQ-1610: LINT024 — TCP flags without TCP protocol (ip_protocol 6) prerequisite warning [IMPLEMENTED]
+- REQ-1611: LINT025 — ICMP type/code without ICMP protocol (ip_protocol 1) prerequisite warning [IMPLEMENTED]
+
+### Formal Verification
+- REQ-1612: SVA assertions for IPv6 TC bounds (ipv6_dscp <= 63, ipv6_ecn <= 3), TCP flags prerequisite (match → ip_protocol == 6), ICMP cover properties [IMPLEMENTED]
+
+### Mutation Testing
+- REQ-1613: 3 new mutation types: remove_tcp_flags, remove_icmp_type, remove_ipv6_dscp (16 total) [IMPLEMENTED]
+
+### Python Verification
+- REQ-1614: Python scoreboard Rule dataclass includes ipv6_dscp, ipv6_ecn, tcp_flags, tcp_flags_mask, icmp_type, icmp_code fields with mask-aware TCP flags matching in matches() [IMPLEMENTED]
+
+### Example
+- REQ-1615: tcp_flags_icmp.yaml example with 7 rules (allow_tcp_syn, allow_tcp_established, drop_tcp_xmas, allow_icmp_echo, allow_icmp_reply, allow_ipv6_ef, allow_arp) [IMPLEMENTED]
+
+### Testing
+- REQ-1616: 23 unit tests for IPv6 TC/TCP flags/ICMP (model, loader, simulator, mutation) [IMPLEMENTED]
+- REQ-1617: 14 integration tests for IPv6 TC/TCP flags/ICMP (compile, simulate, validate, lint, estimate, diff, formal) [IMPLEMENTED]

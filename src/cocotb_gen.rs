@@ -112,6 +112,32 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
             tc.insert("ip_ecn".to_string(), ecn.to_string());
             tc.insert("has_dscp_ecn".to_string(), "true".to_string());
         }
+        // IPv6 Traffic Class fields
+        if let Some(dscp) = rule.match_criteria.ipv6_dscp {
+            tc.insert("ipv6_dscp".to_string(), dscp.to_string());
+            tc.insert("has_ipv6_tc".to_string(), "true".to_string());
+        }
+        if let Some(ecn) = rule.match_criteria.ipv6_ecn {
+            tc.insert("ipv6_ecn".to_string(), ecn.to_string());
+            tc.insert("has_ipv6_tc".to_string(), "true".to_string());
+        }
+        // TCP flags fields
+        if let Some(flags) = rule.match_criteria.tcp_flags {
+            tc.insert("tcp_flags".to_string(), format!("0x{:02X}", flags));
+            tc.insert("has_tcp_flags".to_string(), "true".to_string());
+            if let Some(mask) = rule.match_criteria.tcp_flags_mask {
+                tc.insert("tcp_flags_mask".to_string(), format!("0x{:02X}", mask));
+            }
+        }
+        // ICMP fields
+        if let Some(t) = rule.match_criteria.icmp_type {
+            tc.insert("icmp_type".to_string(), t.to_string());
+            tc.insert("has_icmp".to_string(), "true".to_string());
+        }
+        if let Some(c) = rule.match_criteria.icmp_code {
+            tc.insert("icmp_code".to_string(), c.to_string());
+            tc.insert("has_icmp".to_string(), "true".to_string());
+        }
         test_cases.push(tc);
     }
 
@@ -302,6 +328,27 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         if let Some(ecn) = rule.match_criteria.ip_ecn {
             sr.insert("ip_ecn".to_string(), ecn.to_string());
         }
+        // IPv6 Traffic Class scoreboard fields
+        if let Some(dscp) = rule.match_criteria.ipv6_dscp {
+            sr.insert("ipv6_dscp".to_string(), dscp.to_string());
+        }
+        if let Some(ecn) = rule.match_criteria.ipv6_ecn {
+            sr.insert("ipv6_ecn".to_string(), ecn.to_string());
+        }
+        // TCP flags scoreboard fields
+        if let Some(flags) = rule.match_criteria.tcp_flags {
+            sr.insert("tcp_flags".to_string(), format!("0x{:02X}", flags));
+            if let Some(mask) = rule.match_criteria.tcp_flags_mask {
+                sr.insert("tcp_flags_mask".to_string(), format!("0x{:02X}", mask));
+            }
+        }
+        // ICMP scoreboard fields
+        if let Some(t) = rule.match_criteria.icmp_type {
+            sr.insert("icmp_type".to_string(), t.to_string());
+        }
+        if let Some(c) = rule.match_criteria.icmp_code {
+            sr.insert("icmp_code".to_string(), c.to_string());
+        }
         scoreboard_rules.push(sr);
     }
 
@@ -328,6 +375,9 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         ctx.insert("has_mpls_rules", &rules.iter().any(|r| r.match_criteria.mpls_label.is_some() || r.match_criteria.mpls_tc.is_some() || r.match_criteria.mpls_bos.is_some()));
         ctx.insert("has_igmp_rules", &rules.iter().any(|r| r.match_criteria.igmp_type.is_some()));
         ctx.insert("has_mld_rules", &rules.iter().any(|r| r.match_criteria.mld_type.is_some()));
+        ctx.insert("has_ipv6_tc_rules", &rules.iter().any(|r| r.match_criteria.uses_ipv6_tc()));
+        ctx.insert("has_tcp_flags_rules", &rules.iter().any(|r| r.match_criteria.uses_tcp_flags()));
+        ctx.insert("has_icmp_rules", &rules.iter().any(|r| r.match_criteria.uses_icmp()));
 
         let rendered = tera.render("test_properties.py.tera", &ctx)?;
         std::fs::write(tb_dir.join("test_properties.py"), &rendered)?;

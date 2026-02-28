@@ -4133,3 +4133,192 @@ pacgate:
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("tcp_flags_mask requires tcp_flags"), "should reject mask without flags");
 }
+
+#[test]
+fn lint_tcp_flags_no_protocol() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("tcp_no_proto.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: syn_no_proto
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        tcp_flags: 0x02
+      action: pass
+"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["lint", yaml.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("LINT024"), "should warn about tcp_flags without ip_protocol 6");
+}
+
+#[test]
+fn lint_icmp_no_protocol() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("icmp_no_proto.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: echo_no_proto
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        icmp_type: 8
+      action: pass
+"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["lint", yaml.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("LINT025"), "should warn about icmp_type without ip_protocol 1");
+}
+
+#[test]
+fn lint_ipv6_dscp_no_ethertype() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("ipv6_dscp_no_et.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: ipv6_ef_no_et
+      priority: 100
+      match:
+        ipv6_dscp: 46
+      action: pass
+"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["lint", yaml.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("LINT023"), "should warn about ipv6_dscp without ethertype 0x86DD");
+}
+
+#[test]
+fn estimate_tcp_flags_rule() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("est_tcp.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: syn_rule
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        tcp_flags: 0x02
+      action: pass
+"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["estimate", yaml.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("luts"), "should include LUT estimate");
+}
+
+#[test]
+fn diff_tcp_flags_change() {
+    let tmp = tempfile::tempdir().unwrap();
+    let old_yaml = tmp.path().join("old.yaml");
+    let new_yaml = tmp.path().join("new.yaml");
+    std::fs::write(&old_yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: syn_rule
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        tcp_flags: 0x02
+      action: pass
+"#).unwrap();
+    std::fs::write(&new_yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: syn_rule
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        tcp_flags: 0x12
+      action: pass
+"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["diff", old_yaml.to_str().unwrap(), new_yaml.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("tcp_flags"), "should detect tcp_flags change");
+}
+
+#[test]
+fn formal_tcp_icmp() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("formal_tcp.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: syn_rule
+      priority: 200
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        tcp_flags: 0x02
+      action: pass
+    - name: echo_rule
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 1
+        icmp_type: 8
+      action: pass
+"#).unwrap();
+    let out_dir = tmp.path().join("gen");
+    // First compile to generate RTL
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["compile", yaml.to_str().unwrap(), "-o", out_dir.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    // Then generate formal
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["formal", yaml.to_str().unwrap(), "-o", out_dir.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let assertions = std::fs::read_to_string(out_dir.join("formal/assertions.sv")).unwrap();
+    assert!(assertions.contains("tcp_flags"), "should include TCP flags assertions");
+    assert!(assertions.contains("icmp"), "should include ICMP assertions");
+}

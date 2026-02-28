@@ -102,6 +102,15 @@ class Rule:
     # QoS fields (IPv4 TOS byte)
     ip_dscp: Optional[int] = None
     ip_ecn: Optional[int] = None
+    # IPv6 Traffic Class
+    ipv6_dscp: Optional[int] = None
+    ipv6_ecn: Optional[int] = None
+    # TCP flags
+    tcp_flags: Optional[int] = None
+    tcp_flags_mask: Optional[int] = None
+    # ICMP Type/Code
+    icmp_type: Optional[int] = None
+    icmp_code: Optional[int] = None
 
     def matches(self, frame: EthernetFrame, extracted: Optional[dict] = None) -> bool:
         """Check if this rule matches the given frame.
@@ -228,6 +237,35 @@ class Rule:
         if self.ip_ecn is not None:
             pkt_ecn = extracted.get("ip_ecn")
             if pkt_ecn is None or pkt_ecn != self.ip_ecn:
+                return False
+
+        # IPv6 Traffic Class matching
+        if self.ipv6_dscp is not None:
+            pkt_dscp = extracted.get("ipv6_dscp")
+            if pkt_dscp is None or pkt_dscp != self.ipv6_dscp:
+                return False
+        if self.ipv6_ecn is not None:
+            pkt_ecn = extracted.get("ipv6_ecn")
+            if pkt_ecn is None or pkt_ecn != self.ipv6_ecn:
+                return False
+
+        # TCP flags matching (mask-aware)
+        if self.tcp_flags is not None:
+            pkt_flags = extracted.get("tcp_flags")
+            if pkt_flags is None:
+                return False
+            mask = self.tcp_flags_mask if self.tcp_flags_mask is not None else 0xFF
+            if (pkt_flags & mask) != (self.tcp_flags & mask):
+                return False
+
+        # ICMP Type/Code matching
+        if self.icmp_type is not None:
+            pkt_icmp_type = extracted.get("icmp_type")
+            if pkt_icmp_type is None or pkt_icmp_type != self.icmp_type:
+                return False
+        if self.icmp_code is not None:
+            pkt_icmp_code = extracted.get("icmp_code")
+            if pkt_icmp_code is None or pkt_icmp_code != self.icmp_code:
                 return False
 
         return True

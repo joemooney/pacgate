@@ -311,6 +311,68 @@ module packet_filter_assertions (
     cover property (@(posedge clk) disable iff (!rst_n) fields_valid && parsed_ip_dscp == 6'd46);
 {% endif %}
 
+{% if has_ipv6_tc_rules %}
+    // ── IPv6 Traffic Class Assertions ─────────────────────────────
+    // IPv6 DSCP is 6-bit (0-63), ECN is 2-bit (0-3) from Traffic Class byte.
+
+    // IPv6 DSCP bounds: ipv6_dscp must be <= 63
+    property p_ipv6_dscp_bounds;
+        @(posedge clk) disable iff (!rst_n)
+        fields_valid |-> (parsed_ipv6_dscp <= 6'd63);
+    endproperty
+    assert property (p_ipv6_dscp_bounds)
+        else $error("ASSERT FAIL: ipv6_dscp out of bounds (> 63)");
+
+    // IPv6 ECN bounds: ipv6_ecn must be <= 3
+    property p_ipv6_ecn_bounds;
+        @(posedge clk) disable iff (!rst_n)
+        fields_valid |-> (parsed_ipv6_ecn <= 2'd3);
+    endproperty
+    assert property (p_ipv6_ecn_bounds)
+        else $error("ASSERT FAIL: ipv6_ecn out of bounds (> 3)");
+
+    // Cover: IPv6 EF traffic (DSCP=46) detected
+    cover property (@(posedge clk) disable iff (!rst_n) fields_valid && parsed_ipv6_dscp == 6'd46);
+{% endif %}
+
+{% if has_tcp_flags_rules %}
+    // ── TCP Flags Assertions ──────────────────────────────────────
+    // TCP flags byte: CWR|ECE|URG|ACK|PSH|RST|SYN|FIN
+
+    // TCP flags prerequisite: tcp_flags_valid implies L4 parsed
+    property p_tcp_flags_prereq;
+        @(posedge clk) disable iff (!rst_n)
+        parsed_tcp_flags_valid |-> parsed_l4_valid;
+    endproperty
+    assert property (p_tcp_flags_prereq)
+        else $error("ASSERT FAIL: tcp_flags_valid without l4_valid");
+
+    // Cover: SYN packet detected
+    cover property (@(posedge clk) disable iff (!rst_n) parsed_tcp_flags_valid && (parsed_tcp_flags[1] == 1'b1));
+
+    // Cover: SYN+ACK packet detected
+    cover property (@(posedge clk) disable iff (!rst_n) parsed_tcp_flags_valid && (parsed_tcp_flags[4] == 1'b1) && (parsed_tcp_flags[1] == 1'b1));
+{% endif %}
+
+{% if has_icmp_rules %}
+    // ── ICMP Type/Code Assertions ─────────────────────────────────
+    // ICMP: protocol 1, type + code from first 2 bytes of ICMP header.
+
+    // ICMP prerequisite: icmp_valid implies fields_valid
+    property p_icmp_prereq;
+        @(posedge clk) disable iff (!rst_n)
+        parsed_icmp_valid |-> fields_valid;
+    endproperty
+    assert property (p_icmp_prereq)
+        else $error("ASSERT FAIL: icmp_valid without fields_valid");
+
+    // Cover: ICMP echo request (type 8)
+    cover property (@(posedge clk) disable iff (!rst_n) parsed_icmp_valid && (parsed_icmp_type_field == 8'd8));
+
+    // Cover: ICMP echo reply (type 0)
+    cover property (@(posedge clk) disable iff (!rst_n) parsed_icmp_valid && (parsed_icmp_type_field == 8'd0));
+{% endif %}
+
 {% if has_rewrite_rules %}
     // ── Rewrite Engine Assertions ───────────────────────────────────
     // Rewrite must only be applied when the packet is passed (not dropped).

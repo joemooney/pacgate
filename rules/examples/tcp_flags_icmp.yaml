@@ -1,0 +1,73 @@
+---
+# tcp_flags_icmp.yaml — TCP flags, ICMP type/code, and IPv6 Traffic Class matching
+# Demonstrates stateless firewall rules using TCP flags (SYN/ACK/FIN),
+# ICMP type/code classification, and IPv6 DSCP/ECN QoS fields.
+
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+
+  rules:
+    # TCP SYN only (not SYN+ACK) — allow new connections
+    - name: allow_tcp_syn
+      priority: 700
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        tcp_flags: 0x02
+        tcp_flags_mask: 0x12
+      action: pass
+
+    # TCP ACK set — allow established connections
+    - name: allow_tcp_established
+      priority: 600
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        tcp_flags: 0x10
+        tcp_flags_mask: 0x10
+      action: pass
+
+    # TCP Xmas scan (FIN+PSH+URG) — drop
+    - name: drop_tcp_xmas
+      priority: 800
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        tcp_flags: 0x29
+        tcp_flags_mask: 0x29
+      action: drop
+
+    # ICMP echo request (ping)
+    - name: allow_icmp_echo
+      priority: 500
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 1
+        icmp_type: 8
+      action: pass
+
+    # ICMP echo reply
+    - name: allow_icmp_reply
+      priority: 400
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 1
+        icmp_type: 0
+      action: pass
+
+    # IPv6 Expedited Forwarding (DSCP=46)
+    - name: allow_ipv6_ef
+      priority: 300
+      match:
+        ethertype: "0x86DD"
+        ipv6_dscp: 46
+      action: pass
+
+    # ARP (connectivity)
+    - name: allow_arp
+      priority: 100
+      match:
+        ethertype: "0x0806"
+      action: pass

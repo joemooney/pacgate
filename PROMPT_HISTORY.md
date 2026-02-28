@@ -1816,3 +1816,62 @@ Implement Phase 19: Platform Integration Targets. Add `--target opennic` and `--
 
 ### Git Operations
 - Commits pushed to https://github.com/joemooney/pacgate.git
+
+---
+
+## Session: Phase 22 — IPv6 Traffic Class + TCP Flags + ICMP Type/Code (2026-02-27)
+
+### Prompt
+"Implement Phase 22: IPv6 Traffic Class + TCP Flags + ICMP Type/Code" — Add 6 new match fields (ipv6_dscp, ipv6_ecn, tcp_flags, tcp_flags_mask, icmp_type, icmp_code), frame parser extensions for IPv6 TC byte + TCP flags + ICMP header, mask-aware TCP flags matching, LINT023-025, SVA assertions, 16 mutation types, Python scoreboard support, tcp_flags_icmp.yaml example.
+
+### Actions Taken
+
+#### Batch 1: Model + Parser + Verilog Gen + Simulator
+1. **src/model.rs** — Added ipv6_dscp (Option<u8>), ipv6_ecn (Option<u8>), tcp_flags (Option<u8>), tcp_flags_mask (Option<u8>), icmp_type (Option<u8>), icmp_code (Option<u8>) to MatchCriteria; added uses_ipv6_tc(), uses_tcp_flags(), uses_icmp() helpers; unit tests for parsing and validation
+2. **src/loader.rs** — ipv6_dscp 0-63 / ipv6_ecn 0-3 range validation, tcp_flags/tcp_flags_mask 0-255 range validation, icmp_type/icmp_code 0-255 range validation; shadow/overlap detection for all 6 new fields; unit tests
+3. **rtl/frame_parser.v** — IPv6 Traffic Class byte extraction from header bytes 0-1 (split across version/TC/flow-label boundary); TCP flags extraction at TCP header byte offset 13; new S_ICMP_HDR state for ICMP type/code extraction after IPv4 protocol 1 detection; new output signals: ipv6_dscp[5:0], ipv6_ecn[1:0], tcp_flags[7:0], icmp_type[7:0], icmp_code[7:0], icmp_valid
+4. **src/verilog_gen.rs** — has_ipv6_tc, has_tcp_flags, has_icmp global protocol flags; condition generation for mask-aware TCP flags: `(tcp_flags & mask) == (rule_flags & mask)`; ipv6_dscp/ipv6_ecn condition generation; icmp_type/icmp_code exact match conditions; template context updates
+5. **Templates** — Conditional IPv6 TC/TCP flags/ICMP ports in rule_match.v.tera, rule_fsm.v.tera, packet_filter_top.v.tera
+6. **src/simulator.rs** — SimPacket ipv6_dscp/ipv6_ecn/tcp_flags/tcp_flags_mask/icmp_type/icmp_code fields; parse_packet_spec() handles all 6 fields; mask-aware TCP flags matching in match_criteria_against_packet(); unit tests
+
+#### Batch 2: Verification + Tools + Example + Docs
+7. **verification/scoreboard.py** — ipv6_dscp/ipv6_ecn/tcp_flags/tcp_flags_mask/icmp_type/icmp_code in Rule dataclass + matches() method with mask-aware TCP flags evaluation
+8. **src/cocotb_gen.rs** — IPv6 TC/TCP flags/ICMP fields in test cases + scoreboard rules
+9. **src/formal_gen.rs** — has_ipv6_tc_rules, has_tcp_flags_rules, has_icmp_rules feature flags + template context
+10. **templates/assertions.sv.tera** — SVA IPv6 TC bounds assertions (ipv6_dscp <= 63, ipv6_ecn <= 3), TCP flags prerequisite per-rule assertions (match → ip_protocol == 6), ICMP cover properties
+11. **src/mutation.rs** — 3 new mutation types: remove_tcp_flags, remove_icmp_type, remove_ipv6_dscp (16 total); unit tests
+12. **src/main.rs** — LINT023 (IPv6 DSCP/ECN without 0x86DD), LINT024 (TCP flags without ip_protocol 6), LINT025 (ICMP without ip_protocol 1); estimate/diff/doc/stats/graph updates for all 6 fields
+13. **rules/examples/tcp_flags_icmp.yaml** — 7 rules: allow_tcp_syn (SYN-only via mask), allow_tcp_established (ACK set), drop_tcp_xmas (FIN+PSH+URG), allow_icmp_echo (type 8), allow_icmp_reply (type 0), allow_ipv6_ef (DSCP 46), allow_arp (EtherType 0x0806)
+14. **.github/workflows/ci.yml** — tcp_flags_icmp in simulate matrix
+15. **tests/integration_test.rs** — 14 integration tests for compile, simulate, validate, lint, estimate, diff, formal with IPv6 TC/TCP flags/ICMP rules
+16. **CLAUDE.md** — Updated feature summary, frame parser description, CLI examples, scoreboard scope, lint count (25), mutation types (16), test counts (528), example count (27), Phase 22 status
+
+### Modified Files
+- `src/model.rs` — 6 new match fields in MatchCriteria + helper methods
+- `src/loader.rs` — Validation for all 6 new fields + shadow/overlap detection
+- `rtl/frame_parser.v` — IPv6 TC extraction, TCP flags, S_ICMP_HDR state
+- `src/verilog_gen.rs` — Protocol flags, condition generation, template context
+- `templates/rule_match.v.tera` — Conditional IPv6 TC/TCP flags/ICMP ports
+- `templates/rule_fsm.v.tera` — Conditional IPv6 TC/TCP flags/ICMP ports
+- `templates/packet_filter_top.v.tera` — Wiring for new parser outputs
+- `templates/assertions.sv.tera` — SVA assertions for IPv6 TC/TCP flags/ICMP
+- `src/simulator.rs` — 6 new SimPacket fields + mask-aware TCP flags matching
+- `verification/scoreboard.py` — 6 new Rule fields + mask-aware matching
+- `src/cocotb_gen.rs` — Test case + scoreboard emission for new fields
+- `src/formal_gen.rs` — Feature flags for new protocol categories
+- `src/mutation.rs` — 3 new mutation types (16 total)
+- `src/main.rs` — LINT023-025, estimate, diff, doc, stats, graph updates
+- `rules/examples/tcp_flags_icmp.yaml` — New example (7 rules)
+- `.github/workflows/ci.yml` — CI simulate matrix expansion
+- `tests/integration_test.rs` — 14 new integration tests
+- `CLAUDE.md` — Phase 22 documentation updates
+
+### Test Results
+- 298 unit tests — all PASS
+- 230 integration tests — all PASS
+- Total: 528 Rust tests (from 491 in Phase 21)
+- 47 Python scoreboard tests unchanged
+- All 27 YAML examples compile unchanged
+
+### Git Operations
+- Commits pushed to https://github.com/joemooney/pacgate.git

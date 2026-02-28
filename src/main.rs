@@ -1357,6 +1357,14 @@ fn generate_rule_documentation(
         if let Some(mld) = rule.match_criteria.mld_type { match_fields.push(format!("mld_type: {}", mld)); }
         if let Some(dscp) = rule.match_criteria.ip_dscp { match_fields.push(format!("ip_dscp: {}", dscp)); }
         if let Some(ecn) = rule.match_criteria.ip_ecn { match_fields.push(format!("ip_ecn: {}", ecn)); }
+        if let Some(dscp) = rule.match_criteria.ipv6_dscp { match_fields.push(format!("ipv6_dscp: {}", dscp)); }
+        if let Some(ecn) = rule.match_criteria.ipv6_ecn { match_fields.push(format!("ipv6_ecn: {}", ecn)); }
+        if let Some(flags) = rule.match_criteria.tcp_flags {
+            let mask_str = rule.match_criteria.tcp_flags_mask.map(|m| format!(", mask=0x{:02X}", m)).unwrap_or_default();
+            match_fields.push(format!("tcp_flags: 0x{:02X}{}", flags, mask_str));
+        }
+        if let Some(t) = rule.match_criteria.icmp_type { match_fields.push(format!("icmp_type: {}", t)); }
+        if let Some(c) = rule.match_criteria.icmp_code { match_fields.push(format!("icmp_code: {}", c)); }
         if let Some(ref bms) = rule.match_criteria.byte_match {
             for bm in bms {
                 match_fields.push(format!("byte_match: offset={}, value={}, mask={}", bm.offset, bm.value, bm.mask.as_deref().unwrap_or("FF")));
@@ -1595,6 +1603,11 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
     let mut uses_mld_type = 0;
     let mut uses_ip_dscp = 0;
     let mut uses_ip_ecn = 0;
+    let mut uses_ipv6_dscp = 0;
+    let mut uses_ipv6_ecn = 0;
+    let mut uses_tcp_flags = 0;
+    let mut uses_icmp_type = 0;
+    let mut uses_icmp_code = 0;
     let mut match_field_count = Vec::new();
 
     for rule in rules.iter().filter(|r| !r.is_stateful()) {
@@ -1619,6 +1632,11 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
         if mc.mld_type.is_some() { uses_mld_type += 1; count += 1; }
         if mc.ip_dscp.is_some() { uses_ip_dscp += 1; count += 1; }
         if mc.ip_ecn.is_some() { uses_ip_ecn += 1; count += 1; }
+        if mc.ipv6_dscp.is_some() { uses_ipv6_dscp += 1; count += 1; }
+        if mc.ipv6_ecn.is_some() { uses_ipv6_ecn += 1; count += 1; }
+        if mc.tcp_flags.is_some() { uses_tcp_flags += 1; count += 1; }
+        if mc.icmp_type.is_some() { uses_icmp_type += 1; count += 1; }
+        if mc.icmp_code.is_some() { uses_icmp_code += 1; count += 1; }
         match_field_count.push(count);
     }
 
@@ -1662,6 +1680,11 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
             "mld_type": uses_mld_type,
             "ip_dscp": uses_ip_dscp,
             "ip_ecn": uses_ip_ecn,
+            "ipv6_dscp": uses_ipv6_dscp,
+            "ipv6_ecn": uses_ipv6_ecn,
+            "tcp_flags": uses_tcp_flags,
+            "icmp_type": uses_icmp_type,
+            "icmp_code": uses_icmp_code,
         },
         "match_complexity": {
             "avg_fields_per_rule": format!("{:.1}", avg_fields),
@@ -1701,6 +1724,10 @@ fn print_stats(config: &model::FilterConfig) {
     let mut uses_mld_type = 0usize;
     let mut uses_ip_dscp = 0usize;
     let mut uses_ip_ecn = 0usize;
+    let mut uses_ipv6_dscp = 0usize;
+    let mut uses_ipv6_ecn = 0usize;
+    let mut uses_tcp_flags = 0usize;
+    let mut uses_icmp_type = 0usize;
 
     for rule in rules.iter().filter(|r| !r.is_stateful()) {
         let mc = &rule.match_criteria;
@@ -1715,6 +1742,10 @@ fn print_stats(config: &model::FilterConfig) {
         if mc.mld_type.is_some() { uses_mld_type += 1; }
         if mc.ip_dscp.is_some() { uses_ip_dscp += 1; }
         if mc.ip_ecn.is_some() { uses_ip_ecn += 1; }
+        if mc.ipv6_dscp.is_some() { uses_ipv6_dscp += 1; }
+        if mc.ipv6_ecn.is_some() { uses_ipv6_ecn += 1; }
+        if mc.tcp_flags.is_some() { uses_tcp_flags += 1; }
+        if mc.icmp_type.is_some() { uses_icmp_type += 1; }
     }
 
     // Priority spacing
@@ -1755,6 +1786,18 @@ fn print_stats(config: &model::FilterConfig) {
         }
         if uses_ip_ecn > 0 {
             println!("  ip_ecn     [{:>2}/{}] |{}|", uses_ip_ecn, stateless, bar(uses_ip_ecn));
+        }
+        if uses_ipv6_dscp > 0 {
+            println!("  ipv6_dscp  [{:>2}/{}] |{}|", uses_ipv6_dscp, stateless, bar(uses_ipv6_dscp));
+        }
+        if uses_ipv6_ecn > 0 {
+            println!("  ipv6_ecn   [{:>2}/{}] |{}|", uses_ipv6_ecn, stateless, bar(uses_ipv6_ecn));
+        }
+        if uses_tcp_flags > 0 {
+            println!("  tcp_flags  [{:>2}/{}] |{}|", uses_tcp_flags, stateless, bar(uses_tcp_flags));
+        }
+        if uses_icmp_type > 0 {
+            println!("  icmp_type  [{:>2}/{}] |{}|", uses_icmp_type, stateless, bar(uses_icmp_type));
         }
     }
     println!();
@@ -1820,6 +1863,11 @@ fn print_dot_graph(config: &model::FilterConfig) {
             if let Some(mld) = mc.mld_type { criteria.push(format!("mld_type={}", mld)); }
             if let Some(dscp) = mc.ip_dscp { criteria.push(format!("ip_dscp={}", dscp)); }
             if let Some(ecn) = mc.ip_ecn { criteria.push(format!("ip_ecn={}", ecn)); }
+            if let Some(dscp) = mc.ipv6_dscp { criteria.push(format!("ipv6_dscp={}", dscp)); }
+            if let Some(ecn) = mc.ipv6_ecn { criteria.push(format!("ipv6_ecn={}", ecn)); }
+            if let Some(flags) = mc.tcp_flags { criteria.push(format!("tcp_flags=0x{:02X}", flags)); }
+            if let Some(t) = mc.icmp_type { criteria.push(format!("icmp_type={}", t)); }
+            if let Some(c) = mc.icmp_code { criteria.push(format!("icmp_code={}", c)); }
         } else {
             criteria.push("(FSM states)".to_string());
         }
@@ -1974,6 +2022,30 @@ fn diff_rules(old: &model::FilterConfig, new: &model::FilterConfig, json: bool) 
                 if old_rule.match_criteria.ip_ecn != new_rule.match_criteria.ip_ecn {
                     changes.push(format!("ip_ecn: {:?} -> {:?}",
                         old_rule.match_criteria.ip_ecn, new_rule.match_criteria.ip_ecn));
+                }
+                if old_rule.match_criteria.ipv6_dscp != new_rule.match_criteria.ipv6_dscp {
+                    changes.push(format!("ipv6_dscp: {:?} -> {:?}",
+                        old_rule.match_criteria.ipv6_dscp, new_rule.match_criteria.ipv6_dscp));
+                }
+                if old_rule.match_criteria.ipv6_ecn != new_rule.match_criteria.ipv6_ecn {
+                    changes.push(format!("ipv6_ecn: {:?} -> {:?}",
+                        old_rule.match_criteria.ipv6_ecn, new_rule.match_criteria.ipv6_ecn));
+                }
+                if old_rule.match_criteria.tcp_flags != new_rule.match_criteria.tcp_flags {
+                    changes.push(format!("tcp_flags: {:?} -> {:?}",
+                        old_rule.match_criteria.tcp_flags, new_rule.match_criteria.tcp_flags));
+                }
+                if old_rule.match_criteria.tcp_flags_mask != new_rule.match_criteria.tcp_flags_mask {
+                    changes.push(format!("tcp_flags_mask: {:?} -> {:?}",
+                        old_rule.match_criteria.tcp_flags_mask, new_rule.match_criteria.tcp_flags_mask));
+                }
+                if old_rule.match_criteria.icmp_type != new_rule.match_criteria.icmp_type {
+                    changes.push(format!("icmp_type: {:?} -> {:?}",
+                        old_rule.match_criteria.icmp_type, new_rule.match_criteria.icmp_type));
+                }
+                if old_rule.match_criteria.icmp_code != new_rule.match_criteria.icmp_code {
+                    changes.push(format!("icmp_code: {:?} -> {:?}",
+                        old_rule.match_criteria.icmp_code, new_rule.match_criteria.icmp_code));
                 }
                 if old_rule.is_stateful() != new_rule.is_stateful() {
                     changes.push(format!("type: {} -> {}",
@@ -2303,6 +2375,48 @@ fn generate_diff_html(
                         "new_value": format!("{:?}", new_rule.match_criteria.ip_ecn),
                     }));
                 }
+                if old_rule.match_criteria.ipv6_dscp != new_rule.match_criteria.ipv6_dscp {
+                    changes.push(serde_json::json!({
+                        "field": "ipv6_dscp",
+                        "old_value": format!("{:?}", old_rule.match_criteria.ipv6_dscp),
+                        "new_value": format!("{:?}", new_rule.match_criteria.ipv6_dscp),
+                    }));
+                }
+                if old_rule.match_criteria.ipv6_ecn != new_rule.match_criteria.ipv6_ecn {
+                    changes.push(serde_json::json!({
+                        "field": "ipv6_ecn",
+                        "old_value": format!("{:?}", old_rule.match_criteria.ipv6_ecn),
+                        "new_value": format!("{:?}", new_rule.match_criteria.ipv6_ecn),
+                    }));
+                }
+                if old_rule.match_criteria.tcp_flags != new_rule.match_criteria.tcp_flags {
+                    changes.push(serde_json::json!({
+                        "field": "tcp_flags",
+                        "old_value": format!("{:?}", old_rule.match_criteria.tcp_flags),
+                        "new_value": format!("{:?}", new_rule.match_criteria.tcp_flags),
+                    }));
+                }
+                if old_rule.match_criteria.tcp_flags_mask != new_rule.match_criteria.tcp_flags_mask {
+                    changes.push(serde_json::json!({
+                        "field": "tcp_flags_mask",
+                        "old_value": format!("{:?}", old_rule.match_criteria.tcp_flags_mask),
+                        "new_value": format!("{:?}", new_rule.match_criteria.tcp_flags_mask),
+                    }));
+                }
+                if old_rule.match_criteria.icmp_type != new_rule.match_criteria.icmp_type {
+                    changes.push(serde_json::json!({
+                        "field": "icmp_type",
+                        "old_value": format!("{:?}", old_rule.match_criteria.icmp_type),
+                        "new_value": format!("{:?}", new_rule.match_criteria.icmp_type),
+                    }));
+                }
+                if old_rule.match_criteria.icmp_code != new_rule.match_criteria.icmp_code {
+                    changes.push(serde_json::json!({
+                        "field": "icmp_code",
+                        "old_value": format!("{:?}", old_rule.match_criteria.icmp_code),
+                        "new_value": format!("{:?}", new_rule.match_criteria.icmp_code),
+                    }));
+                }
 
                 if changes.is_empty() {
                     unchanged_count += 1;
@@ -2443,6 +2557,11 @@ fn compute_resource_estimate(config: &model::FilterConfig) -> serde_json::Value 
             if mc.mld_type.is_some() { fields += 1; }    // 8-bit comparator
             if mc.ip_dscp.is_some() { fields += 1; }     // 6-bit comparator
             if mc.ip_ecn.is_some() { fields += 1; }      // 2-bit comparator
+            if mc.ipv6_dscp.is_some() { fields += 1; }   // 6-bit comparator
+            if mc.ipv6_ecn.is_some() { fields += 1; }    // 2-bit comparator
+            if mc.tcp_flags.is_some() { fields += 2; }   // 8-bit comparator with mask
+            if mc.icmp_type.is_some() { fields += 1; }   // 8-bit comparator
+            if mc.icmp_code.is_some() { fields += 1; }   // 8-bit comparator
             rule_luts += 10 + fields * 12;
         }
     }
@@ -2556,6 +2675,11 @@ fn print_resource_estimate(config: &model::FilterConfig) {
             if mc.mld_type.is_some() { fields += 1; }
             if mc.ip_dscp.is_some() { fields += 1; }
             if mc.ip_ecn.is_some() { fields += 1; }
+            if mc.ipv6_dscp.is_some() { fields += 1; }
+            if mc.ipv6_ecn.is_some() { fields += 1; }
+            if mc.tcp_flags.is_some() { fields += 2; }
+            if mc.icmp_type.is_some() { fields += 1; }
+            if mc.icmp_code.is_some() { fields += 1; }
             rule_luts += 10 + fields * 12;
         }
     }
@@ -3115,6 +3239,53 @@ fn lint_rules(config: &model::FilterConfig, warnings: &[String], dynamic: bool, 
                     "code": "LINT022",
                     "message": format!("Rule '{}' uses ip_dscp/ip_ecn without ethertype: 0x0800 — may match non-IPv4 traffic", rule.name),
                     "suggestion": "Add 'ethertype: \"0x0800\"' to ensure DSCP/ECN matching is only applied to IPv4 packets"
+                }));
+            }
+        }
+    }
+
+    // Check 23: IPv6 DSCP/ECN without IPv6 ethertype prerequisite
+    for rule in &config.pacgate.rules {
+        if rule.match_criteria.uses_ipv6_tc() {
+            let has_ipv6 = rule.match_criteria.ethertype.as_ref()
+                .map(|et| model::parse_ethertype(et).ok() == Some(0x86DD))
+                .unwrap_or(false);
+            if !has_ipv6 {
+                findings.push(serde_json::json!({
+                    "level": "warning",
+                    "code": "LINT023",
+                    "message": format!("Rule '{}' uses ipv6_dscp/ipv6_ecn without ethertype: 0x86DD — may match non-IPv6 traffic", rule.name),
+                    "suggestion": "Add 'ethertype: \"0x86DD\"' to ensure IPv6 TC matching is only applied to IPv6 packets"
+                }));
+            }
+        }
+    }
+
+    // Check 24: TCP flags without ip_protocol 6 prerequisite
+    for rule in &config.pacgate.rules {
+        if rule.match_criteria.uses_tcp_flags() {
+            let has_tcp = rule.match_criteria.ip_protocol == Some(6);
+            if !has_tcp {
+                findings.push(serde_json::json!({
+                    "level": "warning",
+                    "code": "LINT024",
+                    "message": format!("Rule '{}' uses tcp_flags without ip_protocol: 6 — may match non-TCP traffic", rule.name),
+                    "suggestion": "Add 'ip_protocol: 6' to ensure TCP flags matching is only applied to TCP packets"
+                }));
+            }
+        }
+    }
+
+    // Check 25: ICMP type/code without ip_protocol 1 prerequisite
+    for rule in &config.pacgate.rules {
+        if rule.match_criteria.uses_icmp() {
+            let has_icmp = rule.match_criteria.ip_protocol == Some(1);
+            if !has_icmp {
+                findings.push(serde_json::json!({
+                    "level": "warning",
+                    "code": "LINT025",
+                    "message": format!("Rule '{}' uses icmp_type/icmp_code without ip_protocol: 1 — may match non-ICMP traffic", rule.name),
+                    "suggestion": "Add 'ip_protocol: 1' to ensure ICMP matching is only applied to ICMP packets"
                 }));
             }
         }
