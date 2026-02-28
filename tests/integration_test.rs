@@ -3010,3 +3010,93 @@ pacgate:
     assert!(fp.contains("ip_ttl"), "frame_parser.v must have ip_ttl port");
     assert!(fp.contains("ip_checksum"), "frame_parser.v must have ip_checksum port");
 }
+
+#[test]
+fn rewrite_axi_top_has_rewrite() {
+    let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: nat
+      priority: 100
+      match:
+        ethertype: "0x0800"
+      action: pass
+      rewrite:
+        set_src_ip: "10.0.0.1"
+"#;
+    let tmp = tempfile::tempdir().unwrap();
+    let rules_path = tmp.path().join("rewrite_axi.yaml");
+    std::fs::write(&rules_path, yaml).unwrap();
+    let output = pacgate_bin()
+        .args(["compile", rules_path.to_str().unwrap(), "--axi", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "Compile --axi with rewrite failed: {}", String::from_utf8_lossy(&output.stderr));
+    let axi_top = std::fs::read_to_string(tmp.path().join("rtl/packet_filter_axi_top.v")).unwrap();
+    assert!(axi_top.contains("packet_rewrite"), "AXI top should contain packet_rewrite instantiation");
+    assert!(axi_top.contains("rewrite_lut"), "AXI top should contain rewrite_lut instantiation");
+    // packet_rewrite.v should be copied to output
+    assert!(tmp.path().join("rtl/packet_rewrite.v").exists(), "packet_rewrite.v should be copied to output");
+}
+
+#[test]
+fn rewrite_axi_no_rewrite_clean() {
+    let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_arp
+      priority: 100
+      match:
+        ethertype: "0x0806"
+      action: pass
+"#;
+    let tmp = tempfile::tempdir().unwrap();
+    let rules_path = tmp.path().join("no_rewrite_axi.yaml");
+    std::fs::write(&rules_path, yaml).unwrap();
+    let output = pacgate_bin()
+        .args(["compile", rules_path.to_str().unwrap(), "--axi", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "Compile --axi without rewrite failed: {}", String::from_utf8_lossy(&output.stderr));
+    let axi_top = std::fs::read_to_string(tmp.path().join("rtl/packet_filter_axi_top.v")).unwrap();
+    assert!(!axi_top.contains("packet_rewrite"), "AXI top should NOT contain packet_rewrite without rewrite rules");
+    assert!(!axi_top.contains("rewrite_lut"), "AXI top should NOT contain rewrite_lut without rewrite rules");
+    assert!(axi_top.contains("packet_filter_top"), "AXI top should still contain filter core");
+    assert!(axi_top.contains("store_forward_fifo"), "AXI top should still contain FIFO");
+}
+
+#[test]
+fn rewrite_without_axi_generates_lut_no_rewrite_engine() {
+    let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: nat
+      priority: 100
+      match:
+        ethertype: "0x0800"
+      action: pass
+      rewrite:
+        dec_ttl: true
+"#;
+    let tmp = tempfile::tempdir().unwrap();
+    let rules_path = tmp.path().join("rewrite_no_axi.yaml");
+    std::fs::write(&rules_path, yaml).unwrap();
+    let output = pacgate_bin()
+        .args(["compile", rules_path.to_str().unwrap(), "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "Compile with rewrite (no --axi) failed: {}", String::from_utf8_lossy(&output.stderr));
+    // rewrite_lut.v should exist (generated alongside filter)
+    assert!(tmp.path().join("rtl/rewrite_lut.v").exists(), "rewrite_lut.v should exist even without --axi");
+    // packet_rewrite.v should NOT be copied (only with --axi)
+    assert!(!tmp.path().join("rtl/packet_rewrite.v").exists(), "packet_rewrite.v should not exist without --axi");
+}

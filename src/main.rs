@@ -483,9 +483,9 @@ fn main() -> Result<()> {
                 verilog_gen::copy_rate_limiter_rtl(&output)?;
             }
 
-            // Copy AXI-Stream wrapper RTL if --axi
+            // Copy/generate AXI-Stream wrapper RTL if --axi
             if axi {
-                verilog_gen::copy_axi_rtl(&output)?;
+                verilog_gen::copy_axi_rtl(&output, &config, &templates)?;
             }
 
             // Copy counter RTL if --counters
@@ -900,7 +900,7 @@ fn main() -> Result<()> {
                 if ports > 1 {
                     verilog_gen::generate_multiport(&config, &templates, &output, ports)?;
                 }
-                if axi { verilog_gen::copy_axi_rtl(&output)?; }
+                if axi { verilog_gen::copy_axi_rtl(&output, &config, &templates)?; }
                 if counters { verilog_gen::copy_counter_rtl(&output)?; }
                 if conntrack { verilog_gen::copy_conntrack_rtl(&output)?; }
                 let has_rate_limit = rate_limit || config.pacgate.rules.iter().any(|r| r.rate_limit.is_some());

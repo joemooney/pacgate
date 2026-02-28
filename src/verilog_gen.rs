@@ -642,24 +642,56 @@ pub fn generate_multiport(config: &FilterConfig, templates_dir: &Path, output_di
     Ok(())
 }
 
-/// Copy hand-written AXI-Stream RTL modules to the output directory.
-pub fn copy_axi_rtl(output_dir: &Path) -> Result<()> {
+/// Generate or copy AXI-Stream RTL modules to the output directory.
+/// When has_rewrite=true, renders the AXI top template with rewrite wiring.
+/// Otherwise, copies the original hand-written modules.
+pub fn copy_axi_rtl(output_dir: &Path, config: &FilterConfig, templates_dir: &Path) -> Result<()> {
     let rtl_dir = output_dir.join("rtl");
     std::fs::create_dir_all(&rtl_dir)?;
 
-    let axi_files = [
+    // Always copy adapter and FIFO (hand-written infrastructure)
+    let copy_files = [
         "axi_stream_adapter.v",
         "store_forward_fifo.v",
-        "packet_filter_axi_top.v",
     ];
-
-    for filename in &axi_files {
+    for filename in &copy_files {
         let src = Path::new("rtl").join(filename);
         let dst = rtl_dir.join(filename);
         std::fs::copy(&src, &dst)
             .with_context(|| format!("Failed to copy {} to output", filename))?;
         log::info!("Copied {} to {}", filename, dst.display());
     }
+
+    // Check if any rule has rewrite actions
+    let has_rewrite = config.pacgate.rules.iter().any(|r| r.has_rewrite());
+
+    if has_rewrite {
+        // Copy packet_rewrite.v (hand-written rewrite engine)
+        let src = Path::new("rtl").join("packet_rewrite.v");
+        let dst = rtl_dir.join("packet_rewrite.v");
+        std::fs::copy(&src, &dst)
+            .with_context(|| "Failed to copy packet_rewrite.v to output")?;
+        log::info!("Copied packet_rewrite.v to {}", dst.display());
+    }
+
+    // Render AXI top from template (supports both rewrite and non-rewrite modes)
+    let glob = format!("{}/**/*.tera", templates_dir.display());
+    let tera = Tera::new(&glob)
+        .with_context(|| format!("Failed to load templates from {}", templates_dir.display()))?;
+
+    let rules = &config.pacgate.rules;
+    let idx_bits = if rules.is_empty() { 1 } else {
+        ((rules.len() as f64).log2().ceil() as usize).max(1)
+    };
+
+    let mut ctx = tera::Context::new();
+    ctx.insert("has_rewrite", &has_rewrite);
+    ctx.insert("idx_bits", &idx_bits);
+    ctx.insert("num_rules", &rules.len());
+
+    let rendered = tera.render("packet_filter_axi_top.v.tera", &ctx)?;
+    std::fs::write(rtl_dir.join("packet_filter_axi_top.v"), &rendered)?;
+    log::info!("Generated packet_filter_axi_top.v (has_rewrite={})", has_rewrite);
 
     Ok(())
 }
