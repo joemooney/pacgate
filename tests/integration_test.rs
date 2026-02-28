@@ -64,7 +64,8 @@ fn validate_all_examples() {
                      "l3l4_firewall", "vxlan_datacenter",
                      "byte_match", "hsm_conntrack",
                      "ipv6_firewall", "rate_limited",
-                     "dynamic_firewall"] {
+                     "dynamic_firewall",
+                     "opennic_l3l4"] {
         let path = format!("rules/examples/{}.yaml", example);
         let output = pacgate_bin()
             .args(["validate", &path])
@@ -3316,4 +3317,46 @@ fn target_dynamic_rejected() {
     assert!(!output.status.success(), "should reject --target with --dynamic");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("incompatible"), "error should mention incompatibility: {}", stderr);
+}
+
+#[test]
+fn target_opennic_generates_wrapper() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/opennic_l3l4.yaml", "--target", "opennic", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile --target opennic failed: {}", String::from_utf8_lossy(&output.stderr));
+    // OpenNIC wrapper should be generated
+    assert!(tmp.path().join("rtl/pacgate_opennic_250.v").exists(), "OpenNIC wrapper missing");
+    let wrapper = std::fs::read_to_string(tmp.path().join("rtl/pacgate_opennic_250.v")).unwrap();
+    assert!(wrapper.contains("module pacgate_opennic_250"), "wrapper should have correct module name");
+    assert!(wrapper.contains("s_axis_tuser_size"), "wrapper should have tuser_size port");
+    assert!(wrapper.contains("axis_512_to_8"), "wrapper should instantiate RX width converter");
+    assert!(wrapper.contains("axis_8_to_512"), "wrapper should instantiate TX width converter");
+    assert!(wrapper.contains("packet_filter_axi_top"), "wrapper should instantiate filter pipeline");
+}
+
+#[test]
+fn target_opennic_json_output() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/opennic_l3l4.yaml", "--target", "opennic", "--json", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON output");
+    assert_eq!(json["status"], "ok");
+    assert_eq!(json["target"], "opennic");
+    assert_eq!(json["axi_stream"], true);
+}
+
+#[test]
+fn target_opennic_example_validates() {
+    let output = pacgate_bin()
+        .args(["validate", "rules/examples/opennic_l3l4.yaml"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "opennic_l3l4.yaml should validate: {}", String::from_utf8_lossy(&output.stderr));
 }

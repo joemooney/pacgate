@@ -1,0 +1,58 @@
+# opennic_l3l4.yaml — L3/L4 firewall for OpenNIC Shell platform
+#
+# Usage:
+#   pacgate compile rules/examples/opennic_l3l4.yaml --target opennic
+#
+# Generates a 512-bit AXI-Stream wrapper suitable for drop-in integration
+# with OpenNIC Shell's box_250mhz user plugin slot.
+#
+# Throughput: ~2 Gbps at 250MHz (V1 width converter limitation)
+
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop           # Whitelist mode
+
+  rules:
+    # Allow SSH management access
+    - name: allow_ssh
+      priority: 200
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6     # TCP
+        dst_port: 22
+      action: pass
+
+    # Allow HTTP/HTTPS web traffic
+    - name: allow_web
+      priority: 190
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6     # TCP
+        dst_port:
+          range: [80, 443]
+      action: pass
+
+    # Allow DNS queries
+    - name: allow_dns
+      priority: 180
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17    # UDP
+        dst_port: 53
+      action: pass
+
+    # Allow ARP for MAC resolution
+    - name: allow_arp
+      priority: 170
+      match:
+        ethertype: "0x0806"
+      action: pass
+
+    # Allow ICMP ping
+    - name: allow_icmp
+      priority: 160
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 1     # ICMP
+      action: pass
