@@ -1,0 +1,58 @@
+# PacGate — Packet Rewrite Actions Example
+# Demonstrates in-place header rewriting for NAT, MAC forwarding,
+# VLAN remapping, and TTL management.
+#
+# Compile with: pacgate compile rules/examples/rewrite_actions.yaml --axi
+
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    # NAT outbound: rewrite source IP + decrement TTL
+    - name: nat_outbound
+      priority: 200
+      match:
+        ethertype: "0x0800"
+        src_ip: "10.0.0.0/8"
+      action: pass
+      rewrite:
+        set_src_ip: "203.0.113.1"
+        dec_ttl: true
+
+    # DMZ forward: rewrite destination MAC + IP for internal server
+    - name: dmz_forward
+      priority: 180
+      match:
+        ethertype: "0x0800"
+        dst_ip: "203.0.113.10"
+      action: pass
+      rewrite:
+        set_dst_mac: "00:de:ad:be:ef:01"
+        set_dst_ip: "10.0.1.100"
+
+    # VLAN remap: move traffic from VLAN 100 to VLAN 200
+    - name: vlan_remap
+      priority: 160
+      match:
+        ethertype: "0x8100"
+        vlan_id: 100
+      action: pass
+      rewrite:
+        set_vlan_id: 200
+
+    # TTL normalize: set TTL to 64 for all other IPv4 traffic
+    - name: ttl_normalize
+      priority: 140
+      match:
+        ethertype: "0x0800"
+      action: pass
+      rewrite:
+        set_ttl: 64
+
+    # Allow ARP (no rewrite, pass through)
+    - name: allow_arp
+      priority: 120
+      match:
+        ethertype: "0x0806"
+      action: pass

@@ -28,6 +28,30 @@ pub struct SimPacket {
     pub mld_type: Option<u8>,
 }
 
+/// Rewrite actions that would be applied to a passed packet
+#[derive(Debug, Clone, Default)]
+pub struct SimRewrite {
+    pub set_dst_mac: Option<String>,
+    pub set_src_mac: Option<String>,
+    pub set_vlan_id: Option<u16>,
+    pub set_ttl: Option<u8>,
+    pub dec_ttl: bool,
+    pub set_src_ip: Option<String>,
+    pub set_dst_ip: Option<String>,
+}
+
+impl SimRewrite {
+    pub fn is_empty(&self) -> bool {
+        self.set_dst_mac.is_none()
+            && self.set_src_mac.is_none()
+            && self.set_vlan_id.is_none()
+            && self.set_ttl.is_none()
+            && !self.dec_ttl
+            && self.set_src_ip.is_none()
+            && self.set_dst_ip.is_none()
+    }
+}
+
 /// Result of simulating a packet against the rule set
 #[derive(Debug, Clone)]
 pub struct SimResult {
@@ -35,6 +59,7 @@ pub struct SimResult {
     pub action: Action,
     pub is_default: bool,
     pub fields: Vec<FieldMatch>,
+    pub rewrite: Option<SimRewrite>,
 }
 
 /// Per-field match breakdown
@@ -135,6 +160,23 @@ pub fn parse_packet_spec(spec: &str) -> Result<SimPacket> {
     Ok(pkt)
 }
 
+/// Build SimRewrite from a rule's RewriteAction
+fn build_sim_rewrite(rule: &crate::model::StatelessRule) -> Option<SimRewrite> {
+    let rw = rule.rewrite.as_ref()?;
+    if rw.is_empty() {
+        return None;
+    }
+    Some(SimRewrite {
+        set_dst_mac: rw.set_dst_mac.clone(),
+        set_src_mac: rw.set_src_mac.clone(),
+        set_vlan_id: rw.set_vlan_id,
+        set_ttl: rw.set_ttl,
+        dec_ttl: rw.dec_ttl == Some(true),
+        set_src_ip: rw.set_src_ip.clone(),
+        set_dst_ip: rw.set_dst_ip.clone(),
+    })
+}
+
 /// Simulate a packet against the filter configuration, returning the match result
 pub fn simulate(config: &FilterConfig, packet: &SimPacket) -> SimResult {
     // Sort rules by priority (highest first) — same order as hardware
@@ -149,11 +191,17 @@ pub fn simulate(config: &FilterConfig, packet: &SimPacket) -> SimResult {
 
         let (matches, fields) = match_criteria_against_packet(&rule.match_criteria, packet);
         if matches {
+            let rewrite = if rule.action() == Action::Pass {
+                build_sim_rewrite(rule)
+            } else {
+                None // rewrite on drop rules is silently ignored
+            };
             return SimResult {
                 rule_name: Some(rule.name.clone()),
                 action: rule.action(),
                 is_default: false,
                 fields,
+                rewrite,
             };
         }
     }
@@ -164,6 +212,7 @@ pub fn simulate(config: &FilterConfig, packet: &SimPacket) -> SimResult {
         action: config.pacgate.defaults.action.clone(),
         is_default: true,
         fields: Vec::new(),
+        rewrite: None,
     }
 }
 
@@ -239,6 +288,7 @@ pub fn simulate_with_rate_limit(
                         action: config.pacgate.defaults.action.clone(),
                         is_default: true,
                         fields: result.fields,
+                        rewrite: None,
                     };
                 }
             }
@@ -322,6 +372,7 @@ pub fn simulate_stateful(
             action: Action::Pass,
             is_default: false,
             fields: Vec::new(),
+            rewrite: None,
         };
     }
 

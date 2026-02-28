@@ -3100,3 +3100,61 @@ pacgate:
     // packet_rewrite.v should NOT be copied (only with --axi)
     assert!(!tmp.path().join("rtl/packet_rewrite.v").exists(), "packet_rewrite.v should not exist without --axi");
 }
+
+#[test]
+fn rewrite_example_compiles() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/rewrite_actions.yaml", "--axi", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "rewrite_actions.yaml compile failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(tmp.path().join("rtl/rewrite_lut.v").exists());
+    assert!(tmp.path().join("rtl/packet_rewrite.v").exists());
+    assert!(tmp.path().join("rtl/packet_filter_axi_top.v").exists());
+}
+
+#[test]
+fn rewrite_simulate_shows_rewrite_json() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/rewrite_actions.yaml", "--packet", "ethertype=0x0800,src_ip=10.0.0.5", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "Simulate failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["matched_rule"], "nat_outbound");
+    assert_eq!(json["action"], "pass");
+    let rw = &json["rewrite"];
+    assert_eq!(rw["set_src_ip"], "203.0.113.1");
+    assert_eq!(rw["dec_ttl"], true);
+}
+
+#[test]
+fn rewrite_simulate_no_rewrite_on_drop() {
+    // Create a rule with rewrite on a drop action — rewrite should be ignored
+    let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: drop_and_rewrite
+      priority: 100
+      match:
+        ethertype: "0x0800"
+      action: drop
+"#;
+    let tmp = tempfile::tempdir().unwrap();
+    let rules_path = tmp.path().join("drop_rewrite.yaml");
+    std::fs::write(&rules_path, yaml).unwrap();
+    let output = pacgate_bin()
+        .args(["simulate", rules_path.to_str().unwrap(), "--packet", "ethertype=0x0800", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["action"], "drop");
+    assert!(json.get("rewrite").is_none(), "Rewrite should not be present on drop action");
+}

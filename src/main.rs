@@ -837,6 +837,17 @@ fn main() -> Result<()> {
                         serde_json::Value::String(pcap_path.display().to_string()),
                     );
                 }
+                if let Some(ref rw) = result.rewrite {
+                    let mut rw_json = serde_json::Map::new();
+                    if let Some(ref v) = rw.set_dst_mac { rw_json.insert("set_dst_mac".into(), serde_json::json!(v)); }
+                    if let Some(ref v) = rw.set_src_mac { rw_json.insert("set_src_mac".into(), serde_json::json!(v)); }
+                    if let Some(v) = rw.set_vlan_id { rw_json.insert("set_vlan_id".into(), serde_json::json!(v)); }
+                    if let Some(v) = rw.set_ttl { rw_json.insert("set_ttl".into(), serde_json::json!(v)); }
+                    if rw.dec_ttl { rw_json.insert("dec_ttl".into(), serde_json::json!(true)); }
+                    if let Some(ref v) = rw.set_src_ip { rw_json.insert("set_src_ip".into(), serde_json::json!(v)); }
+                    if let Some(ref v) = rw.set_dst_ip { rw_json.insert("set_dst_ip".into(), serde_json::json!(v)); }
+                    summary.as_object_mut().unwrap().insert("rewrite".to_string(), serde_json::Value::Object(rw_json));
+                }
                 if stateful {
                     let is_rate_limited = result.rule_name.as_deref() == Some("rate_limited");
                     summary.as_object_mut().unwrap().insert(
@@ -869,6 +880,19 @@ fn main() -> Result<()> {
                     for f in &result.fields {
                         let mark = if f.matches { "YES" } else { "NO" };
                         println!("  {:15} {:20} {:20} {}", f.field, f.rule_value, f.packet_value, mark);
+                    }
+                    if let Some(ref rw) = result.rewrite {
+                        if !rw.is_empty() {
+                            println!();
+                            println!("  Rewrite Actions:");
+                            if let Some(ref v) = rw.set_dst_mac { println!("    set_dst_mac: {}", v); }
+                            if let Some(ref v) = rw.set_src_mac { println!("    set_src_mac: {}", v); }
+                            if let Some(v) = rw.set_vlan_id { println!("    set_vlan_id: {}", v); }
+                            if let Some(v) = rw.set_ttl { println!("    set_ttl: {}", v); }
+                            if rw.dec_ttl { println!("    dec_ttl: true"); }
+                            if let Some(ref v) = rw.set_src_ip { println!("    set_src_ip: {}", v); }
+                            if let Some(ref v) = rw.set_dst_ip { println!("    set_dst_ip: {}", v); }
+                        }
                     }
                 }
                 println!();
