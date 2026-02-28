@@ -42,6 +42,9 @@ struct GlobalProtocolFlags {
     has_mpls: bool,
     has_multicast: bool,
     has_dscp_ecn: bool,
+    has_ipv6_tc: bool,
+    has_tcp_flags: bool,
+    has_icmp: bool,
 }
 
 fn build_condition_expr(mc: &crate::model::MatchCriteria) -> Result<String> {
@@ -201,6 +204,28 @@ fn build_condition_expr(mc: &crate::model::MatchCriteria) -> Result<String> {
         conditions.push(format!("(ip_ecn == 2'd{})", ecn));
     }
 
+    // IPv6 Traffic Class
+    if let Some(dscp) = mc.ipv6_dscp {
+        conditions.push(format!("(ipv6_dscp == 6'd{})", dscp));
+    }
+    if let Some(ecn) = mc.ipv6_ecn {
+        conditions.push(format!("(ipv6_ecn == 2'd{})", ecn));
+    }
+
+    // TCP flags (value & mask comparison)
+    if let Some(flags) = mc.tcp_flags {
+        let mask = mc.tcp_flags_mask.unwrap_or(0xFF);
+        conditions.push(format!("((tcp_flags & 8'd{}) == 8'd{})", mask, flags & mask));
+    }
+
+    // ICMP type/code
+    if let Some(t) = mc.icmp_type {
+        conditions.push(format!("(icmp_type_field == 8'd{})", t));
+    }
+    if let Some(c) = mc.icmp_code {
+        conditions.push(format!("(icmp_code == 8'd{})", c));
+    }
+
     // Byte-offset matching
     if let Some(ref byte_matches) = mc.byte_match {
         for bm in byte_matches {
@@ -313,6 +338,9 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
     let has_mpls = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_mpls());
     let has_multicast = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_multicast());
     let has_dscp_ecn = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_dscp_ecn());
+    let has_ipv6_tc = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_ipv6_tc());
+    let has_tcp_flags = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_tcp_flags());
+    let has_icmp = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_icmp());
 
     // Global protocol flags — all rules in a design must have consistent port lists
     let global_protos = GlobalProtocolFlags {
@@ -321,6 +349,9 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         has_mpls,
         has_multicast,
         has_dscp_ecn,
+        has_ipv6_tc,
+        has_tcp_flags,
+        has_icmp,
     };
 
     // Generate per-rule matchers (stateless: combinational, stateful: registered FSM)
@@ -355,6 +386,9 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         ctx.insert("has_mpls", &has_mpls);
         ctx.insert("has_multicast", &has_multicast);
         ctx.insert("has_dscp_ecn", &has_dscp_ecn);
+        ctx.insert("has_ipv6_tc", &has_ipv6_tc);
+        ctx.insert("has_tcp_flags", &has_tcp_flags);
+        ctx.insert("has_icmp", &has_icmp);
         ctx.insert("has_rewrite", &has_rewrite);
         ctx.insert("idx_bits", &idx_bits);
 
@@ -925,6 +959,9 @@ fn generate_stateless_rule(
     ctx.insert("has_mpls", &global_protos.has_mpls);
     ctx.insert("has_multicast", &global_protos.has_multicast);
     ctx.insert("has_dscp_ecn", &global_protos.has_dscp_ecn);
+    ctx.insert("has_ipv6_tc", &global_protos.has_ipv6_tc);
+    ctx.insert("has_tcp_flags", &global_protos.has_tcp_flags);
+    ctx.insert("has_icmp", &global_protos.has_icmp);
     let byte_cap_info: Vec<std::collections::HashMap<String, serde_json::Value>> = byte_offsets.iter().map(|(offset, len)| {
         let mut map = std::collections::HashMap::new();
         map.insert("offset".to_string(), serde_json::json!(offset));
@@ -1252,6 +1289,9 @@ fn generate_fsm_rule(
     ctx.insert("has_mpls", &global_protos.has_mpls);
     ctx.insert("has_multicast", &global_protos.has_multicast);
     ctx.insert("has_dscp_ecn", &global_protos.has_dscp_ecn);
+    ctx.insert("has_ipv6_tc", &global_protos.has_ipv6_tc);
+    ctx.insert("has_tcp_flags", &global_protos.has_tcp_flags);
+    ctx.insert("has_icmp", &global_protos.has_icmp);
 
     let rendered = tera.render("rule_fsm.v.tera", &ctx)
         .with_context(|| format!("Failed to render rule_fsm for rule {}", rule.name))?;

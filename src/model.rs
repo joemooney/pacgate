@@ -50,6 +50,21 @@ pub struct MatchCriteria {
     pub ip_dscp: Option<u8>,
     #[serde(default)]
     pub ip_ecn: Option<u8>,
+    // IPv6 Traffic Class (TC byte: DSCP[7:2] + ECN[1:0])
+    #[serde(default)]
+    pub ipv6_dscp: Option<u8>,    // 0-63
+    #[serde(default)]
+    pub ipv6_ecn: Option<u8>,     // 0-3
+    // TCP flags (value + mask pattern for flexible matching)
+    #[serde(default)]
+    pub tcp_flags: Option<u8>,     // TCP flags byte: CWR|ECE|URG|ACK|PSH|RST|SYN|FIN
+    #[serde(default)]
+    pub tcp_flags_mask: Option<u8>, // Which flag bits to check (default: 0xFF if tcp_flags set)
+    // ICMP Type/Code (IPv4 protocol 1)
+    #[serde(default)]
+    pub icmp_type: Option<u8>,     // 0-255 (e.g., 8=echo request, 0=echo reply)
+    #[serde(default)]
+    pub icmp_code: Option<u8>,     // 0-255
     // Byte-offset matching
     #[serde(default)]
     pub byte_match: Option<Vec<ByteMatch>>,
@@ -251,6 +266,21 @@ impl MatchCriteria {
     /// Returns true if this criteria uses DSCP/ECN QoS fields
     pub fn uses_dscp_ecn(&self) -> bool {
         self.ip_dscp.is_some() || self.ip_ecn.is_some()
+    }
+
+    /// Returns true if this criteria uses IPv6 Traffic Class fields
+    pub fn uses_ipv6_tc(&self) -> bool {
+        self.ipv6_dscp.is_some() || self.ipv6_ecn.is_some()
+    }
+
+    /// Returns true if this criteria uses TCP flags matching
+    pub fn uses_tcp_flags(&self) -> bool {
+        self.tcp_flags.is_some()
+    }
+
+    /// Returns true if this criteria uses ICMP type/code matching
+    pub fn uses_icmp(&self) -> bool {
+        self.icmp_type.is_some() || self.icmp_code.is_some()
     }
 }
 
@@ -1317,6 +1347,98 @@ pacgate:
             rewrite: None,
         };
         assert!(!rule.has_rewrite());
+    }
+
+    // --- IPv6 TC / TCP flags / ICMP helpers ---
+
+    #[test]
+    fn uses_ipv6_tc_true_dscp() {
+        let mc = MatchCriteria { ipv6_dscp: Some(46), ..Default::default() };
+        assert!(mc.uses_ipv6_tc());
+    }
+
+    #[test]
+    fn uses_ipv6_tc_true_ecn() {
+        let mc = MatchCriteria { ipv6_ecn: Some(1), ..Default::default() };
+        assert!(mc.uses_ipv6_tc());
+    }
+
+    #[test]
+    fn uses_ipv6_tc_false() {
+        let mc = MatchCriteria::default();
+        assert!(!mc.uses_ipv6_tc());
+    }
+
+    #[test]
+    fn uses_tcp_flags_true() {
+        let mc = MatchCriteria { tcp_flags: Some(0x02), ..Default::default() };
+        assert!(mc.uses_tcp_flags());
+    }
+
+    #[test]
+    fn uses_tcp_flags_false() {
+        let mc = MatchCriteria::default();
+        assert!(!mc.uses_tcp_flags());
+    }
+
+    #[test]
+    fn uses_icmp_true_type() {
+        let mc = MatchCriteria { icmp_type: Some(8), ..Default::default() };
+        assert!(mc.uses_icmp());
+    }
+
+    #[test]
+    fn uses_icmp_true_code() {
+        let mc = MatchCriteria { icmp_code: Some(0), ..Default::default() };
+        assert!(mc.uses_icmp());
+    }
+
+    #[test]
+    fn uses_icmp_false() {
+        let mc = MatchCriteria::default();
+        assert!(!mc.uses_icmp());
+    }
+
+    #[test]
+    fn deserialize_ipv6_tc_tcp_flags_icmp() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: ipv6_dscp_test
+      priority: 100
+      match:
+        ethertype: "0x86DD"
+        ipv6_dscp: 46
+        ipv6_ecn: 2
+      action: pass
+    - name: tcp_flags_test
+      priority: 90
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        tcp_flags: 2
+        tcp_flags_mask: 18
+      action: pass
+    - name: icmp_test
+      priority: 80
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 1
+        icmp_type: 8
+        icmp_code: 0
+      action: pass
+"#;
+        let config: FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.pacgate.rules.len(), 3);
+        assert_eq!(config.pacgate.rules[0].match_criteria.ipv6_dscp, Some(46));
+        assert_eq!(config.pacgate.rules[0].match_criteria.ipv6_ecn, Some(2));
+        assert_eq!(config.pacgate.rules[1].match_criteria.tcp_flags, Some(2));
+        assert_eq!(config.pacgate.rules[1].match_criteria.tcp_flags_mask, Some(18));
+        assert_eq!(config.pacgate.rules[2].match_criteria.icmp_type, Some(8));
+        assert_eq!(config.pacgate.rules[2].match_criteria.icmp_code, Some(0));
     }
 
     #[test]

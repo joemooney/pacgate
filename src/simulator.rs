@@ -28,6 +28,12 @@ pub struct SimPacket {
     pub mld_type: Option<u8>,
     pub ip_dscp: Option<u8>,
     pub ip_ecn: Option<u8>,
+    pub ipv6_dscp: Option<u8>,
+    pub ipv6_ecn: Option<u8>,
+    pub tcp_flags: Option<u8>,
+    pub tcp_flags_mask: Option<u8>,
+    pub icmp_type: Option<u8>,
+    pub icmp_code: Option<u8>,
 }
 
 /// Rewrite actions that would be applied to a passed packet
@@ -166,6 +172,40 @@ pub fn parse_packet_spec(spec: &str) -> Result<SimPacket> {
                 let v: u8 = value.parse().map_err(|e| anyhow::anyhow!("Bad ip_ecn '{}': {}", value, e))?;
                 if v > 3 { bail!("ip_ecn must be 0-3, got {}", v); }
                 pkt.ip_ecn = Some(v);
+            }
+            "ipv6_dscp" => {
+                let v: u8 = value.parse().map_err(|e| anyhow::anyhow!("Bad ipv6_dscp '{}': {}", value, e))?;
+                if v > 63 { bail!("ipv6_dscp must be 0-63, got {}", v); }
+                pkt.ipv6_dscp = Some(v);
+            }
+            "ipv6_ecn" => {
+                let v: u8 = value.parse().map_err(|e| anyhow::anyhow!("Bad ipv6_ecn '{}': {}", value, e))?;
+                if v > 3 { bail!("ipv6_ecn must be 0-3, got {}", v); }
+                pkt.ipv6_ecn = Some(v);
+            }
+            "tcp_flags" => {
+                let v: u8 = if value.starts_with("0x") || value.starts_with("0X") {
+                    u8::from_str_radix(value.trim_start_matches("0x").trim_start_matches("0X"), 16)
+                        .map_err(|e| anyhow::anyhow!("Bad tcp_flags '{}': {}", value, e))?
+                } else {
+                    value.parse().map_err(|e| anyhow::anyhow!("Bad tcp_flags '{}': {}", value, e))?
+                };
+                pkt.tcp_flags = Some(v);
+            }
+            "tcp_flags_mask" => {
+                let v: u8 = if value.starts_with("0x") || value.starts_with("0X") {
+                    u8::from_str_radix(value.trim_start_matches("0x").trim_start_matches("0X"), 16)
+                        .map_err(|e| anyhow::anyhow!("Bad tcp_flags_mask '{}': {}", value, e))?
+                } else {
+                    value.parse().map_err(|e| anyhow::anyhow!("Bad tcp_flags_mask '{}': {}", value, e))?
+                };
+                pkt.tcp_flags_mask = Some(v);
+            }
+            "icmp_type" => {
+                pkt.icmp_type = Some(value.parse().map_err(|e| anyhow::anyhow!("Bad icmp_type '{}': {}", value, e))?);
+            }
+            "icmp_code" => {
+                pkt.icmp_code = Some(value.parse().map_err(|e| anyhow::anyhow!("Bad icmp_code '{}': {}", value, e))?);
             }
             _ => bail!("Unknown packet field '{}'", key),
         }
@@ -701,6 +741,72 @@ pub fn match_criteria_against_packet(mc: &MatchCriteria, pkt: &SimPacket) -> (bo
         fields.push(FieldMatch {
             field: "ip_ecn".to_string(),
             rule_value: ecn.to_string(),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // IPv6 DSCP
+    if let Some(dscp) = mc.ipv6_dscp {
+        let pkt_val = pkt.ipv6_dscp.map(|v| v.to_string()).unwrap_or("none".to_string());
+        let matches = pkt.ipv6_dscp.map(|v| v == dscp).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "ipv6_dscp".to_string(),
+            rule_value: dscp.to_string(),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // IPv6 ECN
+    if let Some(ecn) = mc.ipv6_ecn {
+        let pkt_val = pkt.ipv6_ecn.map(|v| v.to_string()).unwrap_or("none".to_string());
+        let matches = pkt.ipv6_ecn.map(|v| v == ecn).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "ipv6_ecn".to_string(),
+            rule_value: ecn.to_string(),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // TCP flags (mask-aware comparison)
+    if let Some(rule_flags) = mc.tcp_flags {
+        let mask = mc.tcp_flags_mask.unwrap_or(0xFF);
+        let pkt_val = pkt.tcp_flags.map(|v| format!("0x{:02x}", v)).unwrap_or("none".to_string());
+        let matches = pkt.tcp_flags.map(|v| (v & mask) == (rule_flags & mask)).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "tcp_flags".to_string(),
+            rule_value: format!("0x{:02x}&0x{:02x}", rule_flags, mask),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // ICMP type
+    if let Some(rule_type) = mc.icmp_type {
+        let pkt_val = pkt.icmp_type.map(|v| v.to_string()).unwrap_or("none".to_string());
+        let matches = pkt.icmp_type.map(|v| v == rule_type).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "icmp_type".to_string(),
+            rule_value: rule_type.to_string(),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // ICMP code
+    if let Some(rule_code) = mc.icmp_code {
+        let pkt_val = pkt.icmp_code.map(|v| v.to_string()).unwrap_or("none".to_string());
+        let matches = pkt.icmp_code.map(|v| v == rule_code).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "icmp_code".to_string(),
+            rule_value: rule_code.to_string(),
             packet_value: pkt_val,
             matches,
         });
@@ -1757,5 +1863,128 @@ pacgate:
         let result = simulate(&config, &pkt);
         assert_eq!(result.action, Action::Pass);
         assert_eq!(result.rule_name.as_deref(), Some("ecn_rule"));
+    }
+
+    #[test]
+    fn test_ipv6_dscp_match() {
+        let pkt = parse_packet_spec("ethertype=0x86DD,ipv6_dscp=46").unwrap();
+        assert_eq!(pkt.ipv6_dscp, Some(46));
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: ipv6_ef
+      priority: 100
+      match:
+        ethertype: "0x86DD"
+        ipv6_dscp: 46
+      action: pass
+"#;
+        let config: crate::model::FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let result = simulate(&config, &pkt);
+        assert_eq!(result.action, Action::Pass);
+        assert_eq!(result.rule_name.as_deref(), Some("ipv6_ef"));
+    }
+
+    #[test]
+    fn test_tcp_flags_match() {
+        let pkt = parse_packet_spec("ethertype=0x0800,ip_protocol=6,tcp_flags=0x02").unwrap();
+        assert_eq!(pkt.tcp_flags, Some(0x02));
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_syn
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        tcp_flags: 2
+        tcp_flags_mask: 18
+      action: pass
+"#;
+        let config: crate::model::FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let result = simulate(&config, &pkt);
+        assert_eq!(result.action, Action::Pass);
+        assert_eq!(result.rule_name.as_deref(), Some("allow_syn"));
+    }
+
+    #[test]
+    fn test_tcp_flags_mask_match() {
+        // SYN+ACK (0x12) should NOT match SYN-only rule (flags=0x02, mask=0x12)
+        let pkt = parse_packet_spec("ethertype=0x0800,ip_protocol=6,tcp_flags=0x12").unwrap();
+        assert_eq!(pkt.tcp_flags, Some(0x12));
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: syn_only
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        tcp_flags: 2
+        tcp_flags_mask: 18
+      action: pass
+"#;
+        let config: crate::model::FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let result = simulate(&config, &pkt);
+        // SYN+ACK (0x12 & 0x12 = 0x12) != (0x02 & 0x12 = 0x02), so no match
+        assert_eq!(result.action, Action::Drop);
+        assert!(result.is_default);
+    }
+
+    #[test]
+    fn test_icmp_type_match() {
+        let pkt = parse_packet_spec("ethertype=0x0800,ip_protocol=1,icmp_type=8").unwrap();
+        assert_eq!(pkt.icmp_type, Some(8));
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_ping
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 1
+        icmp_type: 8
+      action: pass
+"#;
+        let config: crate::model::FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let result = simulate(&config, &pkt);
+        assert_eq!(result.action, Action::Pass);
+        assert_eq!(result.rule_name.as_deref(), Some("allow_ping"));
+    }
+
+    #[test]
+    fn test_icmp_code_match() {
+        let pkt = parse_packet_spec("ethertype=0x0800,ip_protocol=1,icmp_type=3,icmp_code=1").unwrap();
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: host_unreachable
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 1
+        icmp_type: 3
+        icmp_code: 1
+      action: pass
+"#;
+        let config: crate::model::FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let result = simulate(&config, &pkt);
+        assert_eq!(result.action, Action::Pass);
+        assert_eq!(result.rule_name.as_deref(), Some("host_unreachable"));
     }
 }

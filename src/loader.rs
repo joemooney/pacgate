@@ -117,6 +117,28 @@ fn validate_match_criteria(mc: &crate::model::MatchCriteria, rule_name: &str) ->
         }
     }
 
+    // IPv6 DSCP/ECN validation
+    if let Some(dscp) = mc.ipv6_dscp {
+        if dscp > 63 {
+            anyhow::bail!("ipv6_dscp must be 0-63, got {} in rule '{}'", dscp, rule_name);
+        }
+    }
+    if let Some(ecn) = mc.ipv6_ecn {
+        if ecn > 3 {
+            anyhow::bail!("ipv6_ecn must be 0-3, got {} in rule '{}'", ecn, rule_name);
+        }
+    }
+
+    // TCP flags validation
+    if mc.tcp_flags_mask.is_some() && mc.tcp_flags.is_none() {
+        anyhow::bail!("tcp_flags_mask requires tcp_flags in rule '{}'", rule_name);
+    }
+
+    // ICMP validation: icmp_code requires icmp_type
+    if mc.icmp_code.is_some() && mc.icmp_type.is_none() {
+        anyhow::bail!("icmp_code requires icmp_type in rule '{}'", rule_name);
+    }
+
     Ok(())
 }
 
@@ -480,6 +502,7 @@ pub fn check_rule_overlaps(rules: &[crate::model::StatelessRule]) -> Vec<String>
             && mc.src_ipv6.is_none() && mc.dst_ipv6.is_none() && mc.ipv6_next_header.is_none()
             && !mc.uses_byte_match()
             && !mc.uses_gtp() && !mc.uses_mpls() && !mc.uses_multicast()
+            && !mc.uses_dscp_ecn() && !mc.uses_ipv6_tc() && !mc.uses_tcp_flags() && !mc.uses_icmp()
         {
             warnings.push(format!(
                 "rule '{}' (priority {}) has no match criteria — matches ALL packets",
@@ -731,6 +754,49 @@ pub fn criteria_shadows(a: &crate::model::MatchCriteria, b: &crate::model::Match
         }
     }
 
+    // IPv6 DSCP/ECN shadow checks
+    if let Some(a_dscp) = a.ipv6_dscp {
+        match b.ipv6_dscp {
+            Some(b_dscp) if a_dscp == b_dscp => {},
+            _ => return false,
+        }
+    }
+    if let Some(a_ecn) = a.ipv6_ecn {
+        match b.ipv6_ecn {
+            Some(b_ecn) if a_ecn == b_ecn => {},
+            _ => return false,
+        }
+    }
+
+    // TCP flags shadow checks (mask-aware)
+    if let Some(a_flags) = a.tcp_flags {
+        match b.tcp_flags {
+            Some(b_flags) => {
+                let a_mask = a.tcp_flags_mask.unwrap_or(0xFF);
+                let b_mask = b.tcp_flags_mask.unwrap_or(0xFF);
+                // A shadows B if A's mask is a subset of B's mask and values agree on A's bits
+                if a_mask != b_mask || (a_flags & a_mask) != (b_flags & b_mask) {
+                    return false;
+                }
+            },
+            _ => return false,
+        }
+    }
+
+    // ICMP shadow checks
+    if let Some(a_icmp) = a.icmp_type {
+        match b.icmp_type {
+            Some(b_icmp) if a_icmp == b_icmp => {},
+            _ => return false,
+        }
+    }
+    if let Some(a_code) = a.icmp_code {
+        match b.icmp_code {
+            Some(b_code) if a_code == b_code => {},
+            _ => return false,
+        }
+    }
+
     true
 }
 
@@ -836,6 +902,30 @@ fn criteria_overlaps(a: &crate::model::MatchCriteria, b: &crate::model::MatchCri
         if a_ecn != b_ecn { return false; }
     }
 
+    // IPv6 DSCP/ECN overlap checks
+    if let (Some(a_dscp), Some(b_dscp)) = (a.ipv6_dscp, b.ipv6_dscp) {
+        if a_dscp != b_dscp { return false; }
+    }
+    if let (Some(a_ecn), Some(b_ecn)) = (a.ipv6_ecn, b.ipv6_ecn) {
+        if a_ecn != b_ecn { return false; }
+    }
+
+    // TCP flags overlap checks (mask-aware)
+    if let (Some(a_flags), Some(b_flags)) = (a.tcp_flags, b.tcp_flags) {
+        let a_mask = a.tcp_flags_mask.unwrap_or(0xFF);
+        let b_mask = b.tcp_flags_mask.unwrap_or(0xFF);
+        let common_mask = a_mask & b_mask;
+        if (a_flags & common_mask) != (b_flags & common_mask) { return false; }
+    }
+
+    // ICMP overlap checks
+    if let (Some(a_icmp), Some(b_icmp)) = (a.icmp_type, b.icmp_type) {
+        if a_icmp != b_icmp { return false; }
+    }
+    if let (Some(a_code), Some(b_code)) = (a.icmp_code, b.icmp_code) {
+        if a_code != b_code { return false; }
+    }
+
     true
 }
 
@@ -918,6 +1008,15 @@ pub fn validate_dynamic(config: &FilterConfig, conntrack: bool, dynamic_entries:
         }
         if mc.vxlan_vni.is_some() {
             anyhow::bail!("--dynamic V1 does not support VXLAN VNI (rule '{}' uses vxlan_vni). VXLAN support planned for V2.", rule.name);
+        }
+        if mc.uses_ipv6_tc() {
+            anyhow::bail!("--dynamic V1 does not support IPv6 TC fields (rule '{}' uses ipv6_dscp/ipv6_ecn). IPv6 TC support planned for V2.", rule.name);
+        }
+        if mc.uses_tcp_flags() {
+            anyhow::bail!("--dynamic V1 does not support TCP flags (rule '{}' uses tcp_flags). TCP flags support planned for V2.", rule.name);
+        }
+        if mc.uses_icmp() {
+            anyhow::bail!("--dynamic V1 does not support ICMP fields (rule '{}' uses icmp_type/icmp_code). ICMP support planned for V2.", rule.name);
         }
     }
 
@@ -1541,6 +1640,64 @@ pacgate:
     fn accept_dscp_zero_ecn_zero() {
         let yaml = valid_yaml(
             "    - name: be_rule\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n        ip_dscp: 0\n        ip_ecn: 0\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn reject_ipv6_dscp_out_of_range() {
+        let yaml = valid_yaml(
+            "    - name: bad\n      priority: 100\n      match:\n        ethertype: \"0x86DD\"\n        ipv6_dscp: 64\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("ipv6_dscp must be 0-63"));
+    }
+
+    #[test]
+    fn reject_ipv6_ecn_out_of_range() {
+        let yaml = valid_yaml(
+            "    - name: bad\n      priority: 100\n      match:\n        ethertype: \"0x86DD\"\n        ipv6_ecn: 4\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("ipv6_ecn must be 0-3"));
+    }
+
+    #[test]
+    fn reject_tcp_flags_mask_without_flags() {
+        let yaml = valid_yaml(
+            "    - name: bad\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n        tcp_flags_mask: 0x12\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("tcp_flags_mask requires tcp_flags"));
+    }
+
+    #[test]
+    fn reject_icmp_code_without_type() {
+        let yaml = valid_yaml(
+            "    - name: bad\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n        icmp_code: 0\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("icmp_code requires icmp_type"));
+    }
+
+    #[test]
+    fn accept_valid_tcp_flags() {
+        let yaml = valid_yaml(
+            "    - name: syn\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n        ip_protocol: 6\n        tcp_flags: 2\n        tcp_flags_mask: 18\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn accept_valid_icmp_type_code() {
+        let yaml = valid_yaml(
+            "    - name: echo\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n        ip_protocol: 1\n        icmp_type: 8\n        icmp_code: 0\n      action: pass",
         );
         let result = load_rules_from_str(&yaml);
         assert!(result.is_ok());

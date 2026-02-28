@@ -2,7 +2,10 @@
 // Extracts: dst_mac, src_mac, ethertype, vlan_id, vlan_pcp
 //           src_ip, dst_ip, ip_protocol, ip_ttl, ip_checksum, src_port, dst_port (IPv4/TCP/UDP)
 //           ip_dscp, ip_ecn (IPv4 TOS byte: DSCP[7:2] + ECN[1:0])
+//           ipv6_dscp, ipv6_ecn (IPv6 Traffic Class: DSCP[7:2] + ECN[1:0])
 //           src_ipv6, dst_ipv6, ipv6_next_header (IPv6)
+//           tcp_flags (TCP flags byte at offset 13 from TCP header)
+//           icmp_type, icmp_code (ICMP type/code for IPv4 protocol 1)
 //           vxlan_vni (VXLAN Network Identifier)
 //           gtp_teid (GTP-U Tunnel Endpoint ID, 5G)
 //           mpls_label, mpls_tc, mpls_bos (MPLS label stack)
@@ -11,6 +14,8 @@
 // Handles IPv4 header parsing (20-byte fixed, IHL=5)
 // Handles IPv6 header parsing (40-byte fixed)
 // Handles TCP/UDP port extraction (first 4 bytes of L4 header)
+// Handles TCP flags extraction (byte 13 of TCP header)
+// Handles ICMP type/code extraction (IPv4 protocol 1)
 // Handles VXLAN tunnel detection (UDP dst port 4789)
 // Handles GTP-U tunnel detection (UDP dst port 2152)
 // Handles MPLS label stack parsing (EtherType 0x8847/0x8848)
@@ -81,6 +86,19 @@ module frame_parser (
     output reg  [5:0]  ip_dscp,       // IPv4 DSCP (TOS bits [7:2])
     output reg  [1:0]  ip_ecn,        // IPv4 ECN (TOS bits [1:0])
 
+    // IPv6 Traffic Class (TC byte spread across bytes 0-1 of IPv6 header)
+    output reg  [5:0]  ipv6_dscp,     // IPv6 DSCP (TC bits [7:2])
+    output reg  [1:0]  ipv6_ecn,      // IPv6 ECN (TC bits [1:0])
+
+    // TCP flags (byte 13 of TCP header)
+    output reg  [7:0]  tcp_flags,     // CWR|ECE|URG|ACK|PSH|RST|SYN|FIN
+    output reg         tcp_flags_valid,
+
+    // ICMP type/code (IPv4 protocol 1)
+    output reg  [7:0]  icmp_type_field,  // ICMP message type
+    output reg  [7:0]  icmp_code,     // ICMP code
+    output reg         icmp_valid,    // frame has ICMP header
+
     output reg         fields_valid // pulse: all header fields extracted
 );
 
@@ -99,9 +117,11 @@ module frame_parser (
     localparam S_GTP_HDR   = 4'd11; // GTP-U header (8 bytes min)
     localparam S_MPLS_HDR  = 4'd12; // MPLS label stack
     localparam S_IGMP_HDR  = 4'd13; // IGMP message header
+    localparam S_ICMP_HDR  = 4'd14; // ICMP message header (type + code)
 
     reg [4:0] state;
     reg [5:0] byte_cnt;  // counts bytes within current state (up to 39 for IPv6)
+    reg [3:0] ipv6_tc_hi; // stores upper 4 bits of IPv6 Traffic Class (from byte 0)
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -140,6 +160,14 @@ module frame_parser (
             mld_valid    <= 1'b0;
             ip_dscp      <= 6'd0;
             ip_ecn       <= 2'd0;
+            ipv6_dscp    <= 6'd0;
+            ipv6_ecn     <= 2'd0;
+            ipv6_tc_hi   <= 4'd0;
+            tcp_flags    <= 8'd0;
+            tcp_flags_valid <= 1'b0;
+            icmp_type_field <= 8'd0;
+            icmp_code    <= 8'd0;
+            icmp_valid   <= 1'b0;
             fields_valid <= 1'b0;
         end else begin
             fields_valid <= 1'b0;  // default: deassert
@@ -181,6 +209,14 @@ module frame_parser (
                 mld_valid   <= 1'b0;
                 ip_dscp     <= 6'd0;
                 ip_ecn      <= 2'd0;
+                ipv6_dscp   <= 6'd0;
+                ipv6_ecn    <= 2'd0;
+                ipv6_tc_hi  <= 4'd0;
+                tcp_flags   <= 8'd0;
+                tcp_flags_valid <= 1'b0;
+                icmp_type_field <= 8'd0;
+                icmp_code   <= 8'd0;
+                icmp_valid  <= 1'b0;
             end else if (pkt_valid) begin
                 case (state)
                     S_DST_MAC: begin
@@ -308,6 +344,11 @@ module frame_parser (
                                     state    <= S_L4_HDR;
                                     byte_cnt <= 6'd0;
                                 end
+                                // Check for ICMP (protocol 1)
+                                else if (ip_protocol == 8'd1) begin
+                                    state    <= S_ICMP_HDR;
+                                    byte_cnt <= 6'd0;
+                                end
                                 // Check for IGMP (protocol 2)
                                 else if (ip_protocol == 8'd2) begin
                                     state    <= S_IGMP_HDR;
@@ -326,9 +367,10 @@ module frame_parser (
                     end
 
                     S_L4_HDR: begin
-                        // Parse first 4 bytes of TCP/UDP header
+                        // Parse TCP/UDP header
                         // Bytes 0-1: Source port
                         // Bytes 2-3: Destination port
+                        // TCP only: Byte 13: Flags (CWR|ECE|URG|ACK|PSH|RST|SYN|FIN)
                         case (byte_cnt)
                             6'd0: src_port[15:8] <= pkt_data;
                             6'd1: src_port[7:0]  <= pkt_data;
@@ -339,27 +381,37 @@ module frame_parser (
                                 // Check for VXLAN: UDP + dst port 4789 (0x12B5)
                                 if (ip_protocol == 8'd17 &&
                                     dst_port[15:8] == 8'h12 && pkt_data == 8'hB5) begin
-                                    // Skip 4 bytes of remaining UDP header (length + checksum)
-                                    // then parse 8-byte VXLAN header
                                     state    <= S_VXLAN_HDR;
                                     byte_cnt <= 6'd0;
                                 end
                                 // Check for GTP-U: UDP + dst port 2152 (0x0868)
                                 else if (ip_protocol == 8'd17 &&
                                          dst_port[15:8] == 8'h08 && pkt_data == 8'h68) begin
-                                    // Skip 4 bytes of remaining UDP header
-                                    // then parse 8-byte GTP-U header
                                     state    <= S_GTP_HDR;
                                     byte_cnt <= 6'd0;
-                                end else begin
+                                end
+                                // UDP (not VXLAN/GTP): done
+                                else if (ip_protocol == 8'd17) begin
                                     state        <= S_PAYLOAD;
                                     fields_valid <= 1'b1;
                                 end
+                                // TCP: continue to byte 13 for flags
+                                // (ip_protocol == 6 falls through to keep parsing)
                             end
+                            6'd13: begin
+                                // TCP flags byte (only reached for TCP, protocol 6)
+                                tcp_flags       <= pkt_data;
+                                tcp_flags_valid <= 1'b1;
+                                state           <= S_PAYLOAD;
+                                fields_valid    <= 1'b1;
+                            end
+                            default: ;  // skip bytes 4-12 of TCP header
                         endcase
 
-                        if (byte_cnt != 6'd3) begin
-                            byte_cnt <= byte_cnt + 6'd1;
+                        if (byte_cnt != 6'd3 || ip_protocol == 8'd6) begin
+                            if (byte_cnt != 6'd13) begin
+                                byte_cnt <= byte_cnt + 6'd1;
+                            end
                         end
                     end
 
@@ -389,10 +441,22 @@ module frame_parser (
 
                     S_IPV6_HDR: begin
                         // Parse 40-byte IPv6 header (fixed length)
+                        // Bytes 0-1: Version(4) + Traffic Class(8) + Flow Label(20)
+                        //   Byte 0: version[7:4], TC[7:4] = pkt_data[3:0]
+                        //   Byte 1: TC[3:0] = pkt_data[7:4], flow_label[19:16] = pkt_data[3:0]
+                        //   TC[7:2] = DSCP, TC[1:0] = ECN
                         // Byte  6: Next Header
                         // Bytes 8-23: Source IPv6 (16 bytes)
                         // Bytes 24-39: Destination IPv6 (16 bytes)
                         case (byte_cnt)
+                            6'd0: ipv6_tc_hi <= pkt_data[3:0];  // TC bits [7:4]
+                            6'd1: begin
+                                // TC = {ipv6_tc_hi, pkt_data[7:4]}
+                                // DSCP = TC[7:2] = {ipv6_tc_hi[3:0], pkt_data[7:6]}
+                                // ECN  = TC[1:0] = pkt_data[5:4]
+                                ipv6_dscp <= {ipv6_tc_hi[3:0], pkt_data[7:6]};
+                                ipv6_ecn  <= pkt_data[5:4];
+                            end
                             6'd6: ipv6_next_header <= pkt_data;
                             // Source IPv6: bytes 8-23
                             6'd8:  src_ipv6[127:120] <= pkt_data;
@@ -523,6 +587,23 @@ module frame_parser (
                             state        <= S_PAYLOAD;
                             fields_valid <= 1'b1;
                         end
+                    end
+
+                    S_ICMP_HDR: begin
+                        // ICMP header: byte 0 = type, byte 1 = code
+                        case (byte_cnt)
+                            6'd0: begin
+                                icmp_type_field <= pkt_data;
+                                byte_cnt <= 6'd1;
+                            end
+                            6'd1: begin
+                                icmp_code    <= pkt_data;
+                                icmp_valid   <= 1'b1;
+                                state        <= S_PAYLOAD;
+                                fields_valid <= 1'b1;
+                            end
+                        endcase
+                        // byte_cnt is advanced in case 0, case 1 transitions to PAYLOAD
                     end
 
                     S_PAYLOAD: begin

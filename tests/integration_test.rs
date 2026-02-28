@@ -3915,3 +3915,221 @@ pacgate:
     assert!(assertions.contains("p_dscp_bounds"), "assertions should contain DSCP bounds check");
     assert!(assertions.contains("p_ecn_bounds"), "assertions should contain ECN bounds check");
 }
+
+// --- Phase 22: IPv6 TC + TCP Flags + ICMP ---
+
+#[test]
+fn compile_ipv6_dscp_rule() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("ipv6_dscp.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: ipv6_ef
+      priority: 100
+      match:
+        ethertype: "0x86DD"
+        ipv6_dscp: 46
+      action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["compile", yaml.to_str().unwrap(), "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+    let rule_v = std::fs::read_to_string(tmp.path().join("rtl/rule_match_0.v")).unwrap();
+    assert!(rule_v.contains("ipv6_dscp == 6'd46"), "should contain ipv6_dscp comparison");
+}
+
+#[test]
+fn compile_tcp_flags_rule() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("tcp_flags.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_syn
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        tcp_flags: 2
+        tcp_flags_mask: 18
+      action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["compile", yaml.to_str().unwrap(), "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+    let rule_v = std::fs::read_to_string(tmp.path().join("rtl/rule_match_0.v")).unwrap();
+    assert!(rule_v.contains("tcp_flags"), "should contain tcp_flags comparison");
+}
+
+#[test]
+fn compile_icmp_rule() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("icmp.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_ping
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 1
+        icmp_type: 8
+        icmp_code: 0
+      action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["compile", yaml.to_str().unwrap(), "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+    let rule_v = std::fs::read_to_string(tmp.path().join("rtl/rule_match_0.v")).unwrap();
+    assert!(rule_v.contains("icmp_type_field == 8'd8"), "should contain icmp_type comparison");
+    assert!(rule_v.contains("icmp_code == 8'd0"), "should contain icmp_code comparison");
+}
+
+#[test]
+fn simulate_ipv6_dscp_match() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("ipv6_dscp.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: ipv6_ef
+      priority: 100
+      match:
+        ethertype: "0x86DD"
+        ipv6_dscp: 46
+      action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["simulate", yaml.to_str().unwrap(), "--packet", "ethertype=0x86DD,ipv6_dscp=46"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("ipv6_ef"), "should match ipv6_ef rule");
+    assert!(stdout.contains("PASS"), "should pass");
+}
+
+#[test]
+fn simulate_tcp_syn_match() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("syn.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_syn
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        tcp_flags: 2
+      action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["simulate", yaml.to_str().unwrap(), "--packet", "ethertype=0x0800,ip_protocol=6,tcp_flags=0x02"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("allow_syn"), "should match allow_syn rule");
+}
+
+#[test]
+fn simulate_icmp_echo_match() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("icmp.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_ping
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 1
+        icmp_type: 8
+      action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["simulate", yaml.to_str().unwrap(), "--packet", "ethertype=0x0800,ip_protocol=1,icmp_type=8"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("allow_ping"), "should match allow_ping rule");
+}
+
+#[test]
+fn validate_ipv6_dscp_out_of_range() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("bad.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: bad
+      priority: 100
+      match:
+        ethertype: "0x86DD"
+        ipv6_dscp: 64
+      action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["validate", yaml.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("ipv6_dscp must be 0-63"), "should reject ipv6_dscp > 63");
+}
+
+#[test]
+fn validate_tcp_flags_mask_without_flags() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("bad.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: bad
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        tcp_flags_mask: 18
+      action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["validate", yaml.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("tcp_flags_mask requires tcp_flags"), "should reject mask without flags");
+}
