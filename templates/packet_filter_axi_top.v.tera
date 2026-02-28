@@ -61,12 +61,18 @@ module packet_filter_axi_top #(
 
     // Parsed fields for rewrite
     wire        filter_vlan_valid;
+    wire        filter_outer_vlan_valid;
     wire [7:0]  filter_ip_ttl;
     wire [15:0] filter_ip_checksum;
     wire [31:0] filter_src_ip;
     wire [31:0] filter_dst_ip;
     wire [5:0]  filter_ip_dscp;
     wire [1:0]  filter_ip_ecn;
+    wire [15:0] filter_src_port;
+    wire [15:0] filter_dst_port;
+    wire [10:0] filter_l4_port_offset;
+    wire        filter_l4_port_offset_valid;
+    wire [7:0]  filter_ip_protocol;
 
     // Packet filter core (generated from rules)
     packet_filter_top u_filter (
@@ -81,12 +87,18 @@ module packet_filter_axi_top #(
         .decision_rule_idx (decision_rule_idx),
         .decision_default  (decision_default),
         .vlan_valid     (filter_vlan_valid),
+        .outer_vlan_valid (filter_outer_vlan_valid),
         .ip_ttl         (filter_ip_ttl),
         .ip_checksum    (filter_ip_checksum),
         .src_ip         (filter_src_ip),
         .dst_ip         (filter_dst_ip),
         .ip_dscp        (filter_ip_dscp),
-        .ip_ecn         (filter_ip_ecn)
+        .ip_ecn         (filter_ip_ecn),
+        .src_port       (filter_src_port),
+        .dst_port       (filter_dst_port),
+        .l4_port_offset (filter_l4_port_offset),
+        .l4_port_offset_valid (filter_l4_port_offset_valid),
+        .ip_protocol    (filter_ip_protocol)
     );
 
     // FIFO output (intermediate, before rewrite)
@@ -118,7 +130,7 @@ module packet_filter_axi_top #(
 
     // Rewrite LUT: maps rule_idx to rewrite parameters
     wire        rw_en;
-    wire [7:0]  rw_flags;
+    wire [15:0] rw_flags;
     wire [47:0] rw_dst_mac;
     wire [47:0] rw_src_mac;
     wire [11:0] rw_vlan_id;
@@ -126,6 +138,8 @@ module packet_filter_axi_top #(
     wire [31:0] rw_src_ip;
     wire [31:0] rw_dst_ip;
     wire [5:0]  rw_dscp;
+    wire [15:0] rw_src_port;
+    wire [15:0] rw_dst_port;
 
     rewrite_lut u_rewrite_lut (
         .rule_idx         (decision_rule_idx),
@@ -138,7 +152,9 @@ module packet_filter_axi_top #(
         .rewrite_ttl      (rw_ttl),
         .rewrite_src_ip   (rw_src_ip),
         .rewrite_dst_ip   (rw_dst_ip),
-        .rewrite_dscp     (rw_dscp)
+        .rewrite_dscp     (rw_dscp),
+        .rewrite_src_port (rw_src_port),
+        .rewrite_dst_port (rw_dst_port)
     );
 
     // Packet rewrite engine: byte substitution between FIFO and output
@@ -162,13 +178,21 @@ module packet_filter_axi_top #(
         .rewrite_src_ip  (rw_src_ip),
         .rewrite_dst_ip  (rw_dst_ip),
         .rewrite_dscp    (rw_dscp),
+        .rewrite_src_port(rw_src_port),
+        .rewrite_dst_port(rw_dst_port),
         .has_vlan        (filter_vlan_valid),
+        .has_outer_vlan  (filter_outer_vlan_valid),
         .orig_ip_ttl     (filter_ip_ttl),
         .orig_ip_checksum(filter_ip_checksum),
         .orig_src_ip     (filter_src_ip),
         .orig_dst_ip     (filter_dst_ip),
         .orig_ip_dscp    (filter_ip_dscp),
-        .orig_ip_ecn     (filter_ip_ecn)
+        .orig_ip_ecn     (filter_ip_ecn),
+        .orig_src_port   (filter_src_port),
+        .orig_dst_port   (filter_dst_port),
+        .l4_port_offset  (filter_l4_port_offset),
+        .l4_port_offset_valid (filter_l4_port_offset_valid),
+        .ip_protocol     (filter_ip_protocol)
     );
 
 {% else %}

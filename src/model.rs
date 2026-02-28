@@ -82,6 +82,18 @@ pub struct MatchCriteria {
     pub ipv6_hop_limit: Option<u8>,    // 0-255 (TTL equivalent)
     #[serde(default)]
     pub ipv6_flow_label: Option<u32>,  // 0-0xFFFFF (20-bit)
+    // QinQ (802.1ad) double VLAN tagging
+    #[serde(default)]
+    pub outer_vlan_id: Option<u16>,    // 0-4095 (outer service tag)
+    #[serde(default)]
+    pub outer_vlan_pcp: Option<u8>,    // 0-7 (outer priority)
+    // IPv4 fragmentation fields
+    #[serde(default)]
+    pub ip_dont_fragment: Option<bool>,   // DF flag
+    #[serde(default)]
+    pub ip_more_fragments: Option<bool>,  // MF flag
+    #[serde(default)]
+    pub ip_frag_offset: Option<u16>,      // 13-bit fragment offset (0-8191)
     // Byte-offset matching
     #[serde(default)]
     pub byte_match: Option<Vec<ByteMatch>>,
@@ -314,6 +326,16 @@ impl MatchCriteria {
     pub fn uses_ipv6_ext(&self) -> bool {
         self.ipv6_hop_limit.is_some() || self.ipv6_flow_label.is_some()
     }
+
+    /// Returns true if this criteria uses QinQ (802.1ad) double VLAN fields
+    pub fn uses_qinq(&self) -> bool {
+        self.outer_vlan_id.is_some() || self.outer_vlan_pcp.is_some()
+    }
+
+    /// Returns true if this criteria uses IPv4 fragmentation fields
+    pub fn uses_ip_frag(&self) -> bool {
+        self.ip_dont_fragment.is_some() || self.ip_more_fragments.is_some() || self.ip_frag_offset.is_some()
+    }
 }
 
 // --- Stateful FSM types ---
@@ -404,6 +426,12 @@ pub struct RewriteAction {
     /// Overwrite DSCP value (6-bit, 0-63) — QoS remarking
     #[serde(default)]
     pub set_dscp: Option<u8>,
+    /// Overwrite L4 source port (1-65535) — requires IPv4 + TCP/UDP
+    #[serde(default)]
+    pub set_src_port: Option<u16>,
+    /// Overwrite L4 destination port (1-65535) — requires IPv4 + TCP/UDP
+    #[serde(default)]
+    pub set_dst_port: Option<u16>,
 }
 
 impl RewriteAction {
@@ -417,13 +445,16 @@ impl RewriteAction {
             && self.set_src_ip.is_none()
             && self.set_dst_ip.is_none()
             && self.set_dscp.is_none()
+            && self.set_src_port.is_none()
+            && self.set_dst_port.is_none()
     }
 
     /// Returns the set of rewrite flags for Verilog generation
     /// [0]=set_dst_mac [1]=set_src_mac [2]=set_vlan_id
     /// [3]=set_ttl [4]=dec_ttl [5]=set_src_ip [6]=set_dst_ip [7]=set_dscp
-    pub fn flags(&self) -> u8 {
-        let mut f: u8 = 0;
+    /// [8]=set_src_port [9]=set_dst_port
+    pub fn flags(&self) -> u16 {
+        let mut f: u16 = 0;
         if self.set_dst_mac.is_some() { f |= 1 << 0; }
         if self.set_src_mac.is_some() { f |= 1 << 1; }
         if self.set_vlan_id.is_some() { f |= 1 << 2; }
@@ -432,6 +463,8 @@ impl RewriteAction {
         if self.set_src_ip.is_some() { f |= 1 << 5; }
         if self.set_dst_ip.is_some() { f |= 1 << 6; }
         if self.set_dscp.is_some() { f |= 1 << 7; }
+        if self.set_src_port.is_some() { f |= 1 << 8; }
+        if self.set_dst_port.is_some() { f |= 1 << 9; }
         f
     }
 }
@@ -1310,6 +1343,8 @@ pacgate:
             set_src_ip: Some("10.0.0.1".to_string()),
             set_dst_ip: Some("192.168.1.1".to_string()),
             set_dscp: None,
+            set_src_port: None,
+            set_dst_port: None,
         };
         assert!(!rw.is_empty());
         // flags: dst_mac=1, src_mac=2, vlan=4, set_ttl=8, src_ip=32, dst_ip=64
@@ -1621,5 +1656,137 @@ pacgate:
         let mc = MatchCriteria { ipv6_flow_label: Some(0xFFFFF), ..Default::default() };
         assert!(mc.uses_ipv6_ext());
         assert_eq!(mc.ipv6_flow_label, Some(1048575));
+    }
+
+    // --- Phase 24: QinQ / IP frag / port rewrite ---
+
+    #[test]
+    fn uses_qinq_true_vlan_id() {
+        let mc = MatchCriteria { outer_vlan_id: Some(100), ..Default::default() };
+        assert!(mc.uses_qinq());
+    }
+
+    #[test]
+    fn uses_qinq_true_pcp() {
+        let mc = MatchCriteria { outer_vlan_pcp: Some(5), ..Default::default() };
+        assert!(mc.uses_qinq());
+    }
+
+    #[test]
+    fn uses_qinq_false() {
+        let mc = MatchCriteria::default();
+        assert!(!mc.uses_qinq());
+    }
+
+    #[test]
+    fn uses_ip_frag_true_df() {
+        let mc = MatchCriteria { ip_dont_fragment: Some(true), ..Default::default() };
+        assert!(mc.uses_ip_frag());
+    }
+
+    #[test]
+    fn uses_ip_frag_true_mf() {
+        let mc = MatchCriteria { ip_more_fragments: Some(true), ..Default::default() };
+        assert!(mc.uses_ip_frag());
+    }
+
+    #[test]
+    fn uses_ip_frag_true_offset() {
+        let mc = MatchCriteria { ip_frag_offset: Some(185), ..Default::default() };
+        assert!(mc.uses_ip_frag());
+    }
+
+    #[test]
+    fn uses_ip_frag_false() {
+        let mc = MatchCriteria::default();
+        assert!(!mc.uses_ip_frag());
+    }
+
+    #[test]
+    fn rewrite_action_flags_set_src_port() {
+        let rw = RewriteAction {
+            set_src_port: Some(8080),
+            ..Default::default()
+        };
+        assert!(!rw.is_empty());
+        assert_eq!(rw.flags(), 1 << 8);
+    }
+
+    #[test]
+    fn rewrite_action_flags_set_dst_port() {
+        let rw = RewriteAction {
+            set_dst_port: Some(443),
+            ..Default::default()
+        };
+        assert!(!rw.is_empty());
+        assert_eq!(rw.flags(), 1 << 9);
+    }
+
+    #[test]
+    fn rewrite_action_flags_both_ports() {
+        let rw = RewriteAction {
+            set_src_port: Some(1024),
+            set_dst_port: Some(80),
+            ..Default::default()
+        };
+        assert!(!rw.is_empty());
+        assert_eq!(rw.flags(), (1 << 8) | (1 << 9));
+    }
+
+    #[test]
+    fn rewrite_action_port_empty() {
+        let rw = RewriteAction {
+            set_src_port: None,
+            set_dst_port: None,
+            ..Default::default()
+        };
+        assert!(rw.is_empty());
+    }
+
+    #[test]
+    fn deserialize_qinq_frag_port_rewrite() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: qinq_test
+      priority: 100
+      match:
+        ethertype: "0x88A8"
+        outer_vlan_id: 100
+        outer_vlan_pcp: 5
+        vlan_id: 10
+      action: pass
+    - name: frag_test
+      priority: 90
+      match:
+        ethertype: "0x0800"
+        ip_dont_fragment: true
+        ip_more_fragments: false
+        ip_frag_offset: 0
+      action: pass
+    - name: port_rewrite_test
+      priority: 80
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 80
+      action: pass
+      rewrite:
+        set_dst_port: 8080
+        set_src_port: 4000
+"#;
+        let config: FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.pacgate.rules.len(), 3);
+        assert_eq!(config.pacgate.rules[0].match_criteria.outer_vlan_id, Some(100));
+        assert_eq!(config.pacgate.rules[0].match_criteria.outer_vlan_pcp, Some(5));
+        assert_eq!(config.pacgate.rules[1].match_criteria.ip_dont_fragment, Some(true));
+        assert_eq!(config.pacgate.rules[1].match_criteria.ip_more_fragments, Some(false));
+        assert_eq!(config.pacgate.rules[1].match_criteria.ip_frag_offset, Some(0));
+        let rw = config.pacgate.rules[2].rewrite.as_ref().unwrap();
+        assert_eq!(rw.set_dst_port, Some(8080));
+        assert_eq!(rw.set_src_port, Some(4000));
     }
 }

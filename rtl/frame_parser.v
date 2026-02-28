@@ -1,7 +1,9 @@
 // frame_parser.v — Ethernet frame field extractor
 // Extracts: dst_mac, src_mac, ethertype, vlan_id, vlan_pcp
+//           outer_vlan_id, outer_vlan_pcp (QinQ 802.1ad)
 //           src_ip, dst_ip, ip_protocol, ip_ttl, ip_checksum, src_port, dst_port (IPv4/TCP/UDP)
 //           ip_dscp, ip_ecn (IPv4 TOS byte: DSCP[7:2] + ECN[1:0])
+//           ip_dont_fragment, ip_more_fragments, ip_frag_offset (IPv4 flags+frag)
 //           ipv6_dscp, ipv6_ecn (IPv6 Traffic Class: DSCP[7:2] + ECN[1:0])
 //           src_ipv6, dst_ipv6, ipv6_next_header, ipv6_hop_limit, ipv6_flow_label (IPv6)
 //           tcp_flags (TCP flags byte at offset 13 from TCP header)
@@ -12,7 +14,9 @@
 //           mpls_label, mpls_tc, mpls_bos (MPLS label stack)
 //           igmp_type (IGMP message type), mld_type (MLD message type)
 //           arp_opcode, arp_spa, arp_tpa (ARP header fields)
+//           l4_port_offset (absolute byte position of L4 src_port MSB)
 // Handles 802.1Q VLAN-tagged frames (EtherType 0x8100)
+// Handles 802.1ad QinQ double-tagged frames (EtherType 0x88A8 / 0x9100)
 // Handles IPv4 header parsing (20-byte fixed, IHL=5)
 // Handles IPv6 header parsing (40-byte fixed)
 // Handles TCP/UDP port extraction (first 4 bytes of L4 header)
@@ -47,6 +51,11 @@ module frame_parser (
     output reg  [2:0]  vlan_pcp,
     output reg         vlan_valid,  // frame had 802.1Q tag
 
+    // QinQ (802.1ad) outer tag
+    output reg  [11:0] outer_vlan_id,
+    output reg  [2:0]  outer_vlan_pcp,
+    output reg         outer_vlan_valid, // frame had 802.1ad outer tag
+
     // L3 extracted fields (IPv4)
     output reg  [31:0] src_ip,
     output reg  [31:0] dst_ip,
@@ -54,6 +63,12 @@ module frame_parser (
     output reg  [7:0]  ip_ttl,       // IPv4 TTL field (byte 8 of IP header)
     output reg  [15:0] ip_checksum,  // IPv4 header checksum (bytes 10-11)
     output reg         l3_valid,    // frame had IPv4 header
+
+    // IPv4 fragmentation fields
+    output reg         ip_dont_fragment,   // DF flag (byte 6 bit 6)
+    output reg         ip_more_fragments,  // MF flag (byte 6 bit 5)
+    output reg  [12:0] ip_frag_offset,     // 13-bit fragment offset
+    output reg         ip_frag_valid,      // frag fields extracted
 
     // L3 extracted fields (IPv6)
     output reg  [127:0] src_ipv6,
@@ -65,6 +80,10 @@ module frame_parser (
     output reg  [15:0] src_port,
     output reg  [15:0] dst_port,
     output reg         l4_valid,    // frame had TCP/UDP header
+
+    // L4 port offset (absolute byte position of src_port MSB in frame)
+    output reg  [10:0] l4_port_offset,
+    output reg         l4_port_offset_valid,
 
     // VXLAN fields
     output reg  [23:0] vxlan_vni,
@@ -139,27 +158,37 @@ module frame_parser (
     localparam S_ICMP_HDR   = 5'd14; // ICMP message header (type + code)
     localparam S_ICMPV6_HDR = 5'd15; // ICMPv6 type + code (MLD backward compat)
     localparam S_ARP_HDR    = 5'd16; // ARP header (28 bytes)
+    localparam S_OUTER_VLAN = 5'd17; // QinQ outer VLAN (802.1ad)
 
     reg [4:0] state;
     reg [5:0] byte_cnt;  // counts bytes within current state (up to 39 for IPv6)
     reg [3:0] ipv6_tc_hi; // stores upper 4 bits of IPv6 Traffic Class (from byte 0)
+    reg [10:0] frame_byte_cnt;  // absolute byte counter from SOF
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             state        <= S_IDLE;
             byte_cnt     <= 6'd0;
+            frame_byte_cnt <= 11'd0;
             dst_mac      <= 48'd0;
             src_mac      <= 48'd0;
             ethertype    <= 16'd0;
             vlan_id      <= 12'd0;
             vlan_pcp     <= 3'd0;
             vlan_valid   <= 1'b0;
+            outer_vlan_id  <= 12'd0;
+            outer_vlan_pcp <= 3'd0;
+            outer_vlan_valid <= 1'b0;
             src_ip       <= 32'd0;
             dst_ip       <= 32'd0;
             ip_protocol  <= 8'd0;
             ip_ttl       <= 8'd0;
             ip_checksum  <= 16'd0;
             l3_valid     <= 1'b0;
+            ip_dont_fragment  <= 1'b0;
+            ip_more_fragments <= 1'b0;
+            ip_frag_offset    <= 13'd0;
+            ip_frag_valid     <= 1'b0;
             src_ipv6     <= 128'd0;
             dst_ipv6     <= 128'd0;
             ipv6_next_header <= 8'd0;
@@ -167,6 +196,8 @@ module frame_parser (
             src_port     <= 16'd0;
             dst_port     <= 16'd0;
             l4_valid     <= 1'b0;
+            l4_port_offset       <= 11'd0;
+            l4_port_offset_valid <= 1'b0;
             vxlan_vni    <= 24'd0;
             vxlan_valid  <= 1'b0;
             gtp_teid     <= 32'd0;
@@ -206,18 +237,26 @@ module frame_parser (
                 // Start of new frame — reset and capture first byte of dst_mac
                 state    <= S_DST_MAC;
                 byte_cnt <= 6'd1;
+                frame_byte_cnt <= 11'd1;
                 dst_mac  <= {pkt_data, 40'd0};
                 src_mac  <= 48'd0;
                 ethertype <= 16'd0;
                 vlan_id  <= 12'd0;
                 vlan_pcp <= 3'd0;
                 vlan_valid <= 1'b0;
+                outer_vlan_id  <= 12'd0;
+                outer_vlan_pcp <= 3'd0;
+                outer_vlan_valid <= 1'b0;
                 src_ip   <= 32'd0;
                 dst_ip   <= 32'd0;
                 ip_protocol <= 8'd0;
                 ip_ttl      <= 8'd0;
                 ip_checksum <= 16'd0;
                 l3_valid <= 1'b0;
+                ip_dont_fragment  <= 1'b0;
+                ip_more_fragments <= 1'b0;
+                ip_frag_offset    <= 13'd0;
+                ip_frag_valid     <= 1'b0;
                 src_ipv6 <= 128'd0;
                 dst_ipv6 <= 128'd0;
                 ipv6_next_header <= 8'd0;
@@ -225,6 +264,8 @@ module frame_parser (
                 src_port <= 16'd0;
                 dst_port <= 16'd0;
                 l4_valid <= 1'b0;
+                l4_port_offset       <= 11'd0;
+                l4_port_offset_valid <= 1'b0;
                 vxlan_vni   <= 24'd0;
                 vxlan_valid <= 1'b0;
                 gtp_teid    <= 32'd0;
@@ -257,6 +298,9 @@ module frame_parser (
                 ipv6_hop_limit  <= 8'd0;
                 ipv6_flow_label <= 20'd0;
             end else if (pkt_valid) begin
+                // Increment absolute byte counter
+                frame_byte_cnt <= frame_byte_cnt + 11'd1;
+
                 case (state)
                     S_DST_MAC: begin
                         dst_mac <= dst_mac | ({48'd0, pkt_data} << ((5 - byte_cnt) * 8));
@@ -284,11 +328,18 @@ module frame_parser (
                             byte_cnt <= 6'd1;
                         end else begin
                             ethertype[7:0] <= pkt_data;
-                            // Check for VLAN tag
+                            // Check for VLAN tag (802.1Q)
                             if (ethertype[15:8] == 8'h81 && pkt_data == 8'h00) begin
                                 state    <= S_VLAN_TAG;
                                 byte_cnt <= 6'd0;
                                 vlan_valid <= 1'b1;
+                            end
+                            // Check for QinQ (802.1ad = 0x88A8, legacy = 0x9100)
+                            else if ((ethertype[15:8] == 8'h88 && pkt_data == 8'hA8) ||
+                                     (ethertype[15:8] == 8'h91 && pkt_data == 8'h00)) begin
+                                state    <= S_OUTER_VLAN;
+                                byte_cnt <= 6'd0;
+                                outer_vlan_valid <= 1'b1;
                             end
                             // Check for IPv4
                             else if (ethertype[15:8] == 8'h08 && pkt_data == 8'h00) begin
@@ -314,6 +365,58 @@ module frame_parser (
                                 fields_valid <= 1'b1;
                             end
                         end
+                    end
+
+                    S_OUTER_VLAN: begin
+                        // QinQ outer tag: 2 bytes PCP+VID, then 2 bytes inner ethertype
+                        case (byte_cnt)
+                            6'd0: begin
+                                outer_vlan_pcp <= pkt_data[7:5];
+                                outer_vlan_id[11:8] <= pkt_data[3:0];
+                                byte_cnt <= 6'd1;
+                            end
+                            6'd1: begin
+                                outer_vlan_id[7:0] <= pkt_data;
+                                byte_cnt <= 6'd2;
+                            end
+                            6'd2: begin
+                                // Inner ethertype MSB
+                                ethertype[15:8] <= pkt_data;
+                                byte_cnt <= 6'd3;
+                            end
+                            6'd3: begin
+                                ethertype[7:0] <= pkt_data;
+                                // Check if inner tag is 802.1Q (0x8100)
+                                if (ethertype[15:8] == 8'h81 && pkt_data == 8'h00) begin
+                                    state      <= S_VLAN_TAG;
+                                    byte_cnt   <= 6'd0;
+                                    vlan_valid <= 1'b1;
+                                end
+                                // Inner is IPv4
+                                else if (ethertype[15:8] == 8'h08 && pkt_data == 8'h00) begin
+                                    state    <= S_IP_HDR;
+                                    byte_cnt <= 6'd0;
+                                end
+                                // Inner is IPv6
+                                else if (ethertype[15:8] == 8'h86 && pkt_data == 8'hDD) begin
+                                    state    <= S_IPV6_HDR;
+                                    byte_cnt <= 6'd0;
+                                end
+                                // Inner is MPLS
+                                else if (ethertype[15:8] == 8'h88 && (pkt_data == 8'h47 || pkt_data == 8'h48)) begin
+                                    state    <= S_MPLS_HDR;
+                                    byte_cnt <= 6'd0;
+                                end
+                                // Inner is ARP
+                                else if (ethertype[15:8] == 8'h08 && pkt_data == 8'h06) begin
+                                    state    <= S_ARP_HDR;
+                                    byte_cnt <= 6'd0;
+                                end else begin
+                                    state        <= S_PAYLOAD;
+                                    fields_valid <= 1'b1;
+                                end
+                            end
+                        endcase
                     end
 
                     S_VLAN_TAG: begin
@@ -364,6 +467,9 @@ module frame_parser (
 
                     S_IP_HDR: begin
                         // Parse 20-byte IPv4 header (assuming IHL=5, standard header)
+                        // Byte  1: TOS (DSCP + ECN)
+                        // Byte  6: Flags[7:5] + Fragment Offset[12:8]
+                        // Byte  7: Fragment Offset[7:0]
                         // Byte  8: TTL
                         // Byte  9: Protocol
                         // Bytes 10-11: Header checksum
@@ -373,6 +479,16 @@ module frame_parser (
                             6'd1: begin
                                 ip_dscp <= pkt_data[7:2];
                                 ip_ecn  <= pkt_data[1:0];
+                            end
+                            6'd6: begin
+                                // Flags: bit 6 = DF, bit 5 = MF, bits 4:0 = frag_offset[12:8]
+                                ip_dont_fragment  <= pkt_data[6];
+                                ip_more_fragments <= pkt_data[5];
+                                ip_frag_offset[12:8] <= pkt_data[4:0];
+                            end
+                            6'd7: begin
+                                ip_frag_offset[7:0] <= pkt_data;
+                                ip_frag_valid <= 1'b1;
                             end
                             6'd8:  ip_ttl <= pkt_data;
                             6'd9:  ip_protocol <= pkt_data;
@@ -392,6 +508,9 @@ module frame_parser (
                                 if (ip_protocol == 8'd6 || ip_protocol == 8'd17) begin
                                     state    <= S_L4_HDR;
                                     byte_cnt <= 6'd0;
+                                    // Latch L4 port offset (next byte = src_port MSB)
+                                    l4_port_offset <= frame_byte_cnt + 11'd1;
+                                    l4_port_offset_valid <= 1'b1;
                                 end
                                 // Check for ICMP (protocol 1)
                                 else if (ip_protocol == 8'd1) begin
@@ -552,6 +671,9 @@ module frame_parser (
                                 if (ipv6_next_header == 8'd6 || ipv6_next_header == 8'd17) begin
                                     state    <= S_L4_HDR;
                                     byte_cnt <= 6'd0;
+                                    // Latch L4 port offset (next byte = src_port MSB)
+                                    l4_port_offset <= frame_byte_cnt + 11'd1;
+                                    l4_port_offset_valid <= 1'b1;
                                 end
                                 // Check for ICMPv6 (next header 58) — type/code + MLD backward compat
                                 else if (ipv6_next_header == 8'd58) begin

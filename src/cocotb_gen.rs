@@ -169,6 +169,28 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
             tc.insert("ipv6_flow_label".to_string(), fl.to_string());
             tc.insert("has_ipv6_ext".to_string(), "true".to_string());
         }
+        // QinQ fields
+        if let Some(vid) = rule.match_criteria.outer_vlan_id {
+            tc.insert("outer_vlan_id".to_string(), vid.to_string());
+            tc.insert("has_qinq".to_string(), "true".to_string());
+        }
+        if let Some(pcp) = rule.match_criteria.outer_vlan_pcp {
+            tc.insert("outer_vlan_pcp".to_string(), pcp.to_string());
+            tc.insert("has_qinq".to_string(), "true".to_string());
+        }
+        // IP fragmentation fields
+        if let Some(df) = rule.match_criteria.ip_dont_fragment {
+            tc.insert("ip_dont_fragment".to_string(), if df { "1" } else { "0" }.to_string());
+            tc.insert("has_ip_frag".to_string(), "true".to_string());
+        }
+        if let Some(mf) = rule.match_criteria.ip_more_fragments {
+            tc.insert("ip_more_fragments".to_string(), if mf { "1" } else { "0" }.to_string());
+            tc.insert("has_ip_frag".to_string(), "true".to_string());
+        }
+        if let Some(offset) = rule.match_criteria.ip_frag_offset {
+            tc.insert("ip_frag_offset".to_string(), offset.to_string());
+            tc.insert("has_ip_frag".to_string(), "true".to_string());
+        }
         test_cases.push(tc);
     }
 
@@ -436,6 +458,8 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         ctx.insert("has_icmpv6_rules", &rules.iter().any(|r| r.match_criteria.uses_icmpv6()));
         ctx.insert("has_arp_rules", &rules.iter().any(|r| r.match_criteria.uses_arp()));
         ctx.insert("has_ipv6_ext_rules", &rules.iter().any(|r| r.match_criteria.uses_ipv6_ext()));
+        ctx.insert("has_qinq_rules", &rules.iter().any(|r| r.match_criteria.uses_qinq()));
+        ctx.insert("has_ip_frag_rules", &rules.iter().any(|r| r.match_criteria.uses_ip_frag()));
 
         let rendered = tera.render("test_properties.py.tera", &ctx)?;
         std::fs::write(tb_dir.join("test_properties.py"), &rendered)?;

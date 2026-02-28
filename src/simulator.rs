@@ -41,6 +41,11 @@ pub struct SimPacket {
     pub arp_tpa: Option<String>,
     pub ipv6_hop_limit: Option<u8>,
     pub ipv6_flow_label: Option<u32>,
+    pub outer_vlan_id: Option<u16>,
+    pub outer_vlan_pcp: Option<u8>,
+    pub ip_dont_fragment: Option<bool>,
+    pub ip_more_fragments: Option<bool>,
+    pub ip_frag_offset: Option<u16>,
 }
 
 /// Rewrite actions that would be applied to a passed packet
@@ -54,6 +59,8 @@ pub struct SimRewrite {
     pub set_src_ip: Option<String>,
     pub set_dst_ip: Option<String>,
     pub set_dscp: Option<u8>,
+    pub set_src_port: Option<u16>,
+    pub set_dst_port: Option<u16>,
 }
 
 impl SimRewrite {
@@ -66,6 +73,8 @@ impl SimRewrite {
             && self.set_src_ip.is_none()
             && self.set_dst_ip.is_none()
             && self.set_dscp.is_none()
+            && self.set_src_port.is_none()
+            && self.set_dst_port.is_none()
     }
 }
 
@@ -239,6 +248,25 @@ pub fn parse_packet_spec(spec: &str) -> Result<SimPacket> {
                 if v > 0xFFFFF { bail!("ipv6_flow_label must be 0-1048575, got {}", v); }
                 pkt.ipv6_flow_label = Some(v);
             }
+            "outer_vlan_id" => {
+                pkt.outer_vlan_id = Some(value.parse().map_err(|e| anyhow::anyhow!("Bad outer_vlan_id '{}': {}", value, e))?);
+            }
+            "outer_vlan_pcp" => {
+                let v: u8 = value.parse().map_err(|e| anyhow::anyhow!("Bad outer_vlan_pcp '{}': {}", value, e))?;
+                if v > 7 { bail!("outer_vlan_pcp must be 0-7, got {}", v); }
+                pkt.outer_vlan_pcp = Some(v);
+            }
+            "ip_dont_fragment" => {
+                pkt.ip_dont_fragment = Some(value == "true" || value == "1");
+            }
+            "ip_more_fragments" => {
+                pkt.ip_more_fragments = Some(value == "true" || value == "1");
+            }
+            "ip_frag_offset" => {
+                let v: u16 = value.parse().map_err(|e| anyhow::anyhow!("Bad ip_frag_offset '{}': {}", value, e))?;
+                if v > 8191 { bail!("ip_frag_offset must be 0-8191, got {}", v); }
+                pkt.ip_frag_offset = Some(v);
+            }
             _ => bail!("Unknown packet field '{}'", key),
         }
     }
@@ -261,6 +289,8 @@ fn build_sim_rewrite(rule: &crate::model::StatelessRule) -> Option<SimRewrite> {
         set_src_ip: rw.set_src_ip.clone(),
         set_dst_ip: rw.set_dst_ip.clone(),
         set_dscp: rw.set_dscp,
+        set_src_port: rw.set_src_port,
+        set_dst_port: rw.set_dst_port,
     })
 }
 
@@ -930,6 +960,71 @@ pub fn match_criteria_against_packet(mc: &MatchCriteria, pkt: &SimPacket) -> (bo
         fields.push(FieldMatch {
             field: "ipv6_flow_label".to_string(),
             rule_value: rule_fl.to_string(),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // outer_vlan_id (QinQ)
+    if let Some(rule_vid) = mc.outer_vlan_id {
+        let pkt_val = pkt.outer_vlan_id.map(|v| v.to_string()).unwrap_or_else(|| "none".to_string());
+        let matches = pkt.outer_vlan_id.map(|v| v == rule_vid).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "outer_vlan_id".to_string(),
+            rule_value: rule_vid.to_string(),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // outer_vlan_pcp (QinQ)
+    if let Some(rule_pcp) = mc.outer_vlan_pcp {
+        let pkt_val = pkt.outer_vlan_pcp.map(|v| v.to_string()).unwrap_or_else(|| "none".to_string());
+        let matches = pkt.outer_vlan_pcp.map(|v| v == rule_pcp).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "outer_vlan_pcp".to_string(),
+            rule_value: rule_pcp.to_string(),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // ip_dont_fragment
+    if let Some(rule_df) = mc.ip_dont_fragment {
+        let pkt_val = pkt.ip_dont_fragment.map(|v| v.to_string()).unwrap_or_else(|| "none".to_string());
+        let matches = pkt.ip_dont_fragment.map(|v| v == rule_df).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "ip_dont_fragment".to_string(),
+            rule_value: rule_df.to_string(),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // ip_more_fragments
+    if let Some(rule_mf) = mc.ip_more_fragments {
+        let pkt_val = pkt.ip_more_fragments.map(|v| v.to_string()).unwrap_or_else(|| "none".to_string());
+        let matches = pkt.ip_more_fragments.map(|v| v == rule_mf).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "ip_more_fragments".to_string(),
+            rule_value: rule_mf.to_string(),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // ip_frag_offset
+    if let Some(rule_fo) = mc.ip_frag_offset {
+        let pkt_val = pkt.ip_frag_offset.map(|v| v.to_string()).unwrap_or_else(|| "none".to_string());
+        let matches = pkt.ip_frag_offset.map(|v| v == rule_fo).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "ip_frag_offset".to_string(),
+            rule_value: rule_fo.to_string(),
             packet_value: pkt_val,
             matches,
         });

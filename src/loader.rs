@@ -166,6 +166,25 @@ fn validate_match_criteria(mc: &crate::model::MatchCriteria, rule_name: &str) ->
         }
     }
 
+    // QinQ (802.1ad) validation
+    if let Some(vid) = mc.outer_vlan_id {
+        if vid > 4095 {
+            anyhow::bail!("outer_vlan_id must be 0-4095, got {} in rule '{}'", vid, rule_name);
+        }
+    }
+    if let Some(pcp) = mc.outer_vlan_pcp {
+        if pcp > 7 {
+            anyhow::bail!("outer_vlan_pcp must be 0-7, got {} in rule '{}'", pcp, rule_name);
+        }
+    }
+
+    // IPv4 fragmentation validation
+    if let Some(offset) = mc.ip_frag_offset {
+        if offset > 8191 {
+            anyhow::bail!("ip_frag_offset must be 0-8191 (13-bit), got {} in rule '{}'", offset, rule_name);
+        }
+    }
+
     Ok(())
 }
 
@@ -252,6 +271,29 @@ fn validate_rewrite(rw: &crate::model::RewriteAction, rule: &crate::model::State
         let has_ipv4_match = rule.match_criteria.ethertype.as_deref() == Some("0x0800");
         if !has_ipv4_match {
             anyhow::bail!("set_dscp requires ethertype 0x0800 match in rule '{}'", rule_name);
+        }
+    }
+
+    // Validate port rewrite: requires IPv4 + TCP(6) or UDP(17)
+    let needs_l4 = rw.set_src_port.is_some() || rw.set_dst_port.is_some();
+    if needs_l4 {
+        let has_ipv4_match = rule.match_criteria.ethertype.as_deref() == Some("0x0800");
+        if !has_ipv4_match {
+            anyhow::bail!("Port rewrite requires ethertype 0x0800 match in rule '{}'", rule_name);
+        }
+        let has_tcp_udp = matches!(rule.match_criteria.ip_protocol, Some(6) | Some(17));
+        if !has_tcp_udp {
+            anyhow::bail!("Port rewrite requires ip_protocol 6 (TCP) or 17 (UDP) in rule '{}'", rule_name);
+        }
+    }
+    if let Some(port) = rw.set_src_port {
+        if port == 0 {
+            anyhow::bail!("set_src_port must be 1-65535 (0 is invalid), got 0 in rule '{}'", rule_name);
+        }
+    }
+    if let Some(port) = rw.set_dst_port {
+        if port == 0 {
+            anyhow::bail!("set_dst_port must be 1-65535 (0 is invalid), got 0 in rule '{}'", rule_name);
         }
     }
 
@@ -872,6 +914,40 @@ pub fn criteria_shadows(a: &crate::model::MatchCriteria, b: &crate::model::Match
         }
     }
 
+    // QinQ shadow checks
+    if let Some(a_vid) = a.outer_vlan_id {
+        match b.outer_vlan_id {
+            Some(b_vid) if a_vid == b_vid => {},
+            _ => return false,
+        }
+    }
+    if let Some(a_pcp) = a.outer_vlan_pcp {
+        match b.outer_vlan_pcp {
+            Some(b_pcp) if a_pcp == b_pcp => {},
+            _ => return false,
+        }
+    }
+
+    // IPv4 fragmentation shadow checks
+    if let Some(a_df) = a.ip_dont_fragment {
+        match b.ip_dont_fragment {
+            Some(b_df) if a_df == b_df => {},
+            _ => return false,
+        }
+    }
+    if let Some(a_mf) = a.ip_more_fragments {
+        match b.ip_more_fragments {
+            Some(b_mf) if a_mf == b_mf => {},
+            _ => return false,
+        }
+    }
+    if let Some(a_off) = a.ip_frag_offset {
+        match b.ip_frag_offset {
+            Some(b_off) if a_off == b_off => {},
+            _ => return false,
+        }
+    }
+
     true
 }
 
@@ -1026,6 +1102,25 @@ fn criteria_overlaps(a: &crate::model::MatchCriteria, b: &crate::model::MatchCri
     }
     if let (Some(a_fl), Some(b_fl)) = (a.ipv6_flow_label, b.ipv6_flow_label) {
         if a_fl != b_fl { return false; }
+    }
+
+    // QinQ overlap checks
+    if let (Some(a_vid), Some(b_vid)) = (a.outer_vlan_id, b.outer_vlan_id) {
+        if a_vid != b_vid { return false; }
+    }
+    if let (Some(a_pcp), Some(b_pcp)) = (a.outer_vlan_pcp, b.outer_vlan_pcp) {
+        if a_pcp != b_pcp { return false; }
+    }
+
+    // IPv4 fragmentation overlap checks
+    if let (Some(a_df), Some(b_df)) = (a.ip_dont_fragment, b.ip_dont_fragment) {
+        if a_df != b_df { return false; }
+    }
+    if let (Some(a_mf), Some(b_mf)) = (a.ip_more_fragments, b.ip_more_fragments) {
+        if a_mf != b_mf { return false; }
+    }
+    if let (Some(a_off), Some(b_off)) = (a.ip_frag_offset, b.ip_frag_offset) {
+        if a_off != b_off { return false; }
     }
 
     true
@@ -1857,6 +1952,95 @@ pacgate:
     fn accept_valid_ipv6_ext() {
         let yaml = valid_yaml(
             "    - name: ipv6_ext\n      priority: 100\n      match:\n        ethertype: \"0x86DD\"\n        ipv6_hop_limit: 64\n        ipv6_flow_label: 12345\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_ok());
+    }
+
+    // --- Phase 24: QinQ / IP frag / port rewrite ---
+
+    #[test]
+    fn reject_outer_vlan_id_too_large() {
+        let yaml = valid_yaml(
+            "    - name: bad\n      priority: 100\n      match:\n        ethertype: \"0x88A8\"\n        outer_vlan_id: 4096\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("outer_vlan_id must be 0-4095"));
+    }
+
+    #[test]
+    fn reject_outer_vlan_pcp_too_large() {
+        let yaml = valid_yaml(
+            "    - name: bad\n      priority: 100\n      match:\n        ethertype: \"0x88A8\"\n        outer_vlan_pcp: 8\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("outer_vlan_pcp must be 0-7"));
+    }
+
+    #[test]
+    fn reject_ip_frag_offset_too_large() {
+        let yaml = valid_yaml(
+            "    - name: bad\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n        ip_frag_offset: 8192\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("ip_frag_offset must be 0-8191"));
+    }
+
+    #[test]
+    fn accept_valid_qinq() {
+        let yaml = valid_yaml(
+            "    - name: qinq\n      priority: 100\n      match:\n        ethertype: \"0x88A8\"\n        outer_vlan_id: 100\n        outer_vlan_pcp: 5\n        vlan_id: 10\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn accept_valid_ip_frag() {
+        let yaml = valid_yaml(
+            "    - name: frag\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n        ip_dont_fragment: true\n        ip_frag_offset: 0\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn reject_port_rewrite_without_ipv4() {
+        let yaml = valid_yaml(
+            "    - name: bad\n      priority: 100\n      match:\n        ethertype: \"0x86DD\"\n        ip_protocol: 6\n      action: pass\n      rewrite:\n        set_dst_port: 8080",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Port rewrite requires ethertype 0x0800"));
+    }
+
+    #[test]
+    fn reject_port_rewrite_without_protocol() {
+        let yaml = valid_yaml(
+            "    - name: bad\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n      action: pass\n      rewrite:\n        set_dst_port: 8080",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Port rewrite requires ip_protocol"));
+    }
+
+    #[test]
+    fn reject_port_rewrite_zero() {
+        let yaml = valid_yaml(
+            "    - name: bad\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n        ip_protocol: 6\n      action: pass\n      rewrite:\n        set_dst_port: 0",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("set_dst_port must be 1-65535"));
+    }
+
+    #[test]
+    fn accept_valid_port_rewrite() {
+        let yaml = valid_yaml(
+            "    - name: nat\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n        ip_protocol: 6\n        dst_port: 80\n      action: pass\n      rewrite:\n        set_dst_port: 8080\n        set_src_port: 4000",
         );
         let result = load_rules_from_str(&yaml);
         assert!(result.is_ok());

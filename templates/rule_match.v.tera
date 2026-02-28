@@ -58,6 +58,15 @@ module rule_match_{{ rule_index }} (
     input  wire [7:0]  ipv6_hop_limit,
     input  wire [19:0] ipv6_flow_label,
 {% endif %}
+{% if has_qinq %}
+    input  wire [11:0] outer_vlan_id,
+    input  wire [2:0]  outer_vlan_pcp,
+{% endif %}
+{% if has_ip_frag %}
+    input  wire        ip_dont_fragment,
+    input  wire        ip_more_fragments,
+    input  wire [12:0] ip_frag_offset,
+{% endif %}
 {% if has_byte_capture %}
 {% for cap in byte_captures %}
     input  wire [{{ cap.bit_width - 1 }}:0] byte_cap_{{ cap.offset }},

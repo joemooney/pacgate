@@ -6,34 +6,38 @@ module rewrite_lut (
     input  wire        decision_default,
 
     output reg         rewrite_en,
-    output reg  [7:0]  rewrite_flags,
+    output reg  [15:0] rewrite_flags,
     output reg  [47:0] rewrite_dst_mac,
     output reg  [47:0] rewrite_src_mac,
     output reg  [11:0] rewrite_vlan_id,
     output reg  [7:0]  rewrite_ttl,
     output reg  [31:0] rewrite_src_ip,
     output reg  [31:0] rewrite_dst_ip,
-    output reg  [5:0]  rewrite_dscp
+    output reg  [5:0]  rewrite_dscp,
+    output reg  [15:0] rewrite_src_port,
+    output reg  [15:0] rewrite_dst_port
 );
 
     always @(*) begin
         // Defaults: no rewrite
-        rewrite_en      = 1'b0;
-        rewrite_flags   = 8'd0;
-        rewrite_dst_mac = 48'd0;
-        rewrite_src_mac = 48'd0;
-        rewrite_vlan_id = 12'd0;
-        rewrite_ttl     = 8'd0;
-        rewrite_src_ip  = 32'd0;
-        rewrite_dst_ip  = 32'd0;
-        rewrite_dscp    = 6'd0;
+        rewrite_en       = 1'b0;
+        rewrite_flags    = 16'd0;
+        rewrite_dst_mac  = 48'd0;
+        rewrite_src_mac  = 48'd0;
+        rewrite_vlan_id  = 12'd0;
+        rewrite_ttl      = 8'd0;
+        rewrite_src_ip   = 32'd0;
+        rewrite_dst_ip   = 32'd0;
+        rewrite_dscp     = 6'd0;
+        rewrite_src_port = 16'd0;
+        rewrite_dst_port = 16'd0;
 
         if (!decision_default) begin
             case (rule_idx)
 {% for entry in rewrite_entries %}
                 {{ idx_bits }}'d{{ entry.index }}: begin
                     rewrite_en      = 1'b1;
-                    rewrite_flags   = 8'b{{ entry.flags_bin }};
+                    rewrite_flags   = 16'b{{ entry.flags_bin }};
 {% if entry.has_dst_mac %}
                     rewrite_dst_mac = {{ entry.dst_mac }};
 {% endif %}
@@ -54,6 +58,12 @@ module rewrite_lut (
 {% endif %}
 {% if entry.has_dscp %}
                     rewrite_dscp    = 6'd{{ entry.dscp }};
+{% endif %}
+{% if entry.has_src_port %}
+                    rewrite_src_port = 16'd{{ entry.src_port }};
+{% endif %}
+{% if entry.has_dst_port %}
+                    rewrite_dst_port = 16'd{{ entry.dst_port }};
 {% endif %}
                 end
 {% endfor %}

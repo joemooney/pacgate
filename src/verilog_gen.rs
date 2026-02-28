@@ -48,6 +48,8 @@ struct GlobalProtocolFlags {
     has_icmpv6: bool,
     has_arp: bool,
     has_ipv6_ext: bool,
+    has_qinq: bool,
+    has_ip_frag: bool,
 }
 
 fn build_condition_expr(mc: &crate::model::MatchCriteria) -> Result<String> {
@@ -258,6 +260,25 @@ fn build_condition_expr(mc: &crate::model::MatchCriteria) -> Result<String> {
         conditions.push(format!("(ipv6_flow_label == 20'd{})", fl));
     }
 
+    // QinQ (802.1ad) double VLAN fields
+    if let Some(vid) = mc.outer_vlan_id {
+        conditions.push(format!("(outer_vlan_id == 12'd{})", vid));
+    }
+    if let Some(pcp) = mc.outer_vlan_pcp {
+        conditions.push(format!("(outer_vlan_pcp == 3'd{})", pcp));
+    }
+
+    // IPv4 fragmentation fields
+    if let Some(df) = mc.ip_dont_fragment {
+        conditions.push(format!("(ip_dont_fragment == 1'b{})", if df { 1 } else { 0 }));
+    }
+    if let Some(mf) = mc.ip_more_fragments {
+        conditions.push(format!("(ip_more_fragments == 1'b{})", if mf { 1 } else { 0 }));
+    }
+    if let Some(offset) = mc.ip_frag_offset {
+        conditions.push(format!("(ip_frag_offset == 13'd{})", offset));
+    }
+
     // Byte-offset matching
     if let Some(ref byte_matches) = mc.byte_match {
         for bm in byte_matches {
@@ -376,6 +397,8 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
     let has_icmpv6 = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_icmpv6());
     let has_arp = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_arp());
     let has_ipv6_ext = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_ipv6_ext());
+    let has_qinq = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_qinq());
+    let has_ip_frag = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_ip_frag());
 
     // Global protocol flags — all rules in a design must have consistent port lists
     let global_protos = GlobalProtocolFlags {
@@ -390,6 +413,8 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         has_icmpv6,
         has_arp,
         has_ipv6_ext,
+        has_qinq,
+        has_ip_frag,
     };
 
     // Generate per-rule matchers (stateless: combinational, stateful: registered FSM)
@@ -430,6 +455,8 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         ctx.insert("has_icmpv6", &has_icmpv6);
         ctx.insert("has_arp", &has_arp);
         ctx.insert("has_ipv6_ext", &has_ipv6_ext);
+        ctx.insert("has_qinq", &has_qinq);
+        ctx.insert("has_ip_frag", &has_ip_frag);
         ctx.insert("has_rewrite", &has_rewrite);
         ctx.insert("idx_bits", &idx_bits);
 
@@ -471,7 +498,7 @@ fn generate_rewrite_lut(tera: &Tera, rtl_dir: &Path, rules: &[crate::model::Stat
             map.insert("index".to_string(), serde_json::json!(idx));
 
             let flags = rw.flags();
-            map.insert("flags_bin".to_string(), serde_json::json!(format!("{:08b}", flags)));
+            map.insert("flags_bin".to_string(), serde_json::json!(format!("{:016b}", flags)));
 
             // MAC addresses
             if let Some(ref mac) = rw.set_dst_mac {
@@ -527,6 +554,20 @@ fn generate_rewrite_lut(tera: &Tera, rtl_dir: &Path, rules: &[crate::model::Stat
                 map.insert("dscp".to_string(), serde_json::json!(dscp));
             } else {
                 map.insert("has_dscp".to_string(), serde_json::json!(false));
+            }
+
+            // L4 port rewrite
+            if let Some(port) = rw.set_src_port {
+                map.insert("has_src_port".to_string(), serde_json::json!(true));
+                map.insert("src_port".to_string(), serde_json::json!(port));
+            } else {
+                map.insert("has_src_port".to_string(), serde_json::json!(false));
+            }
+            if let Some(port) = rw.set_dst_port {
+                map.insert("has_dst_port".to_string(), serde_json::json!(true));
+                map.insert("dst_port".to_string(), serde_json::json!(port));
+            } else {
+                map.insert("has_dst_port".to_string(), serde_json::json!(false));
             }
 
             map
@@ -1006,6 +1047,8 @@ fn generate_stateless_rule(
     ctx.insert("has_icmpv6", &global_protos.has_icmpv6);
     ctx.insert("has_arp", &global_protos.has_arp);
     ctx.insert("has_ipv6_ext", &global_protos.has_ipv6_ext);
+    ctx.insert("has_qinq", &global_protos.has_qinq);
+    ctx.insert("has_ip_frag", &global_protos.has_ip_frag);
     let byte_cap_info: Vec<std::collections::HashMap<String, serde_json::Value>> = byte_offsets.iter().map(|(offset, len)| {
         let mut map = std::collections::HashMap::new();
         map.insert("offset".to_string(), serde_json::json!(offset));
@@ -1339,6 +1382,8 @@ fn generate_fsm_rule(
     ctx.insert("has_icmpv6", &global_protos.has_icmpv6);
     ctx.insert("has_arp", &global_protos.has_arp);
     ctx.insert("has_ipv6_ext", &global_protos.has_ipv6_ext);
+    ctx.insert("has_qinq", &global_protos.has_qinq);
+    ctx.insert("has_ip_frag", &global_protos.has_ip_frag);
 
     let rendered = tera.render("rule_fsm.v.tera", &ctx)
         .with_context(|| format!("Failed to render rule_fsm for rule {}", rule.name))?;

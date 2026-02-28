@@ -4517,6 +4517,385 @@ pacgate:
     assert!(stderr.contains("arp_opcode must be 1") || stderr.contains("arp_opcode"), "should reject arp_opcode=3");
 }
 
+// ============================================================
+// Phase 24 — QinQ, IPv4 Fragmentation, L4 Port Rewrite
+// ============================================================
+
+#[test]
+fn compile_qinq_rules() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("qinq.yaml");
+    let out_dir = tmp.path().join("gen");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: outer_vlan_100
+      priority: 100
+      match:
+        ethertype: "0x88A8"
+        outer_vlan_id: 100
+        outer_vlan_pcp: 5
+      action: pass
+    - name: inner_vlan_only
+      priority: 50
+      match:
+        ethertype: "0x8100"
+        vlan_id: 200
+      action: pass
+"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["compile", yaml.to_str().unwrap(), "-o", out_dir.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "QinQ compile failed: {}", String::from_utf8_lossy(&output.stderr));
+    let verilog = std::fs::read_to_string(out_dir.join("rtl/rule_match_0.v")).unwrap();
+    assert!(verilog.contains("outer_vlan_id == 12'd100"), "should have outer VLAN ID comparison");
+    assert!(verilog.contains("outer_vlan_pcp == 3'd5"), "should have outer VLAN PCP comparison");
+}
+
+#[test]
+fn compile_fragment_rules() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("frag.yaml");
+    let out_dir = tmp.path().join("gen");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: block_fragments
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_more_fragments: true
+      action: drop
+    - name: allow_df_set
+      priority: 90
+      match:
+        ethertype: "0x0800"
+        ip_dont_fragment: true
+      action: pass
+    - name: block_nonzero_offset
+      priority: 80
+      match:
+        ethertype: "0x0800"
+        ip_frag_offset: 100
+      action: drop
+"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["compile", yaml.to_str().unwrap(), "-o", out_dir.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "Fragment compile failed: {}", String::from_utf8_lossy(&output.stderr));
+    let v0 = std::fs::read_to_string(out_dir.join("rtl/rule_match_0.v")).unwrap();
+    assert!(v0.contains("ip_more_fragments == 1'b1"), "should have MF flag check");
+    let v1 = std::fs::read_to_string(out_dir.join("rtl/rule_match_1.v")).unwrap();
+    assert!(v1.contains("ip_dont_fragment == 1'b1"), "should have DF flag check");
+    let v2 = std::fs::read_to_string(out_dir.join("rtl/rule_match_2.v")).unwrap();
+    assert!(v2.contains("ip_frag_offset == 13'd100"), "should have frag offset check");
+}
+
+#[test]
+fn compile_port_rewrite_rules() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("port_rw.yaml");
+    let out_dir = tmp.path().join("gen");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: redirect_http
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 80
+      action: pass
+      rewrite:
+        set_dst_port: 8080
+    - name: nat_ssh
+      priority: 90
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 22
+      action: pass
+      rewrite:
+        set_src_port: 10022
+        set_dst_port: 2222
+"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["compile", yaml.to_str().unwrap(), "--axi", "-o", out_dir.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "Port rewrite compile failed: {}", String::from_utf8_lossy(&output.stderr));
+    let lut = std::fs::read_to_string(out_dir.join("rtl/rewrite_lut.v")).unwrap();
+    assert!(lut.contains("rewrite_src_port"), "LUT should have src_port output");
+    assert!(lut.contains("rewrite_dst_port"), "LUT should have dst_port output");
+    assert!(lut.contains("16'd8080"), "LUT should have dst_port value 8080");
+    assert!(lut.contains("16'd10022"), "LUT should have src_port value 10022");
+}
+
+#[test]
+fn validate_outer_vlan_range() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("bad_qinq.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: bad
+      priority: 100
+      match:
+        ethertype: "0x88A8"
+        outer_vlan_id: 5000
+      action: pass
+"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["validate", yaml.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("outer_vlan_id") && stderr.contains("4095"), "should reject outer_vlan_id > 4095");
+}
+
+#[test]
+fn validate_frag_offset_range() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("bad_frag.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: bad
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_frag_offset: 9000
+      action: pass
+"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["validate", yaml.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("ip_frag_offset") && stderr.contains("8191"), "should reject ip_frag_offset > 8191");
+}
+
+#[test]
+fn validate_port_rewrite_requires_ipv4() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("bad_port_rw.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: bad
+      priority: 100
+      match:
+        ethertype: "0x86DD"
+        ip_protocol: 6
+      action: pass
+      rewrite:
+        set_dst_port: 8080
+"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["validate", yaml.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Port rewrite") || stderr.contains("port rewrite") || stderr.contains("set_dst_port") || stderr.contains("IPv4"),
+            "should reject port rewrite without IPv4: {}", stderr);
+}
+
+#[test]
+fn validate_port_rewrite_requires_protocol() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("bad_port_rw2.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: bad
+      priority: 100
+      match:
+        ethertype: "0x0800"
+      action: pass
+      rewrite:
+        set_src_port: 1234
+"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["validate", yaml.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("port rewrite") || stderr.contains("TCP") || stderr.contains("UDP") || stderr.contains("ip_protocol"),
+            "should reject port rewrite without TCP/UDP: {}", stderr);
+}
+
+#[test]
+fn validate_port_rewrite_rejects_zero() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("bad_port_rw3.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: bad
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+      action: pass
+      rewrite:
+        set_dst_port: 0
+"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["validate", yaml.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("set_dst_port") || stderr.contains("port") || stderr.contains("1-65535"),
+            "should reject port 0: {}", stderr);
+}
+
+#[test]
+fn simulate_qinq_match() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("qinq_sim.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: customer_voice
+      priority: 100
+      match:
+        ethertype: "0x88A8"
+        outer_vlan_id: 100
+      action: pass
+"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["simulate", yaml.to_str().unwrap(),
+               "--packet", "ethertype=0x88A8,outer_vlan_id=100"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("customer_voice") || stdout.contains("pass"),
+            "should match QinQ rule: {}", stdout);
+}
+
+#[test]
+fn simulate_frag_df_match() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("frag_sim.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_df
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_dont_fragment: true
+      action: pass
+"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["simulate", yaml.to_str().unwrap(),
+               "--packet", "ethertype=0x0800,ip_dont_fragment=true"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("allow_df") || stdout.contains("pass"),
+            "should match DF rule: {}", stdout);
+}
+
+#[test]
+fn simulate_port_rewrite_info() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("port_rw_sim.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: redirect_http
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 80
+      action: pass
+      rewrite:
+        set_dst_port: 8080
+"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["simulate", yaml.to_str().unwrap(),
+               "--packet", "ethertype=0x0800,ip_protocol=6,dst_port=80"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("redirect_http") || stdout.contains("pass"),
+            "should match port rewrite rule: {}", stdout);
+    assert!(stdout.contains("8080") || stdout.contains("set_dst_port"),
+            "should show port rewrite info: {}", stdout);
+}
+
+#[test]
+fn validate_outer_vlan_pcp_range() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("bad_pcp.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: bad
+      priority: 100
+      match:
+        ethertype: "0x88A8"
+        outer_vlan_pcp: 10
+      action: pass
+"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["validate", yaml.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("outer_vlan_pcp") || stderr.contains("0-7"),
+            "should reject outer_vlan_pcp > 7: {}", stderr);
+}
+
 #[test]
 fn validate_icmpv6_code_without_type() {
     let tmp = tempfile::tempdir().unwrap();

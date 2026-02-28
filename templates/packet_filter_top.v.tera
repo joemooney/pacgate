@@ -20,12 +20,18 @@ module packet_filter_top (
     ,
     // Parsed fields for rewrite engine
     output wire        vlan_valid,
+    output wire        outer_vlan_valid,
     output wire [7:0]  ip_ttl,
     output wire [15:0] ip_checksum,
     output wire [31:0] src_ip,
     output wire [31:0] dst_ip,
     output wire [5:0]  ip_dscp,
-    output wire [1:0]  ip_ecn
+    output wire [1:0]  ip_ecn,
+    output wire [15:0] src_port,
+    output wire [15:0] dst_port,
+    output wire [10:0] l4_port_offset,
+    output wire        l4_port_offset_valid,
+    output wire [7:0]  ip_protocol
 {% endif %}
 );
 
@@ -39,17 +45,32 @@ module packet_filter_top (
     wire        vlan_valid;
 {% endif %}
 
+    // Frame parser outputs — QinQ (802.1ad)
+    wire [11:0] outer_vlan_id;
+    wire [2:0]  outer_vlan_pcp;
+{% if not has_rewrite %}
+    wire        outer_vlan_valid;
+{% endif %}
+
     // Frame parser outputs — L3 (IPv4)
 {% if not has_rewrite %}
     wire [31:0] src_ip;
     wire [31:0] dst_ip;
 {% endif %}
+{% if not has_rewrite %}
     wire [7:0]  ip_protocol;
+{% endif %}
 {% if not has_rewrite %}
     wire [7:0]  ip_ttl;
     wire [15:0] ip_checksum;
 {% endif %}
     wire        l3_valid;
+
+    // Frame parser outputs — IPv4 fragmentation
+    wire        ip_dont_fragment;
+    wire        ip_more_fragments;
+    wire [12:0] ip_frag_offset;
+    wire        ip_frag_valid;
 
     // Frame parser outputs — L3 (IPv6)
     wire [127:0] src_ipv6;
@@ -58,9 +79,17 @@ module packet_filter_top (
     wire         ipv6_valid;
 
     // Frame parser outputs — L4 (TCP/UDP)
+{% if not has_rewrite %}
     wire [15:0] src_port;
     wire [15:0] dst_port;
+{% endif %}
     wire        l4_valid;
+
+    // Frame parser outputs — L4 port offset
+{% if not has_rewrite %}
+    wire [10:0] l4_port_offset;
+    wire        l4_port_offset_valid;
+{% endif %}
 
     // Frame parser outputs — VXLAN
     wire [23:0] vxlan_vni;
@@ -131,12 +160,19 @@ module packet_filter_top (
         .vlan_id      (vlan_id),
         .vlan_pcp     (vlan_pcp),
         .vlan_valid   (vlan_valid),
+        .outer_vlan_id  (outer_vlan_id),
+        .outer_vlan_pcp (outer_vlan_pcp),
+        .outer_vlan_valid (outer_vlan_valid),
         .src_ip       (src_ip),
         .dst_ip       (dst_ip),
         .ip_protocol  (ip_protocol),
         .ip_ttl       (ip_ttl),
         .ip_checksum  (ip_checksum),
         .l3_valid     (l3_valid),
+        .ip_dont_fragment  (ip_dont_fragment),
+        .ip_more_fragments (ip_more_fragments),
+        .ip_frag_offset    (ip_frag_offset),
+        .ip_frag_valid     (ip_frag_valid),
         .src_ipv6     (src_ipv6),
         .dst_ipv6     (dst_ipv6),
         .ipv6_next_header (ipv6_next_header),
@@ -144,6 +180,8 @@ module packet_filter_top (
         .src_port     (src_port),
         .dst_port     (dst_port),
         .l4_valid     (l4_valid),
+        .l4_port_offset       (l4_port_offset),
+        .l4_port_offset_valid (l4_port_offset_valid),
         .vxlan_vni    (vxlan_vni),
         .vxlan_valid  (vxlan_valid),
         .gtp_teid     (gtp_teid),
@@ -263,6 +301,15 @@ module packet_filter_top (
 {% if has_ipv6_ext %}
         .ipv6_hop_limit  (ipv6_hop_limit),
         .ipv6_flow_label (ipv6_flow_label),
+{% endif %}
+{% if has_qinq %}
+        .outer_vlan_id   (outer_vlan_id),
+        .outer_vlan_pcp  (outer_vlan_pcp),
+{% endif %}
+{% if has_ip_frag %}
+        .ip_dont_fragment  (ip_dont_fragment),
+        .ip_more_fragments (ip_more_fragments),
+        .ip_frag_offset    (ip_frag_offset),
 {% endif %}
 {% if has_byte_capture %}
 {% for cap in byte_captures %}

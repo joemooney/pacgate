@@ -972,6 +972,9 @@ fn main() -> Result<()> {
                             if rw.dec_ttl { println!("    dec_ttl: true"); }
                             if let Some(ref v) = rw.set_src_ip { println!("    set_src_ip: {}", v); }
                             if let Some(ref v) = rw.set_dst_ip { println!("    set_dst_ip: {}", v); }
+                            if let Some(v) = rw.set_dscp { println!("    set_dscp: {}", v); }
+                            if let Some(v) = rw.set_src_port { println!("    set_src_port: {}", v); }
+                            if let Some(v) = rw.set_dst_port { println!("    set_dst_port: {}", v); }
                         }
                     }
                 }
