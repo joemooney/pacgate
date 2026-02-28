@@ -346,10 +346,10 @@ Stateful:  Tracks sequence across multiple frames
 
        Frame 1 (ARP)         Frame 2 (IPv4)
            │                      │
-    ┌──────▼──────┐       ┌──────▼──────┐
+    ┌──────▼───────┐       ┌──────▼──────┐
     │    idle      │──────►│  arp_seen   │──────► action: pass
     │              │ ARP   │             │ IPv4
-    └──────────────┘       └──────────────┘
+    └──────────────┘       └─────────────┘
                               │ timeout
                               ▼
                            back to idle

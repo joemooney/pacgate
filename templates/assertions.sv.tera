@@ -287,6 +287,29 @@ module packet_filter_assertions (
     cover property (@(posedge clk) disable iff (!rst_n) parsed_mld_valid);
 {% endif %}
 
+{% if has_rewrite_rules %}
+    // ── Rewrite Engine Assertions ───────────────────────────────────
+    // Rewrite must only be applied when the packet is passed (not dropped).
+    property p_rewrite_implies_pass;
+        @(posedge clk) disable iff (!rst_n)
+        (decision_valid && rewrite_en) |-> decision_pass;
+    endproperty
+    assert property (p_rewrite_implies_pass)
+        else $error("ASSERT FAIL: rewrite_en asserted but decision is drop — rewrite should only apply to passed packets");
+
+    // Cover: rewrite engine active
+    cover property (@(posedge clk) disable iff (!rst_n) decision_valid && rewrite_en);
+
+    // Cover: each rewrite type exercised
+{% for idx in rewrite_rule_indices %}
+    cover property (@(posedge clk) disable iff (!rst_n)
+        decision_valid && (decision_rule_idx == {{ idx }}) && rewrite_en);
+{% endfor %}
+
+    // Cover: pass without rewrite (plain passthrough)
+    cover property (@(posedge clk) disable iff (!rst_n) decision_valid && decision_pass && !rewrite_en);
+{% endif %}
+
 {% if has_dynamic %}
     // ── Dynamic Flow Table Assertions ───────────────────────────────
 

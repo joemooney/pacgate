@@ -26,57 +26,57 @@ PacGate employs a multi-layer verification strategy inspired by the UVM (Univers
 
 ```
                     ┌──────────────────────────────────┐
-                    │         Verification Pyramid       │
+                    │         Verification Pyramid     │
                     ├──────────────────────────────────┤
-                    │    Formal Proof (SymbiYosys)      │  Mathematical
-                    │    - SVA assertions                │  certainty
-                    │    - BMC + cover modes             │
+                    │    Formal Proof (SymbiYosys)     │  Mathematical
+                    │    - SVA assertions              │  certainty
+                    │    - BMC + cover modes           │
                     ├──────────────────────────────────┤
-                    │    Property Tests (Hypothesis)     │  Statistical
-                    │    - Determinism, priority         │  confidence
-                    │    - Conservation, independence    │
+                    │    Property Tests (Hypothesis)   │  Statistical
+                    │    - Determinism, priority       │  confidence
+                    │    - Conservation, independence  │
                     ├──────────────────────────────────┤
-                    │    Random Tests (cocotb)           │  Broad
-                    │    - 500+ constrained-random       │  coverage
-                    │    - Scoreboard checking           │
+                    │    Random Tests (cocotb)         │  Broad
+                    │    - 500+ constrained-random     │  coverage
+                    │    - Scoreboard checking         │
                     ├──────────────────────────────────┤
-                    │    Directed Tests (cocotb)         │  Targeted
-                    │    - Per-rule regression           │  validation
-                    │    - Corner cases                  │
+                    │    Directed Tests (cocotb)       │  Targeted
+                    │    - Per-rule regression         │  validation
+                    │    - Corner cases                │
                     ├──────────────────────────────────┤
-                    │    Rust Unit Tests (cargo test)    │  Compiler
-                    │    - 44 unit + 19 integration      │  correctness
+                    │    Rust Unit Tests (cargo test)  │  Compiler
+                    │    - 44 unit + 19 integration    │  correctness
                     └──────────────────────────────────┘
 ```
 
 ### Component Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    Test Environment                       │
-│                                                          │
-│  ┌──────────────┐  ┌───────────┐  ┌──────────────────┐  │
-│  │ PacketFactory │  │  Driver   │  │    Scoreboard     │  │
-│  │ - directed    │──►│  (BFM)   │  │  - predict()      │  │
-│  │ - random      │  │  byte-by- │  │  - check()        │  │
-│  │ - boundary    │  │  byte     │  │  - report()       │  │
-│  │ - corner case │  └─────┬─────┘  └────────▲──────────┘  │
-│  └──────────────┘        │                  │              │
-│                           ▼                  │              │
-│                    ┌─────────────┐   ┌──────┴──────────┐  │
+┌────────────────────────────────────────────────────────────┐
+│                    Test Environment                        │
+│                                                            │
+│  ┌───────────────┐   ┌───────────┐  ┌────────────────┐     │
+│  │ PacketFactory │   │  Driver   │  │    Scoreboard  │     │
+│  │ - directed    │──►│  (BFM)    │  │  - predict()   │     │
+│  │ - random      │   │  byte-by- │  │  - check()     │     │
+│  │ - boundary    │   │  byte     │  │  - report()    │     │
+│  │ - corner case │   └─────┬─────┘  └────────▲───────┘     │
+│  └───────────────┘         │                 │             │
+│                            ▼                 │             │
+│                    ┌─────────────┐   ┌───────┴──────────┐  │
 │                    │     DUT     │   │    Monitor       │  │
 │                    │  (Verilog)  │──►│  - decision_valid│  │
 │                    │             │   │  - decision_pass │  │
-│                    └─────────────┘   └─────────────────┘  │
-│                                                          │
-│  ┌──────────────┐  ┌───────────────────────────────────┐  │
+│                    └─────────────┘   └──────────────────┘  │
+│                                                            │
+│  ┌───────────────┐  ┌───────────────────────────────────┐  │
 │  │   Coverage    │  │    Properties (Hypothesis)        │  │
 │  │ - coverpoints │  │  - determinism                    │  │
 │  │ - bins        │  │  - priority_correctness           │  │
 │  │ - cross       │  │  - conservation                   │  │
 │  │ - XML export  │  │  - default_action                 │  │
-│  └──────────────┘  └───────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────┘
+│  └───────────────┘  └───────────────────────────────────┘  │
+└────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -455,11 +455,11 @@ One of PacGate's most valuable capabilities is testing **existing FPGA packet fi
 
 ```
 ┌─────────────────┐    ┌──────────────────────┐
-│  Your FPGA       │    │  PacGate Reference    │
-│  Filter (DUT)    │    │  (generated Verilog)  │
-│                  │    │                       │
-│  pkt_* ──► dec  │    │  pkt_* ──► dec        │
-└────────┬────────┘    └──────────┬────────────┘
+│  Your FPGA      │    │  PacGate Reference   │
+│  Filter (DUT)   │    │  (generated Verilog) │
+│                 │    │                      │
+│  pkt_* ──► dec  │    │  pkt_* ──► dec       │
+└────────┬────────┘    └──────────┬───────────┘
          │                        │
          ▼                        ▼
     ┌────────────────────────────────┐

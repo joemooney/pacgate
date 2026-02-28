@@ -64,6 +64,7 @@ pub fn generate_with_dynamic(config: &FilterConfig, templates_dir: &Path, output
     let has_mpls_rules = rules.iter().any(|r| r.match_criteria.mpls_label.is_some() || r.match_criteria.mpls_tc.is_some() || r.match_criteria.mpls_bos.is_some());
     let has_igmp_rules = rules.iter().any(|r| r.match_criteria.igmp_type.is_some());
     let has_mld_rules = rules.iter().any(|r| r.match_criteria.mld_type.is_some());
+    let has_rewrite_rules = rules.iter().any(|r| r.has_rewrite());
 
     // Build per-rule protocol index lists for conditional assertions
     let gtp_rule_indices: Vec<usize> = rules.iter().enumerate()
@@ -77,6 +78,9 @@ pub fn generate_with_dynamic(config: &FilterConfig, templates_dir: &Path, output
         .map(|(i, _)| i).collect();
     let mld_rule_indices: Vec<usize> = rules.iter().enumerate()
         .filter(|(_, r)| r.match_criteria.mld_type.is_some())
+        .map(|(i, _)| i).collect();
+    let rewrite_rule_indices: Vec<usize> = rules.iter().enumerate()
+        .filter(|(_, r)| r.has_rewrite())
         .map(|(i, _)| i).collect();
 
     // Render SVA assertions
@@ -97,6 +101,8 @@ pub fn generate_with_dynamic(config: &FilterConfig, templates_dir: &Path, output
         ctx.insert("mpls_rule_indices", &mpls_rule_indices);
         ctx.insert("igmp_rule_indices", &igmp_rule_indices);
         ctx.insert("mld_rule_indices", &mld_rule_indices);
+        ctx.insert("has_rewrite_rules", &has_rewrite_rules);
+        ctx.insert("rewrite_rule_indices", &rewrite_rule_indices);
         ctx.insert("has_dynamic", &dynamic);
         ctx.insert("dynamic_num_entries", &num_entries);
 

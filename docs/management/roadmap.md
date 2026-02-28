@@ -29,6 +29,8 @@ Make FPGA packet filter development as easy as writing a YAML config file, with 
 │ Phase 14: Protocol verification (scoreboard, factory, SVA, overlap)    DONE  │
 │ Phase 15: Verification depth (reachability, mutations, Hypothesis, CI) DONE  │
 │ Phase 16: Simulator completeness (rate-limit, conntrack, --stateful)   DONE  │
+│ Phase 17: Runtime flow tables (--dynamic, AXI-Lite CRUD, staging)     DONE  │
+│ Phase 18: Packet rewrite actions (NAT, TTL, MAC, VLAN rewriting)      DONE  │
 ████████████████████████████████████████████████████████████████████████████████
 
 Future
@@ -167,6 +169,21 @@ Future
 - `dynamic_firewall.yaml` example (22 total examples)
 - 242 unit + 165 integration = 407 Rust tests
 
+### Phase 18: Packet Rewrite Actions (COMPLETE)
+- `rewrite:` field on rules with 7 operations: set_dst_mac, set_src_mac, set_vlan_id, set_ttl, dec_ttl, set_src_ip, set_dst_ip
+- RewriteAction data model + YAML parsing + validation (MAC format, VLAN range, TTL range, IP format, pass-only)
+- Frame parser extended: ip_ttl (8-bit), ip_checksum (16-bit) extraction from IPv4 header
+- `rewrite_lut.v` — generated combinational ROM mapping rule_idx to rewrite operations
+- `packet_rewrite.v` — hand-written RTL byte substitution engine with RFC 1624 incremental checksum
+- `packet_filter_axi_top.v.tera` — templatized AXI top-level with conditional rewrite engine wiring
+- Simulator displays rewrite information for matching rules
+- Estimate accounts for rewrite LUT/FF resources
+- LINT018-019 for rewrite action validation and best practices
+- Formal SVA assertions for rewrite operations
+- Diff detects rewrite action changes between rule sets
+- `rewrite_actions.yaml` example (23 total examples)
+- 250 unit + 181 integration = 431 Rust tests
+
 ## Key Milestones
 
 | Milestone | Status |
@@ -181,4 +198,5 @@ Future
 | Full verification completeness (388 Rust + 47 Python tests) | DONE |
 | Stateful software simulation (rate-limit + conntrack) | DONE |
 | Runtime-updateable flow tables (--dynamic) | DONE |
-| 22 production-quality examples | DONE |
+| Packet rewrite actions (NAT, TTL, MAC, VLAN) | DONE |
+| 23 production-quality examples | DONE |

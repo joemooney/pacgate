@@ -1607,3 +1607,66 @@ Implement `--dynamic` compile flag that replaces static per-rule matchers with a
 ### Git Operations
 - Commits pushed to https://github.com/joemooney/pacgate.git
   - `bedabc0` — Phase 17 Batches 1-5: Runtime-updateable flow tables (--dynamic)
+
+---
+
+## Session 19 — 2026-02-27: Phase 18 — Packet Rewrite Actions
+
+### Goal
+Add packet rewrite actions to PacGate. Rules can include a `rewrite:` field with 7 operations (set_dst_mac, set_src_mac, set_vlan_id, set_ttl, dec_ttl, set_src_ip, set_dst_ip) enabling NAT, TTL management, MAC rewriting, and VLAN modification without FPGA re-synthesis.
+
+### Actions Taken
+
+**Data Model + Validation**
+1. Added `RewriteAction` enum/struct to `src/model.rs` with 7 operation variants
+2. Added `rewrite` field (Option<Vec<RewriteAction>>) to rule model with serde YAML deserialization
+3. Added rewrite validation to `src/loader.rs` — MAC format, VLAN range (0-4095), TTL range (1-255), IPv4 address format, pass-action-only enforcement
+4. Unit tests for rewrite parsing and validation
+
+**Frame Parser Extensions**
+5. Extended `rtl/frame_parser.v` to extract `ip_ttl` (8-bit) and `ip_checksum` (16-bit) from IPv4 header
+6. Added output ports for ip_ttl and ip_checksum
+
+**RTL Generation**
+7. Created `templates/rewrite_lut.v.tera` — combinational ROM mapping rule_idx to rewrite operations (MAC addresses, VLAN ID, TTL value, IP addresses, operation enables)
+8. Created `rtl/packet_rewrite.v` — hand-written byte substitution engine with RFC 1624 incremental IP checksum update for TTL and IP address modifications
+9. Created `templates/packet_filter_axi_top.v.tera` — templatized AXI top-level that conditionally wires the rewrite engine between store-forward FIFO and AXI-Stream output
+10. Updated `src/verilog_gen.rs` to generate rewrite_lut.v from rule rewrite actions
+
+**Simulator + Tool Support**
+11. Updated `src/simulator.rs` to display rewrite information for matching rules
+12. Updated `src/main.rs` estimate function to account for rewrite LUT/FF resources
+13. Added LINT018 and LINT019 lint rules for rewrite action validation and best practices
+14. Updated formal assertion generation for rewrite operations
+15. Updated diff to detect rewrite action changes between rule sets
+
+**Example + Tests**
+16. Created `rules/examples/rewrite_actions.yaml` — demonstrates NAT, TTL management, MAC rewrite, VLAN modification
+17. Added unit tests for rewrite action model, validation, and generation
+18. Added integration tests for rewrite compile, lint, estimate, formal, diff, simulate
+
+### New Files
+- `rtl/packet_rewrite.v` — Hand-written byte substitution engine with RFC 1624 checksum
+- `templates/rewrite_lut.v.tera` — Generated combinational ROM for rewrite operations
+- `templates/packet_filter_axi_top.v.tera` — Templatized AXI top-level with rewrite wiring
+- `rules/examples/rewrite_actions.yaml` — Rewrite actions example
+
+### Modified Files
+- `src/model.rs` — RewriteAction data model
+- `src/loader.rs` — Rewrite validation
+- `src/verilog_gen.rs` — Rewrite LUT generation
+- `src/simulator.rs` — Rewrite info display
+- `src/main.rs` — LINT018-019, estimate, diff, formal updates
+- `src/formal_gen.rs` — Rewrite SVA assertions
+- `rtl/frame_parser.v` — ip_ttl, ip_checksum extraction
+- `tests/integration_test.rs` — Rewrite integration tests
+
+### Test Results
+- 250 unit tests — all PASS
+- 181 integration tests — all PASS
+- Total: 431 Rust tests (from 407 in Phase 17)
+- 47 Python scoreboard tests unchanged
+- All 23 YAML examples compile unchanged
+
+### Git Operations
+- Commits pushed to https://github.com/joemooney/pacgate.git

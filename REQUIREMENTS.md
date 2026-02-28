@@ -698,6 +698,59 @@
 - REQ-1150: dynamic_firewall.yaml example with 5 L2/L3/L4 rules [IMPLEMENTED]
 
 ### Testing
-- REQ-1160: 242 Rust unit tests (through Phase 17) [IMPLEMENTED]
-- REQ-1161: 165 Rust integration tests (through Phase 17) [IMPLEMENTED]
-- REQ-1162: 47 Python scoreboard unit tests (through Phase 17) [IMPLEMENTED]
+- REQ-1160: 250 Rust unit tests (through Phase 18) [IMPLEMENTED]
+- REQ-1161: 181 Rust integration tests (through Phase 18) [IMPLEMENTED]
+- REQ-1162: 47 Python scoreboard unit tests (through Phase 18) [IMPLEMENTED]
+
+## Phase 18 — Packet Rewrite Actions
+
+### Rewrite Data Model
+- REQ-1200: `rewrite:` field on rules with list of rewrite operations [IMPLEMENTED]
+- REQ-1201: `set_dst_mac` rewrite operation — overwrite destination MAC address [IMPLEMENTED]
+- REQ-1202: `set_src_mac` rewrite operation — overwrite source MAC address [IMPLEMENTED]
+- REQ-1203: `set_vlan_id` rewrite operation — overwrite 12-bit VLAN ID [IMPLEMENTED]
+- REQ-1204: `set_ttl` rewrite operation — set IPv4 TTL to specific value [IMPLEMENTED]
+- REQ-1205: `dec_ttl` rewrite operation — decrement IPv4 TTL by 1 [IMPLEMENTED]
+- REQ-1206: `set_src_ip` rewrite operation — overwrite source IPv4 address (NAT) [IMPLEMENTED]
+- REQ-1207: `set_dst_ip` rewrite operation — overwrite destination IPv4 address (NAT) [IMPLEMENTED]
+- REQ-1208: RewriteAction data model with YAML parsing and serde deserialization [IMPLEMENTED]
+
+### Rewrite Validation
+- REQ-1210: Validate MAC addresses in set_dst_mac/set_src_mac (6-octet format) [IMPLEMENTED]
+- REQ-1211: Validate VLAN ID in set_vlan_id (0-4095) [IMPLEMENTED]
+- REQ-1212: Validate TTL value in set_ttl (1-255) [IMPLEMENTED]
+- REQ-1213: Validate IPv4 address format in set_src_ip/set_dst_ip [IMPLEMENTED]
+- REQ-1214: Rewrite actions only permitted on rules with action: pass [IMPLEMENTED]
+
+### Frame Parser Extensions
+- REQ-1220: Frame parser extracts ip_ttl (8-bit) from IPv4 header [IMPLEMENTED]
+- REQ-1221: Frame parser extracts ip_checksum (16-bit) from IPv4 header [IMPLEMENTED]
+
+### Rewrite RTL
+- REQ-1230: rewrite_lut.v — generated combinational ROM mapping rule_idx to rewrite operations [IMPLEMENTED]
+- REQ-1231: packet_rewrite.v — hand-written byte substitution engine [IMPLEMENTED]
+- REQ-1232: RFC 1624 incremental IP checksum update for TTL/IP address changes [IMPLEMENTED]
+- REQ-1233: In-place rewrite only — no frame length changes [IMPLEMENTED]
+- REQ-1234: Rewrite engine integrated into AXI-Stream datapath (requires --axi) [IMPLEMENTED]
+
+### AXI Top-Level
+- REQ-1240: packet_filter_axi_top.v templatized (templates/packet_filter_axi_top.v.tera) to conditionally wire rewrite engine [IMPLEMENTED]
+- REQ-1241: Rewrite engine sits between store-forward FIFO output and AXI-Stream output [IMPLEMENTED]
+
+### Simulator
+- REQ-1250: Simulator displays rewrite information for matching rules [IMPLEMENTED]
+
+### Tool Support
+- REQ-1260: `estimate` accounts for rewrite LUT/FF resources [IMPLEMENTED]
+- REQ-1261: LINT018 — lint rule for rewrite action validation [IMPLEMENTED]
+- REQ-1262: LINT019 — lint rule for rewrite action best practices [IMPLEMENTED]
+- REQ-1263: `formal` generates SVA assertions for rewrite operations [IMPLEMENTED]
+- REQ-1264: `diff` detects rewrite action changes between rule sets [IMPLEMENTED]
+
+### Example
+- REQ-1270: rewrite_actions.yaml example demonstrating NAT, TTL, MAC, VLAN rewrite [IMPLEMENTED]
+
+### Testing
+- REQ-1280: 250 Rust unit tests (through Phase 18) [IMPLEMENTED]
+- REQ-1281: 181 Rust integration tests (through Phase 18) [IMPLEMENTED]
+- REQ-1282: 47 Python scoreboard unit tests (through Phase 18) [IMPLEMENTED]

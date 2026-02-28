@@ -4,7 +4,7 @@
 PacGate is an FPGA-based packet filtering switch where YAML-defined rules compile into both synthesizable Verilog (the filter hardware) and a cocotb test harness (the validator). The two outputs are generated from the same specification but serve orthogonal purposes: the filter enforces rules in hardware, the harness proves they work correctly in simulation.
 
 ## What It Does
-1. You define packet filter rules in YAML (match on MAC, IPv4/IPv6, ports, VLAN, VXLAN VNI, GTP-U TEID, MPLS labels, IGMP/MLD, etc.)
+1. You define packet filter rules in YAML (match on MAC, IPv4/IPv6, ports, VLAN, VXLAN VNI, GTP-U TEID, MPLS labels, IGMP/MLD, etc.) with optional rewrite actions (NAT, TTL, MAC, VLAN)
 2. The `pacgate` compiler (written in Rust) reads the YAML and generates:
    - **Verilog RTL** — synthesizable hardware description for an FPGA
    - **cocotb test bench** — Python tests that verify the hardware via simulation
@@ -45,6 +45,8 @@ rules.yaml ──> Compiler (Rust) ──┬──> Verilog (DUT)
     - `rule_fsm_N` — generated per stateful rule, registered HSM with timeout, variables, guards
     - `decision_logic` — generated priority encoder, first-match wins, outputs rule index
   - `store_forward_fifo` — buffers frames, forwards/discards based on filter decision
+  - `rewrite_lut` — generated combinational ROM mapping rule_idx to rewrite operations (if rewrite rules present)
+  - `packet_rewrite` — byte substitution engine with RFC 1624 incremental checksum (rtl/packet_rewrite.v)
   - `rule_counters` — per-rule 64-bit packet/byte counters (optional, --counters)
   - `axi_lite_csr` — AXI4-Lite register interface for counter readout
 - `conntrack_table` — connection tracking hash table (optional, --conntrack)
@@ -125,7 +127,7 @@ UVM-inspired Python verification environment with:
 - All commands except `init`, `graph`, `report` support `--json` for machine-readable output
 
 ## Examples
-21 production-quality YAML examples covering real-world deployments:
+23 production-quality YAML examples covering real-world deployments:
 - Enterprise campus, data center multi-tenant, blacklist mode
 - Industrial OT boundary (EtherCAT, PROFINET, PTP, GOOSE)
 - Automotive Ethernet gateway (AVB/TSN, ADAS)
@@ -141,16 +143,18 @@ UVM-inspired Python verification environment with:
 - GTP-U 5G mobile core (TEID-based tunnel filtering)
 - MPLS provider network (label stack matching, TC classification)
 - Multicast filtering (IGMP/MLD type-based control)
+- Dynamic firewall (runtime-updateable flow tables via AXI-Lite)
+- Packet rewrite actions (NAT, TTL management, MAC/VLAN rewriting)
 
 ## Quality
-- 237 Rust unit tests (model parsing, validation, CIDR/port overlap, IPv4/IPv6, PCAP, byte-match, HSM, Mermaid, simulation incl. byte-match/rate-limit/conntrack, PCAP analysis, synthesis, mutation (11 types), templates, benchmarking, reachability (protocol fields), GTP-U, MPLS, IGMP/MLD, MCY config generation)
-- 151 Rust integration tests (full compile pipeline, AXI, formal, lint (15 rules), L3/L4, IPv6, VXLAN, counters, PCAP, report, byte-match, HSM, Mermaid, multi-port, conntrack, rate-limit, simulate, simulate --stateful, pcap-analyze, synth, mutate, template, doc, scoreboard field verification, multi-flag compile, all-examples lint, bench, diff --html, reachability, GTP-U, MPLS, multicast, coverage framework, boundary tests, MCY, mutation kill-rate, protocol verification completeness, lint protocol prereqs, formal GTP/MPLS/cover assertions, byte_match in docs, protocol property tests)
+- 250 Rust unit tests (model parsing, validation, CIDR/port overlap, IPv4/IPv6, PCAP, byte-match, HSM, Mermaid, simulation incl. byte-match/rate-limit/conntrack, PCAP analysis, synthesis, mutation (11 types), templates, benchmarking, reachability (protocol fields), GTP-U, MPLS, IGMP/MLD, MCY config generation, rewrite action parsing/validation)
+- 181 Rust integration tests (full compile pipeline, AXI, formal, lint (19 rules), L3/L4, IPv6, VXLAN, counters, PCAP, report, byte-match, HSM, Mermaid, multi-port, conntrack, rate-limit, simulate, simulate --stateful, pcap-analyze, synth, mutate, template, doc, scoreboard field verification, multi-flag compile, all-examples lint, bench, diff --html, reachability, GTP-U, MPLS, multicast, coverage framework, boundary tests, MCY, mutation kill-rate, protocol verification completeness, lint protocol prereqs, formal GTP/MPLS/cover assertions, byte_match in docs, protocol property tests, rewrite actions)
 - 47 Python scoreboard unit tests (IPv4 CIDR, IPv6 CIDR, port matching, VXLAN VNI, byte-match, multi-field L3/L4, GTP-U TEID, MPLS label/TC/BOS, IGMP/MLD type, protocol coverage sampling, protocol determinism checks)
 - 13+ cocotb simulation tests (directed with L3/L4 headers + 500-packet random + corner cases)
 - 5 conntrack cocotb tests (new flow, return traffic, timeout, hash collision, table overflow)
 - 85%+ functional coverage with varied frame sizes and VLAN-tagged traffic
 - Rule overlap and shadow detection with CIDR containment and port range analysis
-- Best-practice linting with 15 lint rules (LINT001-015, including GTP/MPLS/IGMP/MLD prerequisite checks)
+- Best-practice linting with 19 lint rules (LINT001-019, including GTP/MPLS/IGMP/MLD prerequisite checks, dynamic mode, rewrite actions)
 - Mutation testing: 11 YAML mutation strategies + MCY Verilog-level mutation config generation
 - Mutation kill-rate runner: compile + lint each mutant, report kill/survived/error rates
 - Coverage-directed test generation with CoverageDirector wired into random test loop
@@ -180,6 +184,7 @@ UVM-inspired Python verification environment with:
 - **Phase 15** (complete): Verification depth & tool completeness — reachability with protocol fields + stateful rule tracking, 11 mutation types, 5 protocol coverage coverpoints, fixed conntrack assertions, 4 Hypothesis protocol strategies, 9 wired property checks, LINT013-015 protocol prereqs, CI expanded to 8 simulate examples
 - **Phase 16** (complete): Simulator completeness & verification depth — rate-limit simulation (token-bucket in software), conntrack simulation (5-tuple hash + reverse lookup), --stateful CLI flag, strengthened SVA assertions (rate-limit enforcement, GTP/MPLS/IGMP/MLD prerequisite + bounds), protocol property tests wired into generated test files, byte_match in HTML docs, CI expansion (conntrack simulate, formal generate, rate-limit simulate)
 - **Phase 17** (complete): Runtime-updateable flow tables — `--dynamic` flag replaces static per-rule matchers with register-based `flow_table.v` (AXI-Lite writable, staging+commit atomicity), YAML rules as initial values, `--dynamic-entries N` (1-256), cocotb tests (6 AXI-Lite CRUD tests), estimate/lint/formal support (LINT016-017), 22 examples, 242 unit + 165 integration = 407 tests
+- **Phase 18** (complete): Packet rewrite actions — `rewrite:` field with 7 operations (set_dst_mac, set_src_mac, set_vlan_id, set_ttl, dec_ttl, set_src_ip, set_dst_ip) for NAT, TTL management, MAC rewriting, VLAN modification; RewriteAction data model + YAML validation, frame parser ip_ttl/ip_checksum extraction, rewrite_lut.v (generated ROM), packet_rewrite.v (RTL byte substitution with RFC 1624 checksum), templatized AXI top, simulator rewrite info, estimate/lint (LINT018-019)/formal/diff support, 23 examples, 250 unit + 181 integration = 431 tests
 
 ## Documentation
 - `README.md` — Project showcase and quick start

@@ -154,19 +154,19 @@ All 16 development phases are complete:
 ┌─────────────────────────────────────────────────────────────────┐
 │ Phase 1-3:   L2 matching, multi-rule, stateful FSM              │
 │ Phase 4-5:   AXI-Stream, synthesis, formal, lint, docs          │
-│ Phase 6-7:   L3/L4, counters, PCAP, VXLAN, byte-match, HSM,    │
-│              multi-port, conntrack                               │
+│ Phase 6-7:   L3/L4, counters, PCAP, VXLAN, byte-match, HSM,     │
+│              multi-port, conntrack                              │
 │ Phase 8-9:   IPv6, simulation, rate limiting, PCAP analysis,    │
-│              synthesis projects, mutation testing, templates     │
+│              synthesis projects, mutation testing, templates    │
 │ Phase 10-11: Full-stack verification, reachability, benchmarking│
-│ Phase 12-13: GTP-U, MPLS, IGMP/MLD, coverage-directed closure  │
+│ Phase 12-13: GTP-U, MPLS, IGMP/MLD, coverage-directed closure   │
 │ Phase 14-16: Protocol verification, formal assertions,          │
 │              stateful simulation                                │
 └─────────────────────────────────────────────────────────────────┘
 
 Future:
 ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-│ P4 Import/   │  │ RISC-V       │  │ Multi-vendor  │
-│ Export       │  │ Co-processor │  │ FPGA support  │
+│ P4 Import/   │  │ RISC-V       │  │ Multi-vendor │
+│ Export       │  │ Co-processor │  │ FPGA support │
 └──────────────┘  └──────────────┘  └──────────────┘
 ```

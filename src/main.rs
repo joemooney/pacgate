@@ -1872,6 +1872,12 @@ fn diff_rules(old: &model::FilterConfig, new: &model::FilterConfig, json: bool) 
                         if old_rule.is_stateful() { "stateful" } else { "stateless" },
                         if new_rule.is_stateful() { "stateful" } else { "stateless" }));
                 }
+                // Rewrite actions
+                if old_rule.rewrite != new_rule.rewrite {
+                    let old_rw = old_rule.rewrite.as_ref().map(|r| format!("{:?}", r)).unwrap_or_else(|| "None".to_string());
+                    let new_rw = new_rule.rewrite.as_ref().map(|r| format!("{:?}", r)).unwrap_or_else(|| "None".to_string());
+                    changes.push(format!("rewrite: {} -> {}", old_rw, new_rw));
+                }
 
                 if changes.is_empty() {
                     unchanged.push(*name);
@@ -2322,11 +2328,16 @@ fn compute_resource_estimate(config: &model::FilterConfig) -> serde_json::Value 
     let rate_luts = num_rate_limited * 50;
     let rate_ffs = num_rate_limited * 64;
 
+    // Rewrite engine: ~50 LUTs + ~100 FFs (fixed) + ~20 LUTs per rewrite rule (LUT entries)
+    let num_rewrite = rules.iter().filter(|r| r.has_rewrite()).count();
+    let rewrite_luts = if num_rewrite > 0 { 50 + num_rewrite * 20 } else { 0 };
+    let rewrite_ffs = if num_rewrite > 0 { 100 } else { 0 };
+
     let decision_luts = 10 * total + 8;
     let decision_ffs = 4;
     let io_luts = 20;
-    let total_luts = parser_luts + rule_luts + decision_luts + io_luts + rate_luts;
-    let total_ffs = parser_ffs + rule_ffs + decision_ffs + rate_ffs;
+    let total_luts = parser_luts + rule_luts + decision_luts + io_luts + rate_luts + rewrite_luts;
+    let total_ffs = parser_ffs + rule_ffs + decision_ffs + rate_ffs + rewrite_ffs;
 
     let rule_limit_warning = if total > 64 {
         Some(format!("{} rules exceeds recommended limit of 64 for Artix-7", total))
@@ -2346,6 +2357,7 @@ fn compute_resource_estimate(config: &model::FilterConfig) -> serde_json::Value 
             "frame_parser": { "luts": parser_luts, "ffs": parser_ffs },
             "rule_matchers": { "luts": rule_luts, "ffs": rule_ffs },
             "rate_limiters": { "count": num_rate_limited, "luts": rate_luts, "ffs": rate_ffs },
+            "rewrite_engine": { "count": num_rewrite, "luts": rewrite_luts, "ffs": rewrite_ffs },
             "decision_logic": { "luts": decision_luts, "ffs": decision_ffs },
             "io_logic": { "luts": io_luts, "ffs": 0 },
         },
@@ -2427,12 +2439,17 @@ fn print_resource_estimate(config: &model::FilterConfig) {
     let rate_luts = num_rate_limited * 50;
     let rate_ffs = num_rate_limited * 64;
 
+    // Rewrite engine: ~50 LUTs + ~100 FFs (fixed) + ~20 LUTs per rewrite rule (LUT entries)
+    let num_rewrite = rules.iter().filter(|r| r.has_rewrite()).count();
+    let rewrite_luts = if num_rewrite > 0 { 50 + num_rewrite * 20 } else { 0 };
+    let rewrite_ffs = if num_rewrite > 0 { 100 } else { 0 };
+
     let decision_luts = 10 * total + 8;
     let decision_ffs = 4;
     let io_luts = 20;
 
-    let total_luts = parser_luts + rule_luts + decision_luts + io_luts + rate_luts;
-    let total_ffs = parser_ffs + rule_ffs + decision_ffs + rate_ffs;
+    let total_luts = parser_luts + rule_luts + decision_luts + io_luts + rate_luts + rewrite_luts;
+    let total_ffs = parser_ffs + rule_ffs + decision_ffs + rate_ffs + rewrite_ffs;
 
     // Artix-7 reference: XC7A35T has 20,800 LUTs, 41,600 FFs
     let artix_lut_pct = total_luts as f64 / 20800.0 * 100.0;
@@ -2445,6 +2462,9 @@ fn print_resource_estimate(config: &model::FilterConfig) {
     if num_rate_limited > 0 {
         println!("  Rate-limited rules: {}", num_rate_limited);
     }
+    if num_rewrite > 0 {
+        println!("  Rewrite rules: {}", num_rewrite);
+    }
     println!();
     println!("  Component             Est. LUTs   Est. FFs");
     println!("  ───────────────────── ────────── ─────────");
@@ -2452,6 +2472,9 @@ fn print_resource_estimate(config: &model::FilterConfig) {
     println!("  Rule matchers             {:>5}     {:>5}", rule_luts, rule_ffs);
     if num_rate_limited > 0 {
         println!("  Rate limiters             {:>5}     {:>5}", rate_luts, rate_ffs);
+    }
+    if num_rewrite > 0 {
+        println!("  Rewrite engine            {:>5}     {:>5}", rewrite_luts, rewrite_ffs);
     }
     println!("  Decision logic            {:>5}     {:>5}", decision_luts, decision_ffs);
     println!("  I/O logic                 {:>5}         -", io_luts);
@@ -2883,6 +2906,34 @@ fn lint_rules(config: &model::FilterConfig, warnings: &[String], dynamic: bool, 
                 "suggestion": "Add ipv6_next_header: 58 to ensure MLD (ICMPv6) packets are correctly identified"
             }));
         }
+    }
+
+    // Check 18: Rewrite rules present — warn that --axi is required for actual modification
+    let has_rewrite = rules.iter().any(|r| r.has_rewrite());
+    if has_rewrite {
+        findings.push(serde_json::json!({
+            "level": "warning",
+            "code": "LINT018",
+            "message": "Rules contain rewrite actions — ensure --axi flag is used during compilation for packet modification",
+            "suggestion": "Without --axi, rewrite_lut is generated but packet_rewrite engine is not instantiated"
+        }));
+    }
+
+    // Check 19: Rewrite with IP/TTL fields — informational about checksum
+    let has_ip_rewrite = rules.iter().any(|r| {
+        if let Some(ref rw) = r.rewrite {
+            rw.set_src_ip.is_some() || rw.set_dst_ip.is_some() || rw.set_ttl.is_some() || rw.dec_ttl == Some(true)
+        } else {
+            false
+        }
+    });
+    if has_ip_rewrite {
+        findings.push(serde_json::json!({
+            "level": "info",
+            "code": "LINT019",
+            "message": "Rewrite rules modify IP header fields — IP checksum will be incrementally updated (RFC 1624)",
+            "suggestion": "No action needed; packet_rewrite engine handles checksum correction automatically"
+        }));
     }
 
     // Check 16: Dynamic mode with large entry count

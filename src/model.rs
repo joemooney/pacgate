@@ -306,7 +306,7 @@ pub struct FsmDefinition {
 // --- Packet rewrite actions ---
 
 /// In-place packet header rewrite actions applied after filtering
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default, PartialEq)]
 pub struct RewriteAction {
     /// Overwrite destination MAC address (48-bit, format xx:xx:xx:xx:xx:xx)
     #[serde(default)]

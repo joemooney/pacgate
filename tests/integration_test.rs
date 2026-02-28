@@ -3158,3 +3158,109 @@ pacgate:
     assert_eq!(json["action"], "drop");
     assert!(json.get("rewrite").is_none(), "Rewrite should not be present on drop action");
 }
+
+// === Phase 18 Batch 6: Estimate, Lint, Formal ===
+
+#[test]
+fn rewrite_estimate_includes_rewrite_engine() {
+    let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: nat_out
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        src_ip: "10.0.0.0/8"
+      action: pass
+      rewrite:
+        set_src_ip: "203.0.113.1"
+        dec_ttl: true
+"#;
+    let tmp = tempfile::tempdir().unwrap();
+    let rules_path = tmp.path().join("rewrite_est.yaml");
+    std::fs::write(&rules_path, yaml).unwrap();
+    let output = pacgate_bin()
+        .args(["estimate", rules_path.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let rewrite = &json["components"]["rewrite_engine"];
+    assert_eq!(rewrite["count"], 1);
+    assert!(rewrite["luts"].as_u64().unwrap() > 0, "Rewrite engine should have LUT estimate");
+    assert!(rewrite["ffs"].as_u64().unwrap() > 0, "Rewrite engine should have FF estimate");
+}
+
+#[test]
+fn rewrite_lint_warns_axi_and_checksum() {
+    let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: nat_out
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        src_ip: "10.0.0.0/8"
+      action: pass
+      rewrite:
+        set_src_ip: "203.0.113.1"
+        dec_ttl: true
+    - name: allow_arp
+      priority: 50
+      match:
+        ethertype: "0x0806"
+      action: pass
+"#;
+    let tmp = tempfile::tempdir().unwrap();
+    let rules_path = tmp.path().join("rewrite_lint.yaml");
+    std::fs::write(&rules_path, yaml).unwrap();
+    let output = pacgate_bin()
+        .args(["lint", rules_path.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let findings = json["findings"].as_array().unwrap();
+    let codes: Vec<&str> = findings.iter().map(|f| f["code"].as_str().unwrap()).collect();
+    assert!(codes.contains(&"LINT018"), "Should warn about rewrite needing --axi");
+    assert!(codes.contains(&"LINT019"), "Should info about IP checksum auto-update");
+}
+
+#[test]
+fn rewrite_formal_generates_rewrite_assertions() {
+    let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: nat_out
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        src_ip: "10.0.0.0/8"
+      action: pass
+      rewrite:
+        set_src_ip: "203.0.113.1"
+"#;
+    let tmp = tempfile::tempdir().unwrap();
+    let rules_path = tmp.path().join("rewrite_formal.yaml");
+    std::fs::write(&rules_path, yaml).unwrap();
+    let output_dir = tmp.path().join("gen");
+    let output = pacgate_bin()
+        .args(["formal", rules_path.to_str().unwrap(), "-o", output_dir.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let sva = std::fs::read_to_string(output_dir.join("formal/assertions.sv")).unwrap();
+    assert!(sva.contains("p_rewrite_implies_pass"), "SVA should contain rewrite assertion");
+    assert!(sva.contains("rewrite_en"), "SVA should reference rewrite_en signal");
+}
