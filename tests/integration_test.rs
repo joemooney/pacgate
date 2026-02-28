@@ -5072,3 +5072,229 @@ fn formal_icmpv6_arp() {
     let assertions = std::fs::read_to_string(tmp.path().join("formal/assertions.sv")).unwrap();
     assert!(assertions.contains("icmpv6"), "SVA should contain ICMPv6 assertions");
 }
+
+// ============================================================
+// Phase 24 Batch 2 — Lint, Estimate, Diff, Formal, Examples
+// ============================================================
+
+#[test]
+fn lint_qinq_without_ethertype() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("lint_qinq.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: bad_qinq
+      priority: 100
+      match:
+        outer_vlan_id: 100
+      action: pass
+"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["lint", yaml.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("LINT029"), "should have LINT029 for QinQ without ethertype: {}", stdout);
+}
+
+#[test]
+fn lint_frag_without_ipv4() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("lint_frag.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: bad_frag
+      priority: 100
+      match:
+        ip_dont_fragment: true
+      action: pass
+"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["lint", yaml.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("LINT030"), "should have LINT030 for frag without IPv4: {}", stdout);
+}
+
+#[test]
+fn lint_port_rewrite_info() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("lint_port_rw.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: port_rw
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 80
+      action: pass
+      rewrite:
+        set_dst_port: 8080
+"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["lint", yaml.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("LINT031"), "should have LINT031 for port rewrite: {}", stdout);
+    assert!(stdout.contains("LINT032"), "should have LINT032 for L4 checksum info: {}", stdout);
+}
+
+#[test]
+fn estimate_qinq_rules() {
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["estimate", "rules/examples/qinq_provider.yaml", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert!(json["total"]["luts"].as_u64().unwrap() > 0, "should estimate LUTs for QinQ rules");
+}
+
+#[test]
+fn estimate_port_rewrite_rules() {
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["estimate", "rules/examples/port_rewrite.yaml", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert!(json["total"]["luts"].as_u64().unwrap() > 0, "should estimate LUTs for port rewrite rules");
+}
+
+#[test]
+fn diff_qinq_change() {
+    let tmp = tempfile::tempdir().unwrap();
+    let old = tmp.path().join("old.yaml");
+    let new = tmp.path().join("new.yaml");
+    std::fs::write(&old, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: qinq_rule
+      priority: 100
+      match:
+        ethertype: "0x88A8"
+        outer_vlan_id: 100
+      action: pass
+"#).unwrap();
+    std::fs::write(&new, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: qinq_rule
+      priority: 100
+      match:
+        ethertype: "0x88A8"
+        outer_vlan_id: 200
+      action: pass
+"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["diff", old.to_str().unwrap(), new.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("outer_vlan_id"), "diff should detect outer_vlan_id change: {}", stdout);
+}
+
+#[test]
+fn formal_qinq_assertions() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["compile", "rules/examples/qinq_provider.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["formal", "rules/examples/qinq_provider.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "formal failed: {}", String::from_utf8_lossy(&output.stderr));
+    let assertions = std::fs::read_to_string(tmp.path().join("formal/assertions.sv")).unwrap();
+    assert!(assertions.contains("qinq"), "SVA should contain QinQ assertions: {}", assertions);
+}
+
+#[test]
+fn formal_frag_assertions() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["compile", "rules/examples/fragment_security.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["formal", "rules/examples/fragment_security.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "formal failed: {}", String::from_utf8_lossy(&output.stderr));
+    let assertions = std::fs::read_to_string(tmp.path().join("formal/assertions.sv")).unwrap();
+    assert!(assertions.contains("ip_frag"), "SVA should contain IP frag assertions: {}", assertions);
+}
+
+#[test]
+fn stats_shows_qinq_fields() {
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["stats", "rules/examples/qinq_provider.yaml", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let usage = &json["field_usage"];
+    assert!(usage["outer_vlan_id"].as_u64().unwrap() > 0, "stats should show outer_vlan_id usage");
+}
+
+#[test]
+fn all_examples_validate_phase24() {
+    for name in &["qinq_provider", "fragment_security", "port_rewrite"] {
+        let path = format!("rules/examples/{}.yaml", name);
+        let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+            .args(["validate", &path])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "Example {} should validate: {}", name, String::from_utf8_lossy(&output.stderr));
+    }
+}
+
+#[test]
+fn all_examples_simulate_phase24() {
+    let cases = [
+        ("qinq_provider", "ethertype=0x88A8,outer_vlan_id=100,outer_vlan_pcp=5,vlan_id=10"),
+        ("fragment_security", "ethertype=0x0800,ip_dont_fragment=true"),
+        ("port_rewrite", "ethertype=0x0800,ip_protocol=6,dst_port=80"),
+    ];
+    for (name, packet) in &cases {
+        let path = format!("rules/examples/{}.yaml", name);
+        let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+            .args(["simulate", &path, "--packet", packet])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "Simulate {} failed: {}", name, String::from_utf8_lossy(&output.stderr));
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("PASS"), "Simulate {} should match a PASS rule: {}", name, stdout);
+    }
+}

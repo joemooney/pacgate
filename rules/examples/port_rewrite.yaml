@@ -1,0 +1,49 @@
+# port_rewrite.yaml — L4 port rewrite rules (NAT/PAT/load balancing)
+# Requires: pacgate compile port_rewrite.yaml --axi
+#
+# Port rewrite applies RFC 1624 incremental L4 checksum update.
+# UDP checksum=0 (no checksum) is preserved as-is.
+#
+# 4 rules: HTTP redirect, NAT SSH, DNS redirect, pass ARP
+
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: redirect_http_to_proxy
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 80
+      action: pass
+      rewrite:
+        set_dst_port: 8080
+
+    - name: nat_ssh
+      priority: 90
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 22
+      action: pass
+      rewrite:
+        set_src_port: 10022
+        set_dst_port: 2222
+
+    - name: redirect_dns
+      priority: 80
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17
+        dst_port: 53
+      action: pass
+      rewrite:
+        set_dst_port: 5353
+
+    - name: allow_arp
+      priority: 50
+      match:
+        ethertype: "0x0806"
+      action: pass

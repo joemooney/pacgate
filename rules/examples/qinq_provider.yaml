@@ -1,0 +1,50 @@
+# qinq_provider.yaml — QinQ (802.1ad) double-tagged provider rules
+# Carrier/ISP scenario: classify customer traffic by outer+inner VLAN
+#
+# Outer VLAN (S-Tag) = service provider VLAN
+# Inner VLAN (C-Tag) = customer VLAN
+#
+# 5 rules: voice, data, management, untagged drop, default
+
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: customer_voice
+      priority: 100
+      match:
+        ethertype: "0x88A8"
+        outer_vlan_id: 100
+        outer_vlan_pcp: 5
+        vlan_id: 10
+      action: pass
+
+    - name: customer_data
+      priority: 90
+      match:
+        ethertype: "0x88A8"
+        outer_vlan_id: 100
+        vlan_id: 20
+      action: pass
+
+    - name: provider_management
+      priority: 80
+      match:
+        ethertype: "0x88A8"
+        outer_vlan_id: 999
+        outer_vlan_pcp: 7
+      action: pass
+
+    - name: legacy_qinq
+      priority: 70
+      match:
+        ethertype: "0x9100"
+        outer_vlan_id: 200
+      action: pass
+
+    - name: allow_arp
+      priority: 50
+      match:
+        ethertype: "0x0806"
+      action: pass

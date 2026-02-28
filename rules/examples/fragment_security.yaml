@@ -1,0 +1,48 @@
+# fragment_security.yaml — IPv4 fragmentation security rules
+# Block common fragment-based attacks while allowing normal traffic
+#
+# Security concerns:
+# - Tiny fragment attacks (initial fragment too small to carry L4 headers)
+# - Overlapping fragments (ip_frag_offset manipulation)
+# - Non-initial fragments bypassing L4 ACLs
+#
+# 5 rules: block MF+offset, block non-initial, pass DF, pass normal, allow ARP
+
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: block_fragments_with_offset
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_more_fragments: true
+        ip_frag_offset: 0
+      action: drop
+
+    - name: block_non_initial_fragments
+      priority: 90
+      match:
+        ethertype: "0x0800"
+        ip_more_fragments: true
+      action: drop
+
+    - name: allow_dont_fragment
+      priority: 80
+      match:
+        ethertype: "0x0800"
+        ip_dont_fragment: true
+      action: pass
+
+    - name: allow_normal_ipv4
+      priority: 70
+      match:
+        ethertype: "0x0800"
+      action: pass
+
+    - name: allow_arp
+      priority: 50
+      match:
+        ethertype: "0x0806"
+      action: pass

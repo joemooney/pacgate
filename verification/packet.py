@@ -58,6 +58,24 @@ class VlanTag:
 
 
 @dataclass
+class OuterVlanTag:
+    """802.1ad outer VLAN tag (QinQ / double tagging).
+
+    Encodes as 4 bytes: 0x88A8 (S-Tag TPID) + TCI.
+    Used in service provider networks for stacking an outer (S-Tag)
+    VLAN around the customer's inner 802.1Q C-Tag.
+    """
+    outer_vlan_id: int = 0     # 12-bit outer VLAN ID
+    outer_vlan_pcp: int = 0    # 3-bit outer priority code point
+    dei: int = 0               # 1-bit drop eligible indicator
+
+    def to_bytes(self) -> bytes:
+        """Encode as 4 bytes: 0x88A8 + TCI."""
+        tci = (self.outer_vlan_pcp << 13) | (self.dei << 12) | self.outer_vlan_id
+        return struct.pack(">HH", 0x88A8, tci)
+
+
+@dataclass
 class Ipv4Header:
     """IPv4 header (20 bytes minimum)."""
     src_addr: str = "10.0.0.1"
@@ -65,12 +83,22 @@ class Ipv4Header:
     protocol: int = 6       # TCP by default
     ttl: int = 64
     total_length: int = 40  # IP header + payload
+    dont_fragment: bool = False    # DF flag (1-bit)
+    more_fragments: bool = False   # MF flag (1-bit)
+    frag_offset: int = 0           # 13-bit fragment offset (in 8-byte units)
 
     def to_bytes(self) -> bytes:
         """Serialize to 20-byte IPv4 header (no options)."""
         ver_ihl = 0x45  # version=4, IHL=5 (20 bytes)
         dscp_ecn = 0
-        flags_frag = 0
+        # Flags (3 bits) + Fragment Offset (13 bits) = 16-bit field
+        # Bit 15: reserved (0), Bit 14: DF, Bit 13: MF, Bits 12-0: frag_offset
+        flags = 0
+        if self.dont_fragment:
+            flags |= 0x4000  # DF bit (bit 14)
+        if self.more_fragments:
+            flags |= 0x2000  # MF bit (bit 13)
+        flags_frag = flags | (self.frag_offset & 0x1FFF)
         identification = 0
         checksum = 0  # simplified (not computed)
         src = ipv4_addr_to_bytes(self.src_addr)
@@ -111,11 +139,19 @@ class EthernetFrame:
     src_mac: bytes = field(default_factory=lambda: bytes(6))
     ethertype: int = 0x0800
     vlan_tag: Optional[VlanTag] = None
+    outer_vlan_tag: Optional[OuterVlanTag] = None
     payload: bytes = field(default_factory=lambda: bytes(46))
 
     def to_bytes(self) -> bytes:
-        """Serialize to wire format."""
+        """Serialize to wire format.
+
+        For QinQ (802.1ad) double tagging, the outer S-Tag (0x88A8)
+        precedes the inner C-Tag (0x8100) on the wire:
+            DST + SRC + [outer 0x88A8 TCI] + [inner 0x8100 TCI] + EtherType + payload
+        """
         frame = self.dst_mac + self.src_mac
+        if self.outer_vlan_tag:
+            frame += self.outer_vlan_tag.to_bytes()
         if self.vlan_tag:
             frame += self.vlan_tag.to_bytes()
         frame += struct.pack(">H", self.ethertype)

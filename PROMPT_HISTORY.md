@@ -1904,3 +1904,67 @@ Implement Phase 19: Platform Integration Targets. Add `--target opennic` and `--
 
 **Test results**: 324 unit + 244 integration = 568 total tests passing
 **Git**: Committed as Phase 23 Batch 1 + Batch 2
+
+---
+
+## Session — Phase 24: QinQ Double VLAN + IPv4 Fragmentation + L4 Port Rewrite (2026-02-28)
+
+### Prompt
+"Implement Phase 24: QinQ Double VLAN + IPv4 Fragmentation + L4 Port Rewrite" — Add 5 new match fields (outer_vlan_id, outer_vlan_pcp for 802.1ad QinQ; ip_dont_fragment, ip_more_fragments, ip_frag_offset for IPv4 fragmentation), 2 new rewrite actions (set_src_port, set_dst_port with RFC 1624 L4 checksum), frame parser extensions (S_OUTER_VLAN state, frame_byte_cnt, frag extraction), LINT029-032, SVA assertions, 22 mutation types, Python scoreboard support, 3 new YAML examples.
+
+### Actions Taken
+
+#### Batch 1: Model + Parser + Verilog Gen + Rewrite + Simulator
+1. **src/model.rs** — Added outer_vlan_id (Option<u16>), outer_vlan_pcp (Option<u8>), ip_dont_fragment (Option<u8>), ip_more_fragments (Option<u8>), ip_frag_offset (Option<u16>) to MatchCriteria; added set_src_port/set_dst_port to RewriteAction; added uses_qinq(), uses_ip_frag() helpers; unit tests for parsing and validation
+2. **src/loader.rs** — outer_vlan_id 0-4095, outer_vlan_pcp 0-7, ip_dont_fragment 0-1, ip_more_fragments 0-1, ip_frag_offset 0-8191 range validation; set_src_port/set_dst_port 1-65535 range + IPv4+TCP/UDP prerequisite validation; shadow/overlap detection for all 5 new match fields; unit tests
+3. **rtl/frame_parser.v** — S_OUTER_VLAN parser state for 802.1ad (EtherType 0x88A8) double-tagged frames; outer_vlan_id[11:0], outer_vlan_pcp[2:0], outer_vlan_valid outputs; frame_byte_cnt counter for tracking IPv4 header position; ip_dont_fragment, ip_more_fragments (from flags byte), ip_frag_offset[12:0] extraction from IPv4 header bytes 6-7; ip_frag_valid output
+4. **src/verilog_gen.rs** — has_qinq, has_ip_frag global protocol flags; condition generation for outer_vlan_id/outer_vlan_pcp/ip_dont_fragment/ip_more_fragments/ip_frag_offset; set_src_port/set_dst_port entries in rewrite LUT (16-bit values); template context updates
+5. **Templates** — Conditional QinQ/frag ports in rule_match.v.tera, rule_fsm.v.tera, packet_filter_top.v.tera; rewrite_lut.v.tera expanded for 16-bit port rewrite outputs; packet_filter_axi_top.v.tera wiring for L4 port rewrite signals
+6. **rtl/packet_rewrite.v** — 16-bit port substitution at L4 header source/destination port offsets; RFC 1624 incremental L4 (TCP/UDP) checksum update for port rewrites
+7. **src/simulator.rs** — SimPacket outer_vlan_id/outer_vlan_pcp/ip_dont_fragment/ip_more_fragments/ip_frag_offset fields; parse_packet_spec() handles all 5 new match fields; match_criteria_against_packet() evaluates QinQ and fragmentation matching; SimRewrite set_src_port/set_dst_port; unit tests
+8. **src/cocotb_gen.rs** — QinQ/frag/port-rewrite fields in test cases + scoreboard rules
+
+#### Batch 2: Verification + Tools + Examples + Docs
+9. **verification/scoreboard.py** — outer_vlan_id, outer_vlan_pcp, ip_dont_fragment, ip_more_fragments, ip_frag_offset in Rule dataclass + matches() method
+10. **verification/packet.py** — OuterVlanTag class for constructing QinQ double-tagged frames; frag fields in IPv4 packet factory
+11. **src/formal_gen.rs** — has_qinq_rules, has_ip_frag_rules, has_port_rewrite_rules feature flags + template context
+12. **templates/assertions.sv.tera** — SVA QinQ bounds assertions (outer_vlan_id <= 4095, outer_vlan_pcp <= 7), IPv4 frag bounds (ip_frag_offset <= 8191), L4 port rewrite prerequisite assertions, cover properties
+13. **src/mutation.rs** — 3 new mutation types: remove_outer_vlan_id, remove_ip_frag_offset, remove_set_src_port (22 total); unit tests
+14. **src/main.rs** — LINT029 (QinQ without 802.1ad ethertype), LINT030 (frag without IPv4), LINT031 (port rewrite without IPv4+TCP/UDP), LINT032 (frag offset advisory); estimate/diff/doc/stats/graph updates for all new fields
+15. **rules/examples/** — 3 new YAML examples: QinQ carrier network, IPv4 fragmentation detection, L4 port rewrite
+16. **.github/workflows/ci.yml** — new examples in simulate matrix
+17. **tests/integration_test.rs** — integration tests for QinQ, IPv4 fragmentation, and L4 port rewrite (compile, simulate, validate, lint, estimate, diff, formal)
+18. **Documentation** — CLAUDE.md, OVERVIEW.md, REQUIREMENTS.md, PROMPT_HISTORY.md
+
+### Modified Files
+- `src/model.rs` — 5 new match fields + 2 new rewrite actions in MatchCriteria/RewriteAction + helper methods
+- `src/loader.rs` — Validation for all 5 new match fields + 2 rewrite actions + shadow/overlap detection
+- `rtl/frame_parser.v` — S_OUTER_VLAN state, frame_byte_cnt, IPv4 frag flag/offset extraction
+- `src/verilog_gen.rs` — Protocol flags, condition generation, rewrite LUT entries, template context
+- `templates/rule_match.v.tera` — Conditional QinQ/frag ports
+- `templates/rule_fsm.v.tera` — Conditional QinQ/frag ports
+- `templates/packet_filter_top.v.tera` — Wiring for new parser outputs
+- `templates/rewrite_lut.v.tera` — 16-bit port rewrite output entries
+- `templates/packet_filter_axi_top.v.tera` — L4 port rewrite signal wiring
+- `templates/assertions.sv.tera` — SVA assertions for QinQ/frag/port-rewrite
+- `rtl/packet_rewrite.v` — 16-bit port substitution + L4 checksum update
+- `src/simulator.rs` — 5 new SimPacket fields + 2 rewrite fields + matching
+- `verification/scoreboard.py` — 5 new Rule fields + matching
+- `verification/packet.py` — OuterVlanTag, frag fields in packet factory
+- `src/cocotb_gen.rs` — Test case + scoreboard emission for new fields
+- `src/formal_gen.rs` — Feature flags for QinQ/frag/port-rewrite
+- `src/mutation.rs` — 3 new mutation types (22 total)
+- `src/main.rs` — LINT029-032, estimate, diff, doc, stats, graph updates
+- `rules/examples/` — 3 new example YAMLs
+- `.github/workflows/ci.yml` — CI simulate matrix expansion
+- `tests/integration_test.rs` — New integration tests
+
+### Test Results
+- 348 unit tests — all PASS
+- 267 integration tests — all PASS
+- Total: 615 Rust tests (from 568 in Phase 23)
+- 47 Python scoreboard tests unchanged
+- All 32 YAML examples compile unchanged
+
+### Git Operations
+- Commits pushed to https://github.com/joemooney/pacgate.git

@@ -974,3 +974,75 @@
 ### Testing
 - REQ-1718: 26 unit tests for ICMPv6/ARP/IPv6-ext (model, loader, simulator, mutation) [IMPLEMENTED]
 - REQ-1719: 14 integration tests for ICMPv6/ARP/IPv6-ext (compile, simulate, validate, lint, estimate, diff, formal) [IMPLEMENTED]
+
+## Phase 24: QinQ Double VLAN + IPv4 Fragmentation + L4 Port Rewrite [IMPLEMENTED]
+
+### QinQ (802.1ad) Double VLAN Match Fields
+- REQ-1800: Match on outer VLAN ID (outer_vlan_id, 12-bit, 0-4095) for 802.1ad QinQ double-tagged frames [IMPLEMENTED]
+- REQ-1801: Match on outer VLAN PCP (outer_vlan_pcp, 3-bit, 0-7) for QinQ priority classification [IMPLEMENTED]
+- REQ-1802: Outer VLAN ID range validation (0-4095, reject >= 4096) [IMPLEMENTED]
+- REQ-1803: Outer VLAN PCP range validation (0-7, reject >= 8) [IMPLEMENTED]
+- REQ-1804: Shadow/overlap detection for outer_vlan_id and outer_vlan_pcp fields [IMPLEMENTED]
+- REQ-1805: Frame parser S_OUTER_VLAN state for 802.1ad (EtherType 0x88A8) double-tagged frame parsing [IMPLEMENTED]
+
+### IPv4 Fragmentation Match Fields
+- REQ-1810: Match on IPv4 Don't Fragment flag (ip_dont_fragment, 1-bit, 0-1) [IMPLEMENTED]
+- REQ-1811: Match on IPv4 More Fragments flag (ip_more_fragments, 1-bit, 0-1) [IMPLEMENTED]
+- REQ-1812: Match on IPv4 fragment offset (ip_frag_offset, 13-bit, 0-8191) for fragment attack detection [IMPLEMENTED]
+- REQ-1813: Fragment offset range validation (0-8191, reject >= 8192) [IMPLEMENTED]
+- REQ-1814: Fragment flags/offset extracted from IPv4 header flags/fragment offset field (bytes 6-7) [IMPLEMENTED]
+- REQ-1815: Frame parser frame_byte_cnt tracking for fragment field extraction at correct offset [IMPLEMENTED]
+
+### L4 Port Rewrite Actions
+- REQ-1820: set_src_port rewrite action — overwrite TCP/UDP source port (16-bit, 1-65535) [IMPLEMENTED]
+- REQ-1821: set_dst_port rewrite action — overwrite TCP/UDP destination port (16-bit, 1-65535) [IMPLEMENTED]
+- REQ-1822: Port rewrite range validation (1-65535) [IMPLEMENTED]
+- REQ-1823: Port rewrite requires IPv4 ethertype (0x0800) and TCP (ip_protocol 6) or UDP (ip_protocol 17) prerequisite [IMPLEMENTED]
+- REQ-1824: RFC 1624 L4 checksum incremental update for port rewrite (TCP/UDP checksum correction) [IMPLEMENTED]
+- REQ-1825: packet_rewrite.v extended with 16-bit port substitution at L4 header offsets [IMPLEMENTED]
+- REQ-1826: rewrite_lut.v expanded for 16-bit port rewrite output entries [IMPLEMENTED]
+
+### Verilog Generation
+- REQ-1830: has_qinq global protocol flag controlling conditional outer VLAN port generation [IMPLEMENTED]
+- REQ-1831: has_ip_frag global protocol flag controlling conditional fragmentation port generation [IMPLEMENTED]
+- REQ-1832: QinQ/frag/port-rewrite condition expressions in rule matchers [IMPLEMENTED]
+- REQ-1833: AXI top template wires L4 port rewrite signals [IMPLEMENTED]
+
+### Lint Rules
+- REQ-1840: LINT029 — QinQ outer VLAN fields without 802.1ad ethertype prerequisite warning [IMPLEMENTED]
+- REQ-1841: LINT030 — IPv4 fragmentation fields without IPv4 ethertype (0x0800) prerequisite warning [IMPLEMENTED]
+- REQ-1842: LINT031 — L4 port rewrite without IPv4 + TCP/UDP protocol prerequisite warning [IMPLEMENTED]
+- REQ-1843: LINT032 — fragment offset > 0 without MF flag advisory [IMPLEMENTED]
+
+### Formal Verification
+- REQ-1850: SVA assertions for QinQ outer VLAN bounds (outer_vlan_id <= 4095, outer_vlan_pcp <= 7) [IMPLEMENTED]
+- REQ-1851: SVA assertions for IPv4 fragmentation bounds (ip_frag_offset <= 8191) [IMPLEMENTED]
+- REQ-1852: SVA assertions for L4 port rewrite prerequisite (match → ip_protocol TCP or UDP) [IMPLEMENTED]
+
+### Mutation Testing
+- REQ-1860: 3 new mutation types: remove_outer_vlan_id, remove_ip_frag_offset, remove_set_src_port (22 total) [IMPLEMENTED]
+
+### Simulation
+- REQ-1870: SimPacket supports outer_vlan_id, outer_vlan_pcp, ip_dont_fragment, ip_more_fragments, ip_frag_offset fields [IMPLEMENTED]
+- REQ-1871: parse_packet_spec handles all 5 new match fields with range validation [IMPLEMENTED]
+- REQ-1872: match_criteria_against_packet evaluates QinQ and fragmentation matching [IMPLEMENTED]
+- REQ-1873: SimRewrite supports set_src_port and set_dst_port fields [IMPLEMENTED]
+
+### Python Verification
+- REQ-1880: Scoreboard Rule dataclass includes outer_vlan_id, outer_vlan_pcp, ip_dont_fragment, ip_more_fragments, ip_frag_offset fields [IMPLEMENTED]
+- REQ-1881: Scoreboard matches() evaluates QinQ and fragmentation from extracted dict [IMPLEMENTED]
+- REQ-1882: PacketFactory.qinq() constructs double-tagged Ethernet frames (outer 0x88A8 + inner 0x8100) [IMPLEMENTED]
+- REQ-1883: PacketFactory supports IPv4 fragmentation flag fields [IMPLEMENTED]
+
+### Examples
+- REQ-1890: QinQ carrier network YAML example (outer/inner VLAN matching for carrier Ethernet) [IMPLEMENTED]
+- REQ-1891: IPv4 fragmentation detection YAML example (DF/MF flags, fragment offset attack detection) [IMPLEMENTED]
+- REQ-1892: L4 port rewrite YAML example (source/destination port NAT with checksum update) [IMPLEMENTED]
+
+### Testing
+- REQ-1900: 348 Rust unit tests (through Phase 24) [IMPLEMENTED]
+- REQ-1901: 267 Rust integration tests (through Phase 24) [IMPLEMENTED]
+- REQ-1902: 47 Python scoreboard unit tests (through Phase 24) [IMPLEMENTED]
+- REQ-1903: Integration tests for QinQ compile, simulate, validate, lint, estimate, diff, formal [IMPLEMENTED]
+- REQ-1904: Integration tests for IPv4 fragmentation compile, simulate, validate, lint [IMPLEMENTED]
+- REQ-1905: Integration tests for L4 port rewrite compile, validate, lint, formal [IMPLEMENTED]

@@ -315,6 +315,57 @@ pub fn generate_mutations(config: &FilterConfig) -> Vec<(Mutation, FilterConfig)
         }
     }
 
+    // Mutation 20: Remove outer_vlan_id (also removes outer_vlan_pcp)
+    for (i, rule) in config.pacgate.rules.iter().enumerate() {
+        if !rule.is_stateful() && rule.match_criteria.outer_vlan_id.is_some() {
+            let mut mutated = config.clone();
+            mutated.pacgate.rules[i].match_criteria.outer_vlan_id = None;
+            mutated.pacgate.rules[i].match_criteria.outer_vlan_pcp = None;
+            mutations.push((Mutation {
+                name: format!("remove_outer_vlan_id_{}", rule.name),
+                description: format!("Remove outer_vlan_id match from rule '{}'", rule.name),
+                mutant_index: index,
+            }, mutated));
+            index += 1;
+        }
+    }
+
+    // Mutation 21: Remove ip_frag_offset (also removes ip_dont_fragment, ip_more_fragments)
+    for (i, rule) in config.pacgate.rules.iter().enumerate() {
+        if !rule.is_stateful() && rule.match_criteria.ip_frag_offset.is_some() {
+            let mut mutated = config.clone();
+            mutated.pacgate.rules[i].match_criteria.ip_frag_offset = None;
+            mutated.pacgate.rules[i].match_criteria.ip_dont_fragment = None;
+            mutated.pacgate.rules[i].match_criteria.ip_more_fragments = None;
+            mutations.push((Mutation {
+                name: format!("remove_ip_frag_offset_{}", rule.name),
+                description: format!("Remove ip_frag_offset match from rule '{}'", rule.name),
+                mutant_index: index,
+            }, mutated));
+            index += 1;
+        }
+    }
+
+    // Mutation 22: Remove set_src_port from rewrite actions
+    for (i, rule) in config.pacgate.rules.iter().enumerate() {
+        if !rule.is_stateful() {
+            if let Some(ref rewrite) = rule.rewrite {
+                if rewrite.set_src_port.is_some() {
+                    let mut mutated = config.clone();
+                    if let Some(ref mut rw) = mutated.pacgate.rules[i].rewrite {
+                        rw.set_src_port = None;
+                    }
+                    mutations.push((Mutation {
+                        name: format!("remove_set_src_port_{}", rule.name),
+                        description: format!("Remove set_src_port rewrite from rule '{}'", rule.name),
+                        mutant_index: index,
+                    }, mutated));
+                    index += 1;
+                }
+            }
+        }
+    }
+
     mutations
 }
 
@@ -908,5 +959,103 @@ mod tests {
         let rm = mutations.iter().find(|(m, _)| m.name.starts_with("remove_ipv6_hop_limit_")).unwrap();
         assert!(rm.1.pacgate.rules[0].match_criteria.ipv6_hop_limit.is_none());
         assert!(rm.1.pacgate.rules[0].match_criteria.ipv6_flow_label.is_none());
+    }
+
+    #[test]
+    fn remove_outer_vlan_id_mutation() {
+        let config = FilterConfig {
+            pacgate: PacgateConfig {
+                version: "1.0".to_string(),
+                defaults: Defaults { action: Action::Drop },
+                rules: vec![
+                    StatelessRule {
+                        name: "qinq_rule".to_string(),
+                        priority: 100,
+                        match_criteria: MatchCriteria {
+                            outer_vlan_id: Some(100),
+                            outer_vlan_pcp: Some(5),
+                            ..Default::default()
+                        },
+                        action: Some(Action::Pass),
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
+                    },
+                ],
+                conntrack: None,
+            },
+        };
+        let mutations = generate_mutations(&config);
+        let rm = mutations.iter().find(|(m, _)| m.name.starts_with("remove_outer_vlan_id_")).unwrap();
+        assert!(rm.1.pacgate.rules[0].match_criteria.outer_vlan_id.is_none());
+        assert!(rm.1.pacgate.rules[0].match_criteria.outer_vlan_pcp.is_none());
+    }
+
+    #[test]
+    fn remove_ip_frag_offset_mutation() {
+        let config = FilterConfig {
+            pacgate: PacgateConfig {
+                version: "1.0".to_string(),
+                defaults: Defaults { action: Action::Drop },
+                rules: vec![
+                    StatelessRule {
+                        name: "frag_rule".to_string(),
+                        priority: 100,
+                        match_criteria: MatchCriteria {
+                            ip_frag_offset: Some(185),
+                            ip_dont_fragment: Some(false),
+                            ip_more_fragments: Some(true),
+                            ..Default::default()
+                        },
+                        action: Some(Action::Pass),
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
+                    },
+                ],
+                conntrack: None,
+            },
+        };
+        let mutations = generate_mutations(&config);
+        let rm = mutations.iter().find(|(m, _)| m.name.starts_with("remove_ip_frag_offset_")).unwrap();
+        assert!(rm.1.pacgate.rules[0].match_criteria.ip_frag_offset.is_none());
+        assert!(rm.1.pacgate.rules[0].match_criteria.ip_dont_fragment.is_none());
+        assert!(rm.1.pacgate.rules[0].match_criteria.ip_more_fragments.is_none());
+    }
+
+    #[test]
+    fn remove_set_src_port_mutation() {
+        let config = FilterConfig {
+            pacgate: PacgateConfig {
+                version: "1.0".to_string(),
+                defaults: Defaults { action: Action::Drop },
+                rules: vec![
+                    StatelessRule {
+                        name: "port_rewrite_rule".to_string(),
+                        priority: 100,
+                        match_criteria: MatchCriteria {
+                            ..Default::default()
+                        },
+                        action: Some(Action::Pass),
+                        rule_type: None,
+                        fsm: None,
+                        ports: None,
+                        rate_limit: None,
+                        rewrite: Some(RewriteAction {
+                            set_src_port: Some(8080),
+                            set_dst_mac: None,
+                            set_src_mac: None,
+                            set_vlan_id: None,
+                            set_ttl: None,
+                            dec_ttl: None,
+                            set_src_ip: None,
+                            set_dst_ip: None,
+                            set_dscp: None,
+                            set_dst_port: None,
+                        }),
+                    },
+                ],
+                conntrack: None,
+            },
+        };
+        let mutations = generate_mutations(&config);
+        let rm = mutations.iter().find(|(m, _)| m.name.starts_with("remove_set_src_port_")).unwrap();
+        assert!(rm.1.pacgate.rules[0].rewrite.as_ref().unwrap().set_src_port.is_none());
     }
 }

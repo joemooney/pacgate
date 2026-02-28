@@ -74,7 +74,7 @@ jobs:
     needs: build-and-test
     strategy:
       matrix:
-        example: [allow_arp, enterprise, l3l4_firewall, ipv6_firewall, gtp_5g, mpls_network, multicast, vxlan_datacenter, qos_classification, tcp_flags_icmp, arp_security, icmpv6_firewall]
+        example: [allow_arp, enterprise, l3l4_firewall, ipv6_firewall, gtp_5g, mpls_network, multicast, vxlan_datacenter, qos_classification, tcp_flags_icmp, arp_security, icmpv6_firewall, qinq_provider, fragment_security]
     steps:
       - uses: actions/checkout@v4
 
@@ -207,6 +207,12 @@ jobs:
 
       - name: Lint generated Verilog (multi-flag)
         run: iverilog -g2012 -o /dev/null gen/rtl/*.v rtl/*.v
+
+      - name: Compile port_rewrite with --axi
+        run: cargo run --release -- compile rules/examples/port_rewrite.yaml --axi -o gen_port_rw/
+
+      - name: Lint port rewrite Verilog
+        run: iverilog -g2012 -o /dev/null gen_port_rw/rtl/*.v rtl/frame_parser.v
 
   conntrack-simulate:
     runs-on: ubuntu-latest

@@ -926,6 +926,9 @@ fn main() -> Result<()> {
                     if rw.dec_ttl { rw_json.insert("dec_ttl".into(), serde_json::json!(true)); }
                     if let Some(ref v) = rw.set_src_ip { rw_json.insert("set_src_ip".into(), serde_json::json!(v)); }
                     if let Some(ref v) = rw.set_dst_ip { rw_json.insert("set_dst_ip".into(), serde_json::json!(v)); }
+                    if let Some(v) = rw.set_dscp { rw_json.insert("set_dscp".into(), serde_json::json!(v)); }
+                    if let Some(v) = rw.set_src_port { rw_json.insert("set_src_port".into(), serde_json::json!(v)); }
+                    if let Some(v) = rw.set_dst_port { rw_json.insert("set_dst_port".into(), serde_json::json!(v)); }
                     summary.as_object_mut().unwrap().insert("rewrite".to_string(), serde_json::Value::Object(rw_json));
                 }
                 if stateful {
@@ -1375,6 +1378,11 @@ fn generate_rule_documentation(
         if let Some(ref tpa) = rule.match_criteria.arp_tpa { match_fields.push(format!("arp_tpa: {}", tpa)); }
         if let Some(hl) = rule.match_criteria.ipv6_hop_limit { match_fields.push(format!("ipv6_hop_limit: {}", hl)); }
         if let Some(fl) = rule.match_criteria.ipv6_flow_label { match_fields.push(format!("ipv6_flow_label: {}", fl)); }
+        if let Some(vid) = rule.match_criteria.outer_vlan_id { match_fields.push(format!("outer_vlan_id: {}", vid)); }
+        if let Some(pcp) = rule.match_criteria.outer_vlan_pcp { match_fields.push(format!("outer_vlan_pcp: {}", pcp)); }
+        if let Some(df) = rule.match_criteria.ip_dont_fragment { match_fields.push(format!("ip_dont_fragment: {}", df)); }
+        if let Some(mf) = rule.match_criteria.ip_more_fragments { match_fields.push(format!("ip_more_fragments: {}", mf)); }
+        if let Some(fo) = rule.match_criteria.ip_frag_offset { match_fields.push(format!("ip_frag_offset: {}", fo)); }
         if let Some(ref bms) = rule.match_criteria.byte_match {
             for bm in bms {
                 match_fields.push(format!("byte_match: offset={}, value={}, mask={}", bm.offset, bm.value, bm.mask.as_deref().unwrap_or("FF")));
@@ -1625,6 +1633,11 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
     let mut uses_arp_tpa = 0;
     let mut uses_ipv6_hop_limit = 0;
     let mut uses_ipv6_flow_label = 0;
+    let mut uses_outer_vlan_id = 0;
+    let mut uses_outer_vlan_pcp = 0;
+    let mut uses_ip_dont_fragment = 0;
+    let mut uses_ip_more_fragments = 0;
+    let mut uses_ip_frag_offset = 0;
     let mut match_field_count = Vec::new();
 
     for rule in rules.iter().filter(|r| !r.is_stateful()) {
@@ -1661,6 +1674,11 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
         if mc.arp_tpa.is_some() { uses_arp_tpa += 1; count += 1; }
         if mc.ipv6_hop_limit.is_some() { uses_ipv6_hop_limit += 1; count += 1; }
         if mc.ipv6_flow_label.is_some() { uses_ipv6_flow_label += 1; count += 1; }
+        if mc.outer_vlan_id.is_some() { uses_outer_vlan_id += 1; count += 1; }
+        if mc.outer_vlan_pcp.is_some() { uses_outer_vlan_pcp += 1; count += 1; }
+        if mc.ip_dont_fragment.is_some() { uses_ip_dont_fragment += 1; count += 1; }
+        if mc.ip_more_fragments.is_some() { uses_ip_more_fragments += 1; count += 1; }
+        if mc.ip_frag_offset.is_some() { uses_ip_frag_offset += 1; count += 1; }
         match_field_count.push(count);
     }
 
@@ -1716,6 +1734,11 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
             "arp_tpa": uses_arp_tpa,
             "ipv6_hop_limit": uses_ipv6_hop_limit,
             "ipv6_flow_label": uses_ipv6_flow_label,
+            "outer_vlan_id": uses_outer_vlan_id,
+            "outer_vlan_pcp": uses_outer_vlan_pcp,
+            "ip_dont_fragment": uses_ip_dont_fragment,
+            "ip_more_fragments": uses_ip_more_fragments,
+            "ip_frag_offset": uses_ip_frag_offset,
         },
         "match_complexity": {
             "avg_fields_per_rule": format!("{:.1}", avg_fields),
@@ -1762,6 +1785,9 @@ fn print_stats(config: &model::FilterConfig) {
     let mut uses_icmpv6_type = 0usize;
     let mut uses_arp_opcode = 0usize;
     let mut uses_ipv6_hop_limit = 0usize;
+    let mut uses_outer_vlan_id = 0usize;
+    let mut uses_ip_dont_fragment = 0usize;
+    let mut uses_ip_frag_offset = 0usize;
 
     for rule in rules.iter().filter(|r| !r.is_stateful()) {
         let mc = &rule.match_criteria;
@@ -1783,6 +1809,9 @@ fn print_stats(config: &model::FilterConfig) {
         if mc.icmpv6_type.is_some() { uses_icmpv6_type += 1; }
         if mc.arp_opcode.is_some() { uses_arp_opcode += 1; }
         if mc.ipv6_hop_limit.is_some() { uses_ipv6_hop_limit += 1; }
+        if mc.outer_vlan_id.is_some() { uses_outer_vlan_id += 1; }
+        if mc.ip_dont_fragment.is_some() { uses_ip_dont_fragment += 1; }
+        if mc.ip_frag_offset.is_some() { uses_ip_frag_offset += 1; }
     }
 
     // Priority spacing
@@ -1844,6 +1873,15 @@ fn print_stats(config: &model::FilterConfig) {
         }
         if uses_ipv6_hop_limit > 0 {
             println!("  ipv6_hop_limit [{:>2}/{}] |{}|", uses_ipv6_hop_limit, stateless, bar(uses_ipv6_hop_limit));
+        }
+        if uses_outer_vlan_id > 0 {
+            println!("  outer_vlan_id [{:>2}/{}] |{}|", uses_outer_vlan_id, stateless, bar(uses_outer_vlan_id));
+        }
+        if uses_ip_dont_fragment > 0 {
+            println!("  ip_dont_frag [{:>2}/{}] |{}|", uses_ip_dont_fragment, stateless, bar(uses_ip_dont_fragment));
+        }
+        if uses_ip_frag_offset > 0 {
+            println!("  ip_frag_off  [{:>2}/{}] |{}|", uses_ip_frag_offset, stateless, bar(uses_ip_frag_offset));
         }
     }
     println!();
@@ -1921,6 +1959,11 @@ fn print_dot_graph(config: &model::FilterConfig) {
             if let Some(ref tpa) = mc.arp_tpa { criteria.push(format!("arp_tpa={}", tpa)); }
             if let Some(hl) = mc.ipv6_hop_limit { criteria.push(format!("ipv6_hop_limit={}", hl)); }
             if let Some(fl) = mc.ipv6_flow_label { criteria.push(format!("ipv6_flow_label={}", fl)); }
+            if let Some(vid) = mc.outer_vlan_id { criteria.push(format!("outer_vlan_id={}", vid)); }
+            if let Some(pcp) = mc.outer_vlan_pcp { criteria.push(format!("outer_vlan_pcp={}", pcp)); }
+            if let Some(df) = mc.ip_dont_fragment { criteria.push(format!("ip_dont_fragment={}", df)); }
+            if let Some(mf) = mc.ip_more_fragments { criteria.push(format!("ip_more_fragments={}", mf)); }
+            if let Some(fo) = mc.ip_frag_offset { criteria.push(format!("ip_frag_offset={}", fo)); }
         } else {
             criteria.push("(FSM states)".to_string());
         }
@@ -2128,6 +2171,26 @@ fn diff_rules(old: &model::FilterConfig, new: &model::FilterConfig, json: bool) 
                     changes.push(format!("ipv6_flow_label: {:?} -> {:?}",
                         old_rule.match_criteria.ipv6_flow_label, new_rule.match_criteria.ipv6_flow_label));
                 }
+                if old_rule.match_criteria.outer_vlan_id != new_rule.match_criteria.outer_vlan_id {
+                    changes.push(format!("outer_vlan_id: {:?} -> {:?}",
+                        old_rule.match_criteria.outer_vlan_id, new_rule.match_criteria.outer_vlan_id));
+                }
+                if old_rule.match_criteria.outer_vlan_pcp != new_rule.match_criteria.outer_vlan_pcp {
+                    changes.push(format!("outer_vlan_pcp: {:?} -> {:?}",
+                        old_rule.match_criteria.outer_vlan_pcp, new_rule.match_criteria.outer_vlan_pcp));
+                }
+                if old_rule.match_criteria.ip_dont_fragment != new_rule.match_criteria.ip_dont_fragment {
+                    changes.push(format!("ip_dont_fragment: {:?} -> {:?}",
+                        old_rule.match_criteria.ip_dont_fragment, new_rule.match_criteria.ip_dont_fragment));
+                }
+                if old_rule.match_criteria.ip_more_fragments != new_rule.match_criteria.ip_more_fragments {
+                    changes.push(format!("ip_more_fragments: {:?} -> {:?}",
+                        old_rule.match_criteria.ip_more_fragments, new_rule.match_criteria.ip_more_fragments));
+                }
+                if old_rule.match_criteria.ip_frag_offset != new_rule.match_criteria.ip_frag_offset {
+                    changes.push(format!("ip_frag_offset: {:?} -> {:?}",
+                        old_rule.match_criteria.ip_frag_offset, new_rule.match_criteria.ip_frag_offset));
+                }
                 if old_rule.is_stateful() != new_rule.is_stateful() {
                     changes.push(format!("type: {} -> {}",
                         if old_rule.is_stateful() { "stateful" } else { "stateless" },
@@ -2278,6 +2341,11 @@ fn generate_diff_html(
         if let Some(ref tpa) = mc.arp_tpa { parts.push(format!("arp_tpa={}", tpa)); }
         if let Some(hl) = mc.ipv6_hop_limit { parts.push(format!("ipv6_hop_limit={}", hl)); }
         if let Some(fl) = mc.ipv6_flow_label { parts.push(format!("ipv6_flow_label={}", fl)); }
+        if let Some(vid) = mc.outer_vlan_id { parts.push(format!("outer_vlan_id={}", vid)); }
+        if let Some(pcp) = mc.outer_vlan_pcp { parts.push(format!("outer_vlan_pcp={}", pcp)); }
+        if let Some(df) = mc.ip_dont_fragment { parts.push(format!("ip_dont_fragment={}", df)); }
+        if let Some(mf) = mc.ip_more_fragments { parts.push(format!("ip_more_fragments={}", mf)); }
+        if let Some(fo) = mc.ip_frag_offset { parts.push(format!("ip_frag_offset={}", fo)); }
         if parts.is_empty() { "any".to_string() } else { parts.join(", ") }
     };
 
@@ -2554,6 +2622,41 @@ fn generate_diff_html(
                         "new_value": format!("{:?}", new_rule.match_criteria.ipv6_flow_label),
                     }));
                 }
+                if old_rule.match_criteria.outer_vlan_id != new_rule.match_criteria.outer_vlan_id {
+                    changes.push(serde_json::json!({
+                        "field": "outer_vlan_id",
+                        "old_value": format!("{:?}", old_rule.match_criteria.outer_vlan_id),
+                        "new_value": format!("{:?}", new_rule.match_criteria.outer_vlan_id),
+                    }));
+                }
+                if old_rule.match_criteria.outer_vlan_pcp != new_rule.match_criteria.outer_vlan_pcp {
+                    changes.push(serde_json::json!({
+                        "field": "outer_vlan_pcp",
+                        "old_value": format!("{:?}", old_rule.match_criteria.outer_vlan_pcp),
+                        "new_value": format!("{:?}", new_rule.match_criteria.outer_vlan_pcp),
+                    }));
+                }
+                if old_rule.match_criteria.ip_dont_fragment != new_rule.match_criteria.ip_dont_fragment {
+                    changes.push(serde_json::json!({
+                        "field": "ip_dont_fragment",
+                        "old_value": format!("{:?}", old_rule.match_criteria.ip_dont_fragment),
+                        "new_value": format!("{:?}", new_rule.match_criteria.ip_dont_fragment),
+                    }));
+                }
+                if old_rule.match_criteria.ip_more_fragments != new_rule.match_criteria.ip_more_fragments {
+                    changes.push(serde_json::json!({
+                        "field": "ip_more_fragments",
+                        "old_value": format!("{:?}", old_rule.match_criteria.ip_more_fragments),
+                        "new_value": format!("{:?}", new_rule.match_criteria.ip_more_fragments),
+                    }));
+                }
+                if old_rule.match_criteria.ip_frag_offset != new_rule.match_criteria.ip_frag_offset {
+                    changes.push(serde_json::json!({
+                        "field": "ip_frag_offset",
+                        "old_value": format!("{:?}", old_rule.match_criteria.ip_frag_offset),
+                        "new_value": format!("{:?}", new_rule.match_criteria.ip_frag_offset),
+                    }));
+                }
 
                 if changes.is_empty() {
                     unchanged_count += 1;
@@ -2706,6 +2809,11 @@ fn compute_resource_estimate(config: &model::FilterConfig) -> serde_json::Value 
             if mc.arp_tpa.is_some() { fields += 2; }        // 32-bit comparator
             if mc.ipv6_hop_limit.is_some() { fields += 1; } // 8-bit comparator
             if mc.ipv6_flow_label.is_some() { fields += 2; } // 20-bit comparator
+            if mc.outer_vlan_id.is_some() { fields += 1; }    // 12-bit comparator
+            if mc.outer_vlan_pcp.is_some() { fields += 1; }   // 3-bit comparator
+            if mc.ip_dont_fragment.is_some() { fields += 1; } // 1-bit comparator
+            if mc.ip_more_fragments.is_some() { fields += 1; } // 1-bit comparator
+            if mc.ip_frag_offset.is_some() { fields += 1; }   // 13-bit comparator
             rule_luts += 10 + fields * 12;
         }
     }
@@ -2831,6 +2939,11 @@ fn print_resource_estimate(config: &model::FilterConfig) {
             if mc.arp_tpa.is_some() { fields += 2; }
             if mc.ipv6_hop_limit.is_some() { fields += 1; }
             if mc.ipv6_flow_label.is_some() { fields += 2; }
+            if mc.outer_vlan_id.is_some() { fields += 1; }
+            if mc.outer_vlan_pcp.is_some() { fields += 1; }
+            if mc.ip_dont_fragment.is_some() { fields += 1; }
+            if mc.ip_more_fragments.is_some() { fields += 1; }
+            if mc.ip_frag_offset.is_some() { fields += 1; }
             rule_luts += 10 + fields * 12;
         }
     }
@@ -2841,9 +2954,13 @@ fn print_resource_estimate(config: &model::FilterConfig) {
     let rate_ffs = num_rate_limited * 64;
 
     // Rewrite engine: ~50 LUTs + ~100 FFs (fixed) + ~20 LUTs per rewrite rule (LUT entries)
+    // Port rewrite adds ~30 LUTs for L4 checksum update
     let num_rewrite = rules.iter().filter(|r| r.has_rewrite()).count();
-    let rewrite_luts = if num_rewrite > 0 { 50 + num_rewrite * 20 } else { 0 };
-    let rewrite_ffs = if num_rewrite > 0 { 100 } else { 0 };
+    let has_port_rewrite = rules.iter().any(|r| {
+        r.rewrite.as_ref().map(|rw| rw.set_src_port.is_some() || rw.set_dst_port.is_some()).unwrap_or(false)
+    });
+    let rewrite_luts = if num_rewrite > 0 { 50 + num_rewrite * 20 + if has_port_rewrite { 30 } else { 0 } } else { 0 };
+    let rewrite_ffs = if num_rewrite > 0 { 100 + if has_port_rewrite { 32 } else { 0 } } else { 0 };
 
     let decision_luts = 10 * total + 8;
     let decision_ffs = 4;
@@ -3484,6 +3601,65 @@ fn lint_rules(config: &model::FilterConfig, warnings: &[String], dynamic: bool, 
                     "message": format!("Rule '{}' uses ipv6_hop_limit/ipv6_flow_label without ethertype: 0x86DD — may match non-IPv6 traffic", rule.name),
                     "suggestion": "Add 'ethertype: \"0x86DD\"' to ensure IPv6 extension field matching is only applied to IPv6 packets"
                 }));
+            }
+        }
+    }
+
+    // LINT029: QinQ fields without QinQ ethertype
+    for rule in &config.pacgate.rules {
+        if rule.match_criteria.uses_qinq() {
+            let has_qinq = matches!(rule.match_criteria.ethertype.as_deref(), Some("0x88A8") | Some("0x9100"));
+            if !has_qinq {
+                findings.push(serde_json::json!({
+                    "level": "warning",
+                    "code": "LINT029",
+                    "message": format!("Rule '{}' uses outer_vlan_id/outer_vlan_pcp without ethertype: 0x88A8 or 0x9100 — may never match", rule.name),
+                    "suggestion": "Add 'ethertype: \"0x88A8\"' for 802.1ad QinQ matching"
+                }));
+            }
+        }
+    }
+
+    // LINT030: IP fragmentation fields without IPv4 ethertype
+    for rule in &config.pacgate.rules {
+        if rule.match_criteria.uses_ip_frag() {
+            let has_ipv4 = rule.match_criteria.ethertype.as_deref() == Some("0x0800");
+            if !has_ipv4 {
+                findings.push(serde_json::json!({
+                    "level": "warning",
+                    "code": "LINT030",
+                    "message": format!("Rule '{}' uses ip_dont_fragment/ip_more_fragments/ip_frag_offset without ethertype: 0x0800 — fragmentation is IPv4-only", rule.name),
+                    "suggestion": "Add 'ethertype: \"0x0800\"' to ensure fragmentation matching only applies to IPv4 packets"
+                }));
+            }
+        }
+    }
+
+    // LINT031: Port rewrite requires --axi
+    for rule in &config.pacgate.rules {
+        if let Some(ref rw) = rule.rewrite {
+            if rw.set_src_port.is_some() || rw.set_dst_port.is_some() {
+                findings.push(serde_json::json!({
+                    "level": "info",
+                    "code": "LINT031",
+                    "message": format!("Rule '{}' uses set_src_port/set_dst_port — requires --axi flag for rewrite engine", rule.name),
+                    "suggestion": "Compile with 'pacgate compile rules.yaml --axi' to enable the rewrite pipeline"
+                }));
+            }
+        }
+    }
+
+    // LINT032: Port rewrite L4 checksum update
+    for rule in &config.pacgate.rules {
+        if let Some(ref rw) = rule.rewrite {
+            if rw.set_src_port.is_some() || rw.set_dst_port.is_some() {
+                findings.push(serde_json::json!({
+                    "level": "info",
+                    "code": "LINT032",
+                    "message": format!("Rule '{}' port rewrite will apply RFC 1624 incremental L4 checksum update (UDP checksum=0 preserved)", rule.name),
+                    "suggestion": "No action needed — L4 checksum is automatically updated by the rewrite engine"
+                }));
+                break; // Only report once
             }
         }
     }

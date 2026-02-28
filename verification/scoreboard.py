@@ -121,6 +121,13 @@ class Rule:
     # IPv6 extension fields
     ipv6_hop_limit: Optional[int] = None
     ipv6_flow_label: Optional[int] = None
+    # QinQ / outer VLAN fields
+    outer_vlan_id: Optional[int] = None
+    outer_vlan_pcp: Optional[int] = None
+    # IP fragmentation fields
+    ip_dont_fragment: Optional[bool] = None
+    ip_more_fragments: Optional[bool] = None
+    ip_frag_offset: Optional[int] = None
 
     def matches(self, frame: EthernetFrame, extracted: Optional[dict] = None) -> bool:
         """Check if this rule matches the given frame.
@@ -310,6 +317,30 @@ class Rule:
         if self.ipv6_flow_label is not None:
             pkt_flow_label = extracted.get("ipv6_flow_label")
             if pkt_flow_label is None or pkt_flow_label != self.ipv6_flow_label:
+                return False
+
+        # QinQ / outer VLAN matching
+        if self.outer_vlan_id is not None:
+            pkt_outer_vlan_id = extracted.get("outer_vlan_id")
+            if pkt_outer_vlan_id is None or pkt_outer_vlan_id != self.outer_vlan_id:
+                return False
+        if self.outer_vlan_pcp is not None:
+            pkt_outer_vlan_pcp = extracted.get("outer_vlan_pcp")
+            if pkt_outer_vlan_pcp is None or pkt_outer_vlan_pcp != self.outer_vlan_pcp:
+                return False
+
+        # IP fragmentation fields matching
+        if self.ip_dont_fragment is not None:
+            pkt_df = extracted.get("ip_dont_fragment")
+            if pkt_df is None or pkt_df != self.ip_dont_fragment:
+                return False
+        if self.ip_more_fragments is not None:
+            pkt_mf = extracted.get("ip_more_fragments")
+            if pkt_mf is None or pkt_mf != self.ip_more_fragments:
+                return False
+        if self.ip_frag_offset is not None:
+            pkt_frag_offset = extracted.get("ip_frag_offset")
+            if pkt_frag_offset is None or pkt_frag_offset != self.ip_frag_offset:
                 return False
 
         return True
