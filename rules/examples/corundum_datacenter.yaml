@@ -1,0 +1,78 @@
+# corundum_datacenter.yaml — Data center firewall for Corundum NIC
+#
+# Usage:
+#   pacgate compile rules/examples/corundum_datacenter.yaml --target corundum
+#
+# Generates a Corundum mqnic_app_block replacement with packet filtering.
+# Handles 512-bit sync RX/TX interface with PTP timestamp passthrough.
+#
+# Throughput: ~2 Gbps at 250MHz (V1 width converter limitation)
+
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop           # Whitelist mode
+
+  rules:
+    # Allow intra-datacenter traffic (10.0.0.0/8)
+    - name: allow_dc_internal
+      priority: 300
+      match:
+        ethertype: "0x0800"
+        src_ip: "10.0.0.0/8"
+      action: pass
+
+    # Allow management VLAN
+    - name: allow_mgmt_vlan
+      priority: 290
+      match:
+        vlan_id: 100
+      action: pass
+
+    # Allow BGP peering (TCP port 179)
+    - name: allow_bgp
+      priority: 280
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6     # TCP
+        dst_port: 179
+      action: pass
+
+    # Allow VXLAN overlay traffic
+    - name: allow_vxlan
+      priority: 270
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17    # UDP
+        dst_port: 4789
+      action: pass
+
+    # Allow ARP
+    - name: allow_arp
+      priority: 260
+      match:
+        ethertype: "0x0806"
+      action: pass
+
+    # Allow ICMP for network diagnostics
+    - name: allow_icmp
+      priority: 250
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 1
+      action: pass
+
+    # Block RFC 1918 from external interfaces
+    - name: block_rfc1918_172
+      priority: 200
+      match:
+        ethertype: "0x0800"
+        src_ip: "172.16.0.0/12"
+      action: drop
+
+    - name: block_rfc1918_192
+      priority: 190
+      match:
+        ethertype: "0x0800"
+        src_ip: "192.168.0.0/16"
+      action: drop

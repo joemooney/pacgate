@@ -65,7 +65,8 @@ fn validate_all_examples() {
                      "byte_match", "hsm_conntrack",
                      "ipv6_firewall", "rate_limited",
                      "dynamic_firewall",
-                     "opennic_l3l4"] {
+                     "opennic_l3l4",
+                     "corundum_datacenter"] {
         let path = format!("rules/examples/{}.yaml", example);
         let output = pacgate_bin()
             .args(["validate", &path])
@@ -3359,4 +3360,58 @@ fn target_opennic_example_validates() {
         .output()
         .unwrap();
     assert!(output.status.success(), "opennic_l3l4.yaml should validate: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn target_corundum_generates_wrapper() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/corundum_datacenter.yaml", "--target", "corundum", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile --target corundum failed: {}", String::from_utf8_lossy(&output.stderr));
+    // Corundum wrapper should be generated
+    assert!(tmp.path().join("rtl/pacgate_corundum_app.v").exists(), "Corundum wrapper missing");
+    let wrapper = std::fs::read_to_string(tmp.path().join("rtl/pacgate_corundum_app.v")).unwrap();
+    assert!(wrapper.contains("module pacgate_corundum_app"), "wrapper should have correct module name");
+    assert!(wrapper.contains("s_axis_sync_rx_tdata"), "wrapper should have Corundum sync RX port");
+    assert!(wrapper.contains("m_axis_sync_tx_tdata"), "wrapper should have Corundum sync TX port");
+    assert!(wrapper.contains("rst_n = ~rst"), "wrapper should invert reset");
+    assert!(wrapper.contains("PTP_TS_WIDTH"), "wrapper should have PTP timestamp parameter");
+}
+
+#[test]
+fn target_corundum_json_output() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/corundum_datacenter.yaml", "--target", "corundum", "--json", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON output");
+    assert_eq!(json["status"], "ok");
+    assert_eq!(json["target"], "corundum");
+    assert_eq!(json["axi_stream"], true);
+}
+
+#[test]
+fn target_corundum_example_validates() {
+    let output = pacgate_bin()
+        .args(["validate", "rules/examples/corundum_datacenter.yaml"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "corundum_datacenter.yaml should validate: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn target_ports_rejected() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml", "--target", "corundum", "--ports", "4", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "should reject --target with --ports > 1");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("incompatible"), "error should mention incompatibility: {}", stderr);
 }
