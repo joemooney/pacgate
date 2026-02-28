@@ -2885,3 +2885,128 @@ pacgate:
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("0x0800"), "Error should mention ethertype requirement: {}", stderr);
 }
+
+#[test]
+fn rewrite_compile_generates_lut() {
+    let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: nat_outbound
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        src_ip: "10.0.0.0/8"
+      action: pass
+      rewrite:
+        set_src_ip: "203.0.113.1"
+        dec_ttl: true
+    - name: allow_arp
+      priority: 50
+      match:
+        ethertype: "0x0806"
+      action: pass
+"#;
+    let tmp = tempfile::tempdir().unwrap();
+    let rules_path = tmp.path().join("rewrite.yaml");
+    std::fs::write(&rules_path, yaml).unwrap();
+    let output = pacgate_bin()
+        .args(["compile", rules_path.to_str().unwrap(), "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "Compile with rewrite failed: {}", String::from_utf8_lossy(&output.stderr));
+    // Check rewrite_lut.v was generated
+    let lut = std::fs::read_to_string(tmp.path().join("rtl/rewrite_lut.v")).unwrap();
+    assert!(lut.contains("module rewrite_lut"), "Missing rewrite_lut module");
+    assert!(lut.contains("rewrite_en"), "Missing rewrite_en signal");
+    assert!(lut.contains("rewrite_src_ip"), "Missing rewrite_src_ip in LUT");
+}
+
+#[test]
+fn rewrite_compile_no_lut_without_rewrite() {
+    let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_arp
+      priority: 100
+      match:
+        ethertype: "0x0806"
+      action: pass
+"#;
+    let tmp = tempfile::tempdir().unwrap();
+    let rules_path = tmp.path().join("no_rewrite.yaml");
+    std::fs::write(&rules_path, yaml).unwrap();
+    let output = pacgate_bin()
+        .args(["compile", rules_path.to_str().unwrap(), "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "Compile failed: {}", String::from_utf8_lossy(&output.stderr));
+    // rewrite_lut.v should NOT be generated when no rules have rewrite
+    assert!(!tmp.path().join("rtl/rewrite_lut.v").exists(), "rewrite_lut.v should not exist without rewrite rules");
+}
+
+#[test]
+fn rewrite_top_exports_rule_idx() {
+    let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: nat
+      priority: 100
+      match:
+        ethertype: "0x0800"
+      action: pass
+      rewrite:
+        set_dst_mac: "00:11:22:33:44:55"
+"#;
+    let tmp = tempfile::tempdir().unwrap();
+    let rules_path = tmp.path().join("rewrite_top.yaml");
+    std::fs::write(&rules_path, yaml).unwrap();
+    let output = pacgate_bin()
+        .args(["compile", rules_path.to_str().unwrap(), "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "Compile failed: {}", String::from_utf8_lossy(&output.stderr));
+    let top = std::fs::read_to_string(tmp.path().join("rtl/packet_filter_top.v")).unwrap();
+    assert!(top.contains("decision_rule_idx"), "Top should export decision_rule_idx");
+    assert!(top.contains("ip_ttl"), "Top should export ip_ttl for rewrite");
+    assert!(top.contains("ip_checksum"), "Top should export ip_checksum for rewrite");
+    assert!(top.contains("vlan_valid"), "Top should export vlan_valid for rewrite");
+}
+
+#[test]
+fn rewrite_frame_parser_has_ttl_checksum() {
+    let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: nat
+      priority: 100
+      match:
+        ethertype: "0x0800"
+      action: pass
+      rewrite:
+        set_ttl: 64
+"#;
+    let tmp = tempfile::tempdir().unwrap();
+    let rules_path = tmp.path().join("rewrite_fp.yaml");
+    std::fs::write(&rules_path, yaml).unwrap();
+    let output = pacgate_bin()
+        .args(["compile", rules_path.to_str().unwrap(), "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "Compile failed: {}", String::from_utf8_lossy(&output.stderr));
+    // Verify the hand-written frame_parser.v has the new ports
+    let fp = std::fs::read_to_string("rtl/frame_parser.v").unwrap();
+    assert!(fp.contains("ip_ttl"), "frame_parser.v must have ip_ttl port");
+    assert!(fp.contains("ip_checksum"), "frame_parser.v must have ip_checksum port");
+}

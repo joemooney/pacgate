@@ -1,6 +1,6 @@
 // frame_parser.v — Ethernet frame field extractor
 // Extracts: dst_mac, src_mac, ethertype, vlan_id, vlan_pcp
-//           src_ip, dst_ip, ip_protocol, src_port, dst_port (IPv4/TCP/UDP)
+//           src_ip, dst_ip, ip_protocol, ip_ttl, ip_checksum, src_port, dst_port (IPv4/TCP/UDP)
 //           src_ipv6, dst_ipv6, ipv6_next_header (IPv6)
 //           vxlan_vni (VXLAN Network Identifier)
 //           gtp_teid (GTP-U Tunnel Endpoint ID, 5G)
@@ -41,6 +41,8 @@ module frame_parser (
     output reg  [31:0] src_ip,
     output reg  [31:0] dst_ip,
     output reg  [7:0]  ip_protocol,
+    output reg  [7:0]  ip_ttl,       // IPv4 TTL field (byte 8 of IP header)
+    output reg  [15:0] ip_checksum,  // IPv4 header checksum (bytes 10-11)
     output reg         l3_valid,    // frame had IPv4 header
 
     // L3 extracted fields (IPv6)
@@ -109,6 +111,8 @@ module frame_parser (
             src_ip       <= 32'd0;
             dst_ip       <= 32'd0;
             ip_protocol  <= 8'd0;
+            ip_ttl       <= 8'd0;
+            ip_checksum  <= 16'd0;
             l3_valid     <= 1'b0;
             src_ipv6     <= 128'd0;
             dst_ipv6     <= 128'd0;
@@ -146,6 +150,8 @@ module frame_parser (
                 src_ip   <= 32'd0;
                 dst_ip   <= 32'd0;
                 ip_protocol <= 8'd0;
+                ip_ttl      <= 8'd0;
+                ip_checksum <= 16'd0;
                 l3_valid <= 1'b0;
                 src_ipv6 <= 128'd0;
                 dst_ipv6 <= 128'd0;
@@ -264,11 +270,16 @@ module frame_parser (
 
                     S_IP_HDR: begin
                         // Parse 20-byte IPv4 header (assuming IHL=5, standard header)
+                        // Byte  8: TTL
                         // Byte  9: Protocol
+                        // Bytes 10-11: Header checksum
                         // Bytes 12-15: Source IP
                         // Bytes 16-19: Destination IP
                         case (byte_cnt)
+                            6'd8:  ip_ttl <= pkt_data;
                             6'd9:  ip_protocol <= pkt_data;
+                            6'd10: ip_checksum[15:8] <= pkt_data;
+                            6'd11: ip_checksum[7:0]  <= pkt_data;
                             6'd12: src_ip[31:24] <= pkt_data;
                             6'd13: src_ip[23:16] <= pkt_data;
                             6'd14: src_ip[15:8]  <= pkt_data;

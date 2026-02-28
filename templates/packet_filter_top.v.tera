@@ -13,7 +13,18 @@ module packet_filter_top (
 
     // Decision output
     output wire        decision_valid,
-    output wire        decision_pass
+    output wire        decision_pass,
+    output wire [{{ idx_bits - 1 }}:0] decision_rule_idx,
+    output wire        decision_default
+{% if has_rewrite %}
+    ,
+    // Parsed fields for rewrite engine
+    output wire        vlan_valid,
+    output wire [7:0]  ip_ttl,
+    output wire [15:0] ip_checksum,
+    output wire [31:0] src_ip,
+    output wire [31:0] dst_ip
+{% endif %}
 );
 
     // Frame parser outputs — L2
@@ -22,12 +33,20 @@ module packet_filter_top (
     wire [15:0] ethertype;
     wire [11:0] vlan_id;
     wire [2:0]  vlan_pcp;
+{% if not has_rewrite %}
     wire        vlan_valid;
+{% endif %}
 
     // Frame parser outputs — L3 (IPv4)
+{% if not has_rewrite %}
     wire [31:0] src_ip;
     wire [31:0] dst_ip;
+{% endif %}
     wire [7:0]  ip_protocol;
+{% if not has_rewrite %}
+    wire [7:0]  ip_ttl;
+    wire [15:0] ip_checksum;
+{% endif %}
     wire        l3_valid;
 
     // Frame parser outputs — L3 (IPv6)
@@ -79,6 +98,8 @@ module packet_filter_top (
         .src_ip       (src_ip),
         .dst_ip       (dst_ip),
         .ip_protocol  (ip_protocol),
+        .ip_ttl       (ip_ttl),
+        .ip_checksum  (ip_checksum),
         .l3_valid     (l3_valid),
         .src_ipv6     (src_ipv6),
         .dst_ipv6     (dst_ipv6),
@@ -183,7 +204,9 @@ module packet_filter_top (
         .match_action_{{ rule.index }} (match_action_{{ rule.index }}),
 {% endfor %}
         .decision_valid (decision_valid),
-        .decision_pass  (decision_pass)
+        .decision_pass  (decision_pass),
+        .decision_rule_idx (decision_rule_idx),
+        .decision_default  (decision_default)
     );
 
 endmodule

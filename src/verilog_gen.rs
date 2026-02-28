@@ -290,6 +290,19 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         }
     }
 
+    // Check if any rule has rewrite actions
+    let has_rewrite = rules.iter().any(|r| r.has_rewrite());
+
+    // Calculate index bit width (shared with decision_logic)
+    let idx_bits = if rules.is_empty() { 1 } else {
+        ((rules.len() as f64).log2().ceil() as usize).max(1)
+    };
+
+    // Generate rewrite LUT if any rule has rewrite actions
+    if has_rewrite {
+        generate_rewrite_lut(&tera, &rtl_dir, &rules, idx_bits)?;
+    }
+
     // Generate top-level
     {
         let mut ctx = tera::Context::new();
@@ -299,6 +312,8 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         ctx.insert("has_gtp", &has_gtp);
         ctx.insert("has_mpls", &has_mpls);
         ctx.insert("has_multicast", &has_multicast);
+        ctx.insert("has_rewrite", &has_rewrite);
+        ctx.insert("idx_bits", &idx_bits);
 
         let byte_cap_info: Vec<std::collections::HashMap<String, serde_json::Value>> = byte_offsets.iter().map(|(offset, len)| {
             let mut map = std::collections::HashMap::new();
@@ -322,6 +337,80 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         log::info!("Generated packet_filter_top.v");
     }
 
+    Ok(())
+}
+
+/// Generate rewrite LUT: combinational ROM mapping rule_idx → rewrite parameters
+fn generate_rewrite_lut(tera: &Tera, rtl_dir: &Path, rules: &[crate::model::StatelessRule], idx_bits: usize) -> Result<()> {
+    let mut ctx = tera::Context::new();
+    ctx.insert("idx_bits", &idx_bits);
+
+    let rewrite_entries: Vec<std::collections::HashMap<String, serde_json::Value>> = rules.iter().enumerate()
+        .filter(|(_, rule)| rule.has_rewrite())
+        .map(|(idx, rule)| {
+            let rw = rule.rewrite.as_ref().unwrap();
+            let mut map = std::collections::HashMap::new();
+            map.insert("index".to_string(), serde_json::json!(idx));
+
+            let flags = rw.flags();
+            map.insert("flags_bin".to_string(), serde_json::json!(format!("{:07b}", flags)));
+
+            // MAC addresses
+            if let Some(ref mac) = rw.set_dst_mac {
+                map.insert("has_dst_mac".to_string(), serde_json::json!(true));
+                let m = MacAddress::parse(mac).unwrap();
+                map.insert("dst_mac".to_string(), serde_json::json!(m.to_verilog_value()));
+            } else {
+                map.insert("has_dst_mac".to_string(), serde_json::json!(false));
+            }
+            if let Some(ref mac) = rw.set_src_mac {
+                map.insert("has_src_mac".to_string(), serde_json::json!(true));
+                let m = MacAddress::parse(mac).unwrap();
+                map.insert("src_mac".to_string(), serde_json::json!(m.to_verilog_value()));
+            } else {
+                map.insert("has_src_mac".to_string(), serde_json::json!(false));
+            }
+
+            // VLAN ID
+            if let Some(vid) = rw.set_vlan_id {
+                map.insert("has_vlan_id".to_string(), serde_json::json!(true));
+                map.insert("vlan_id".to_string(), serde_json::json!(vid));
+            } else {
+                map.insert("has_vlan_id".to_string(), serde_json::json!(false));
+            }
+
+            // TTL
+            if let Some(ttl) = rw.set_ttl {
+                map.insert("has_ttl".to_string(), serde_json::json!(true));
+                map.insert("ttl".to_string(), serde_json::json!(ttl));
+            } else {
+                map.insert("has_ttl".to_string(), serde_json::json!(false));
+            }
+
+            // IP addresses
+            if let Some(ref ip) = rw.set_src_ip {
+                map.insert("has_src_ip".to_string(), serde_json::json!(true));
+                let prefix = Ipv4Prefix::parse(ip).unwrap();
+                map.insert("src_ip".to_string(), serde_json::json!(prefix.to_verilog_value()));
+            } else {
+                map.insert("has_src_ip".to_string(), serde_json::json!(false));
+            }
+            if let Some(ref ip) = rw.set_dst_ip {
+                map.insert("has_dst_ip".to_string(), serde_json::json!(true));
+                let prefix = Ipv4Prefix::parse(ip).unwrap();
+                map.insert("dst_ip".to_string(), serde_json::json!(prefix.to_verilog_value()));
+            } else {
+                map.insert("has_dst_ip".to_string(), serde_json::json!(false));
+            }
+
+            map
+        })
+        .collect();
+
+    ctx.insert("rewrite_entries", &rewrite_entries);
+    let rendered = tera.render("rewrite_lut.v.tera", &ctx)?;
+    std::fs::write(rtl_dir.join("rewrite_lut.v"), &rendered)?;
+    log::info!("Generated rewrite_lut.v");
     Ok(())
 }
 
