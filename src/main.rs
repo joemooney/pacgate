@@ -72,6 +72,10 @@ enum Commands {
         /// Maximum number of flow table entries (1-256, default 16)
         #[arg(long, default_value = "16")]
         dynamic_entries: u16,
+
+        /// Platform integration target: standalone (default), opennic, or corundum
+        #[arg(long, default_value = "standalone")]
+        target: String,
     },
     /// Validate YAML rules without generating output
     Validate {
@@ -451,7 +455,21 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Compile { rules, output, templates, json, axi, counters, ports, conntrack, rate_limit, dynamic, dynamic_entries } => {
+        Commands::Compile { rules, output, templates, json, axi, counters, ports, conntrack, rate_limit, dynamic, dynamic_entries, target } => {
+            let platform = verilog_gen::PlatformTarget::from_str(&target)?;
+
+            // Validate platform target constraints
+            if platform.is_platform() {
+                if dynamic {
+                    anyhow::bail!("--target {} is incompatible with --dynamic in V1 (AXI-Lite address space conflict)", platform.name());
+                }
+                if ports > 1 {
+                    anyhow::bail!("--target {} is incompatible with --ports > 1 in V1", platform.name());
+                }
+            }
+
+            // Platform targets implicitly enable AXI
+            let axi = axi || platform.is_platform();
             log::info!("Compiling rules from {}", rules.display());
             let (config, warnings) = loader::load_rules_with_warnings(&rules)?;
 
@@ -493,6 +511,20 @@ fn main() -> Result<()> {
                 verilog_gen::copy_counter_rtl(&output)?;
             }
 
+            // Platform target: copy width converters and generate wrapper
+            if platform.is_platform() {
+                verilog_gen::copy_width_converter_rtl(&output)?;
+                match &platform {
+                    verilog_gen::PlatformTarget::OpenNic => {
+                        verilog_gen::generate_opennic_wrapper(&config, &templates, &output)?;
+                    }
+                    verilog_gen::PlatformTarget::Corundum => {
+                        verilog_gen::generate_corundum_wrapper(&config, &templates, &output)?;
+                    }
+                    _ => {}
+                }
+            }
+
             // Generate cocotb tests
             if dynamic {
                 cocotb_gen::generate_dynamic_tests(&config, &templates, &output, dynamic_entries)?;
@@ -529,6 +561,7 @@ fn main() -> Result<()> {
                     "rate_limit": has_rate_limit,
                     "dynamic": dynamic,
                     "dynamic_entries": if dynamic { Some(dynamic_entries) } else { None },
+                    "target": platform.name(),
                     "generated": {
                         "verilog_dir": format!("{}/rtl", output.display()),
                         "cocotb_dir": format!("{}/tb", output.display()),
@@ -571,6 +604,10 @@ fn main() -> Result<()> {
                 if dynamic {
                     println!("  Generated dynamic flow table ({} entries) in {}/rtl/", dynamic_entries, output.display());
                     println!("  Note: simulation evaluates initial rules only; runtime changes require cocotb/RTL sim");
+                }
+                if platform.is_platform() {
+                    println!("  Generated {} platform wrapper in {}/rtl/", platform.name(), output.display());
+                    println!("  Note: V1 uses 512<->8 width converters (~2 Gbps at 250MHz)");
                 }
                 println!("  Compilation complete.");
             }

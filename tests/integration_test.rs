@@ -3264,3 +3264,56 @@ pacgate:
     assert!(sva.contains("p_rewrite_implies_pass"), "SVA should contain rewrite assertion");
     assert!(sva.contains("rewrite_en"), "SVA should reference rewrite_en signal");
 }
+
+// --- Platform target tests ---
+
+#[test]
+fn target_opennic_flag_accepted() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml", "--target", "opennic", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile --target opennic failed: {}", String::from_utf8_lossy(&output.stderr));
+    // Should generate width converters
+    assert!(tmp.path().join("rtl/axis_512_to_8.v").exists(), "axis_512_to_8.v missing");
+    assert!(tmp.path().join("rtl/axis_8_to_512.v").exists(), "axis_8_to_512.v missing");
+    // Should also generate AXI (implied)
+    assert!(tmp.path().join("rtl/packet_filter_axi_top.v").exists(), "AXI top missing (should be implied by --target)");
+}
+
+#[test]
+fn target_corundum_flag_accepted() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml", "--target", "corundum", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile --target corundum failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(tmp.path().join("rtl/axis_512_to_8.v").exists(), "axis_512_to_8.v missing");
+    assert!(tmp.path().join("rtl/axis_8_to_512.v").exists(), "axis_8_to_512.v missing");
+}
+
+#[test]
+fn target_invalid_rejected() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml", "--target", "xilinx", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "should reject invalid --target");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Unknown platform target"), "error should mention unknown target: {}", stderr);
+}
+
+#[test]
+fn target_dynamic_rejected() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml", "--target", "opennic", "--dynamic", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "should reject --target with --dynamic");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("incompatible"), "error should mention incompatibility: {}", stderr);
+}

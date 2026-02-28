@@ -4,6 +4,37 @@ use tera::Tera;
 
 use crate::model::{Action, FilterConfig, Ipv4Prefix, Ipv6Prefix, MacAddress, PortMatch, parse_ethertype};
 
+/// Platform integration target for NIC wrappers
+#[derive(Debug, Clone, PartialEq)]
+pub enum PlatformTarget {
+    Standalone,
+    OpenNic,
+    Corundum,
+}
+
+impl PlatformTarget {
+    pub fn from_str(s: &str) -> Result<Self> {
+        match s.to_lowercase().as_str() {
+            "standalone" => Ok(PlatformTarget::Standalone),
+            "opennic" => Ok(PlatformTarget::OpenNic),
+            "corundum" => Ok(PlatformTarget::Corundum),
+            _ => anyhow::bail!("Unknown platform target '{}': expected standalone, opennic, or corundum", s),
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        match self {
+            PlatformTarget::Standalone => "standalone",
+            PlatformTarget::OpenNic => "opennic",
+            PlatformTarget::Corundum => "corundum",
+        }
+    }
+
+    pub fn is_platform(&self) -> bool {
+        !matches!(self, PlatformTarget::Standalone)
+    }
+}
+
 /// Global protocol flags — ensures all rule modules in a design have consistent port lists
 struct GlobalProtocolFlags {
     has_ipv6: bool,
@@ -745,6 +776,83 @@ pub fn copy_rate_limiter_rtl(output_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Copy 512-bit width converter RTL to the output directory (for platform targets).
+pub fn copy_width_converter_rtl(output_dir: &Path) -> Result<()> {
+    let rtl_dir = output_dir.join("rtl");
+    std::fs::create_dir_all(&rtl_dir)?;
+
+    let width_files = [
+        "axis_512_to_8.v",
+        "axis_8_to_512.v",
+    ];
+
+    for filename in &width_files {
+        let src = Path::new("rtl").join(filename);
+        let dst = rtl_dir.join(filename);
+        std::fs::copy(&src, &dst)
+            .with_context(|| format!("Failed to copy {} to output", filename))?;
+        log::info!("Copied {} to {}", filename, dst.display());
+    }
+
+    Ok(())
+}
+
+/// Generate OpenNIC platform wrapper from template.
+pub fn generate_opennic_wrapper(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) -> Result<()> {
+    let rtl_dir = output_dir.join("rtl");
+    std::fs::create_dir_all(&rtl_dir)?;
+
+    let glob = format!("{}/**/*.tera", templates_dir.display());
+    let tera = Tera::new(&glob)
+        .with_context(|| format!("Failed to load templates from {}", templates_dir.display()))?;
+
+    let rules = &config.pacgate.rules;
+    let has_rewrite = rules.iter().any(|r| r.has_rewrite());
+    let idx_bits = if rules.is_empty() { 1 } else {
+        ((rules.len() as f64).log2().ceil() as usize).max(1)
+    };
+    let has_counters = true; // OpenNIC typically wants CSR access
+
+    let mut ctx = tera::Context::new();
+    ctx.insert("has_rewrite", &has_rewrite);
+    ctx.insert("has_counters", &has_counters);
+    ctx.insert("idx_bits", &idx_bits);
+    ctx.insert("num_rules", &rules.len());
+
+    let rendered = tera.render("pacgate_opennic_250.v.tera", &ctx)?;
+    std::fs::write(rtl_dir.join("pacgate_opennic_250.v"), &rendered)?;
+    log::info!("Generated pacgate_opennic_250.v (OpenNIC wrapper)");
+
+    Ok(())
+}
+
+/// Generate Corundum platform wrapper from template.
+pub fn generate_corundum_wrapper(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) -> Result<()> {
+    let rtl_dir = output_dir.join("rtl");
+    std::fs::create_dir_all(&rtl_dir)?;
+
+    let glob = format!("{}/**/*.tera", templates_dir.display());
+    let tera = Tera::new(&glob)
+        .with_context(|| format!("Failed to load templates from {}", templates_dir.display()))?;
+
+    let rules = &config.pacgate.rules;
+    let has_rewrite = rules.iter().any(|r| r.has_rewrite());
+    let idx_bits = if rules.is_empty() { 1 } else {
+        ((rules.len() as f64).log2().ceil() as usize).max(1)
+    };
+
+    let mut ctx = tera::Context::new();
+    ctx.insert("has_rewrite", &has_rewrite);
+    ctx.insert("idx_bits", &idx_bits);
+    ctx.insert("num_rules", &rules.len());
+
+    let rendered = tera.render("pacgate_corundum_app.v.tera", &ctx)?;
+    std::fs::write(rtl_dir.join("pacgate_corundum_app.v"), &rendered)?;
+    log::info!("Generated pacgate_corundum_app.v (Corundum wrapper)");
+
+    Ok(())
+}
+
 /// Collect all unique (offset, byte_length) pairs across all rules
 pub fn collect_byte_match_offsets(config: &FilterConfig) -> Vec<(u16, usize)> {
     let mut offsets: std::collections::BTreeMap<u16, usize> = std::collections::BTreeMap::new();
@@ -1129,4 +1237,51 @@ fn generate_fsm_rule(
     std::fs::write(rtl_dir.join(&filename), &rendered)?;
     log::info!("Generated {} (FSM)", filename);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_platform_target_parse_standalone() {
+        let t = PlatformTarget::from_str("standalone").unwrap();
+        assert_eq!(t, PlatformTarget::Standalone);
+        assert!(!t.is_platform());
+    }
+
+    #[test]
+    fn test_platform_target_parse_opennic() {
+        let t = PlatformTarget::from_str("opennic").unwrap();
+        assert_eq!(t, PlatformTarget::OpenNic);
+        assert!(t.is_platform());
+        assert_eq!(t.name(), "opennic");
+    }
+
+    #[test]
+    fn test_platform_target_parse_corundum() {
+        let t = PlatformTarget::from_str("corundum").unwrap();
+        assert_eq!(t, PlatformTarget::Corundum);
+        assert!(t.is_platform());
+        assert_eq!(t.name(), "corundum");
+    }
+
+    #[test]
+    fn test_platform_target_parse_invalid() {
+        let result = PlatformTarget::from_str("xilinx");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_platform_target_case_insensitive() {
+        assert_eq!(PlatformTarget::from_str("OpenNIC").unwrap(), PlatformTarget::OpenNic);
+        assert_eq!(PlatformTarget::from_str("CORUNDUM").unwrap(), PlatformTarget::Corundum);
+    }
+
+    #[test]
+    fn test_platform_standalone_is_not_platform() {
+        let t = PlatformTarget::Standalone;
+        assert!(!t.is_platform());
+        assert_eq!(t.name(), "standalone");
+    }
 }
