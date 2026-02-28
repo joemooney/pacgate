@@ -113,10 +113,10 @@ jobs:
       - name: Lint generated Verilog
         run: iverilog -g2012 -o /dev/null gen/rtl/*.v rtl/*.v
 
-      - name: Run simulation
+      - name: Run simulation (cocotb 2.0 runner)
         run: |
           source .venv/bin/activate
-          cd gen/tb && make
+          cd gen/tb && python run_sim.py
 
       - name: Run property tests
         continue-on-error: true
@@ -249,10 +249,10 @@ jobs:
       - name: Lint generated Verilog (conntrack)
         run: iverilog -g2012 -o /dev/null gen/rtl/*.v rtl/*.v
 
-      - name: Run conntrack cocotb simulation
+      - name: Run conntrack cocotb simulation (cocotb 2.0 runner)
         run: |
           source .venv/bin/activate
-          cd gen/tb && make
+          cd gen/tb && python run_sim.py
 
       - name: Upload test results
         if: always()
@@ -399,6 +399,12 @@ jobs:
 
       - name: Compile with --target opennic
         run: cargo run --release -- compile rules/examples/opennic_l3l4.yaml --target opennic
+
+      - name: Verify runner script generated
+        run: |
+          test -f gen/tb/run_sim.py && echo "run_sim.py exists"
+          grep -q "from cocotb_tools.runner import get_runner" gen/tb/run_sim.py
+          echo "Runner script lint passed"
 
       - name: Lint generated Verilog (OpenNIC)
         run: iverilog -g2012 -o /dev/null gen/rtl/*.v rtl/*.v

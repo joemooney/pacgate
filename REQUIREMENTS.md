@@ -191,9 +191,13 @@
 - REQ-108: Regression dashboard with coverage metrics
 
 ### cocotb 2.0 Compatibility
-- REQ-110: Target cocotb 2.0+ with Logic/LogicArray types
-- REQ-111: Copra type stub generation for DUT signals
-- REQ-112: cocotb-coverage 2.0 compatibility
+- REQ-110: Target cocotb 2.0+ with `int(.value)` pattern (no `.value.integer`) [IMPLEMENTED]
+- REQ-111: Pin cocotb>=2.0.0 + cocotb-tools in CI/requirements [IMPLEMENTED]
+- REQ-112: Generate `run_sim.py` runner scripts using `cocotb_tools.runner` API [IMPLEMENTED]
+- REQ-113: Runner scripts generated for all test modes (main, AXI, conntrack, rate limiter, dynamic) [IMPLEMENTED]
+- REQ-114: Runner includes platform width converter sources when `--target` is set [IMPLEMENTED]
+- REQ-115: Makefiles preserved for backward compatibility alongside runners [IMPLEMENTED]
+- REQ-116: Runner supports SIM environment variable override (icarus, verilator, etc.) [IMPLEMENTED]
 
 ## Phase 7 Requirements — Advanced Stateful Logic, Byte Matching, Multi-Port, Mermaid [IMPLEMENTED]
 
@@ -751,8 +755,8 @@
 - REQ-1270: rewrite_actions.yaml example demonstrating NAT, TTL, MAC, VLAN rewrite [IMPLEMENTED]
 
 ### Testing
-- REQ-1280: 256 Rust unit tests (through Phase 19) [IMPLEMENTED]
-- REQ-1281: 195 Rust integration tests (through Phase 19) [IMPLEMENTED]
+- REQ-1280: 260 Rust unit tests (through Phase 20) [IMPLEMENTED]
+- REQ-1281: 204 Rust integration tests (through Phase 20) [IMPLEMENTED]
 - REQ-1282: 47 Python scoreboard unit tests (through Phase 18) [IMPLEMENTED]
 
 ## Phase 19: Platform Integration Targets
@@ -796,3 +800,34 @@
 ### CI
 - REQ-1360: `opennic-compile` CI job with iverilog lint [IMPLEMENTED]
 - REQ-1361: `corundum-compile` CI job with iverilog lint [IMPLEMENTED]
+
+## Phase 20: cocotb 2.0 Migration [IMPLEMENTED]
+
+### Compatibility
+- REQ-1400: Pin cocotb>=2.0.0 + cocotb-tools in CI and environment [IMPLEMENTED]
+- REQ-1401: Fix `.value.integer` → `int(.value)` pattern in test_rate_limiter.py.tera [IMPLEMENTED]
+- REQ-1402: No usage of BinaryValue, TestFactory, TestFailure, cocotb.fork, or .kill() [VERIFIED]
+
+### Runner Script Generation
+- REQ-1410: Generate `run_sim.py` runner using `cocotb_tools.runner.get_runner()` API [IMPLEMENTED]
+- REQ-1411: Runner for main packet filter tests (tb/run_sim.py) [IMPLEMENTED]
+- REQ-1412: Runner for AXI-Stream tests (tb-axi/run_sim.py) [IMPLEMENTED]
+- REQ-1413: Runner for conntrack tests (tb-conntrack/run_sim.py) [IMPLEMENTED]
+- REQ-1414: Runner for rate limiter tests (tb-rate-limiter/run_sim.py) [IMPLEMENTED]
+- REQ-1415: Runner for dynamic flow table tests (tb/run_sim.py in dynamic mode) [IMPLEMENTED]
+- REQ-1416: Runner supports SIM environment variable override (default: icarus) [IMPLEMENTED]
+- REQ-1417: Runner includes `results_xml` output path for CI artifact collection [IMPLEMENTED]
+- REQ-1418: Platform target runners include width converter Verilog sources [IMPLEMENTED]
+
+### Backward Compatibility
+- REQ-1420: Makefiles preserved alongside runner scripts for legacy workflows [IMPLEMENTED]
+- REQ-1421: Both `python run_sim.py` and `make` produce equivalent simulation results [IMPLEMENTED]
+
+### CI Updates
+- REQ-1430: CI simulate job uses `python run_sim.py` (cocotb 2.0 runner) [IMPLEMENTED]
+- REQ-1431: CI conntrack-simulate job uses runner [IMPLEMENTED]
+- REQ-1432: CI runner lint check verifies generated run_sim.py has correct imports [IMPLEMENTED]
+
+### Testing
+- REQ-1440: 4 unit tests for runner template rendering (sources, toplevel, imports, SIM override) [IMPLEMENTED]
+- REQ-1441: 9 integration tests for runner generation across all compile modes [IMPLEMENTED]

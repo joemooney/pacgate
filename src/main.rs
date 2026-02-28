@@ -545,7 +545,7 @@ fn main() -> Result<()> {
             // Generate AXI-Stream cocotb tests if --axi
             if axi {
                 cocotb_gen::generate_axi_tests(&config, &templates, &output)?;
-                cocotb_gen::generate_axi_runner(&config, &templates, &output)?;
+                cocotb_gen::generate_axi_runner(&config, &templates, &output, platform.is_platform())?;
             }
 
             // Generate rate limiter testbench if --rate-limit

@@ -458,7 +458,8 @@ pub fn generate_runner(config: &FilterConfig, templates_dir: &Path, output_dir: 
 }
 
 /// Generate cocotb 2.0 runner script for AXI-Stream tests.
-pub fn generate_axi_runner(_config: &FilterConfig, templates_dir: &Path, output_dir: &Path) -> Result<()> {
+/// When `has_platform_target` is true, includes width converter sources.
+pub fn generate_axi_runner(_config: &FilterConfig, templates_dir: &Path, output_dir: &Path, has_platform_target: bool) -> Result<()> {
     let glob = format!("{}/**/*.tera", templates_dir.display());
     let tera = Tera::new(&glob)
         .with_context(|| format!("Failed to load templates from {}", templates_dir.display()))?;
@@ -473,6 +474,13 @@ pub fn generate_axi_runner(_config: &FilterConfig, templates_dir: &Path, output_
     let rtl_gen_dir = output_dir.join("rtl");
     let mut verilog_files: Vec<String> = Vec::new();
     verilog_files.push("../../rtl/frame_parser.v".to_string());
+
+    // Include width converters when platform target is active
+    if has_platform_target {
+        verilog_files.push("../rtl/axis_512_to_8.v".to_string());
+        verilog_files.push("../rtl/axis_8_to_512.v".to_string());
+    }
+
     verilog_files.push("../rtl/axi_stream_adapter.v".to_string());
     verilog_files.push("../rtl/store_forward_fifo.v".to_string());
     verilog_files.push("../rtl/packet_filter_axi_top.v".to_string());
@@ -486,6 +494,8 @@ pub fn generate_axi_runner(_config: &FilterConfig, templates_dir: &Path, output_
                     && name != "axi_stream_adapter.v"
                     && name != "store_forward_fifo.v"
                     && name != "packet_filter_axi_top.v"
+                    && name != "axis_512_to_8.v"
+                    && name != "axis_8_to_512.v"
             })
             .collect();
         entries.sort_by_key(|e| e.file_name());

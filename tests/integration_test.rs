@@ -3555,3 +3555,45 @@ fn runner_coexists_with_makefile() {
     assert!(tmp.path().join("tb/Makefile").exists(), "Makefile should still be generated");
     assert!(tmp.path().join("tb/run_sim.py").exists(), "run_sim.py should also be generated");
 }
+
+#[test]
+fn platform_target_runner_includes_width_converters() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/opennic_l3l4.yaml", "--target", "opennic", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile --target opennic failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // AXI runner should include width converters
+    let runner_py = std::fs::read_to_string(tmp.path().join("tb-axi/run_sim.py")).unwrap();
+    assert!(runner_py.contains("axis_512_to_8.v"), "platform runner should include 512→8 width converter");
+    assert!(runner_py.contains("axis_8_to_512.v"), "platform runner should include 8→512 width converter");
+}
+
+#[test]
+fn runner_default_simulator_is_icarus() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/allow_arp.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let runner_py = std::fs::read_to_string(tmp.path().join("tb/run_sim.py")).unwrap();
+    assert!(runner_py.contains("\"icarus\""), "runner default simulator should be icarus");
+}
+
+#[test]
+fn axi_compile_generates_axi_runner() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/allow_arp.yaml", "--axi", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile --axi failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    assert!(tmp.path().join("tb-axi/run_sim.py").exists(), "AXI run_sim.py should be generated");
+    let runner_py = std::fs::read_to_string(tmp.path().join("tb-axi/run_sim.py")).unwrap();
+    assert!(runner_py.contains("packet_filter_axi_top"), "AXI runner should reference AXI toplevel");
+}

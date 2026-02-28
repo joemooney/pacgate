@@ -11,7 +11,7 @@ PacGate is an FPGA-based packet filtering switch where YAML-defined rules compil
    - **SVA assertions** — formal properties for bounded model checking
    - **Property tests** — Hypothesis-based invariant testing
    - **HTML coverage report** — visual coverage analysis
-3. Run simulation with Icarus Verilog + cocotb to verify correctness
+3. Run simulation with Icarus Verilog + cocotb 2.0 to verify correctness (via `python run_sim.py` or `make`)
 4. Synthesize for Xilinx Artix-7 FPGA using Yosys (open-source) or Vivado
 5. Run formal verification with SymbiYosys for mathematical proof of correctness
 6. Import PCAP captures for real-traffic test stimulus
@@ -151,8 +151,8 @@ UVM-inspired Python verification environment with:
 - Packet rewrite actions (NAT, TTL management, MAC/VLAN rewriting)
 
 ## Quality
-- 250 Rust unit tests (model parsing, validation, CIDR/port overlap, IPv4/IPv6, PCAP, byte-match, HSM, Mermaid, simulation incl. byte-match/rate-limit/conntrack, PCAP analysis, synthesis, mutation (11 types), templates, benchmarking, reachability (protocol fields), GTP-U, MPLS, IGMP/MLD, MCY config generation, rewrite action parsing/validation)
-- 181 Rust integration tests (full compile pipeline, AXI, formal, lint (19 rules), L3/L4, IPv6, VXLAN, counters, PCAP, report, byte-match, HSM, Mermaid, multi-port, conntrack, rate-limit, simulate, simulate --stateful, pcap-analyze, synth, mutate, template, doc, scoreboard field verification, multi-flag compile, all-examples lint, bench, diff --html, reachability, GTP-U, MPLS, multicast, coverage framework, boundary tests, MCY, mutation kill-rate, protocol verification completeness, lint protocol prereqs, formal GTP/MPLS/cover assertions, byte_match in docs, protocol property tests, rewrite actions)
+- 260 Rust unit tests (model parsing, validation, CIDR/port overlap, IPv4/IPv6, PCAP, byte-match, HSM, Mermaid, simulation incl. byte-match/rate-limit/conntrack, PCAP analysis, synthesis, mutation (11 types), templates, benchmarking, reachability (protocol fields), GTP-U, MPLS, IGMP/MLD, MCY config generation, rewrite action parsing/validation, cocotb 2.0 runner generation)
+- 204 Rust integration tests (full compile pipeline, AXI, formal, lint (19 rules), L3/L4, IPv6, VXLAN, counters, PCAP, report, byte-match, HSM, Mermaid, multi-port, conntrack, rate-limit, simulate, simulate --stateful, pcap-analyze, synth, mutate, template, doc, scoreboard field verification, multi-flag compile, all-examples lint, bench, diff --html, reachability, GTP-U, MPLS, multicast, coverage framework, boundary tests, MCY, mutation kill-rate, protocol verification completeness, lint protocol prereqs, formal GTP/MPLS/cover assertions, byte_match in docs, protocol property tests, rewrite actions, cocotb 2.0 runner scripts)
 - 47 Python scoreboard unit tests (IPv4 CIDR, IPv6 CIDR, port matching, VXLAN VNI, byte-match, multi-field L3/L4, GTP-U TEID, MPLS label/TC/BOS, IGMP/MLD type, protocol coverage sampling, protocol determinism checks)
 - 13+ cocotb simulation tests (directed with L3/L4 headers + 500-packet random + corner cases)
 - 5 conntrack cocotb tests (new flow, return traffic, timeout, hash collision, table overflow)
@@ -189,6 +189,8 @@ UVM-inspired Python verification environment with:
 - **Phase 16** (complete): Simulator completeness & verification depth — rate-limit simulation (token-bucket in software), conntrack simulation (5-tuple hash + reverse lookup), --stateful CLI flag, strengthened SVA assertions (rate-limit enforcement, GTP/MPLS/IGMP/MLD prerequisite + bounds), protocol property tests wired into generated test files, byte_match in HTML docs, CI expansion (conntrack simulate, formal generate, rate-limit simulate)
 - **Phase 17** (complete): Runtime-updateable flow tables — `--dynamic` flag replaces static per-rule matchers with register-based `flow_table.v` (AXI-Lite writable, staging+commit atomicity), YAML rules as initial values, `--dynamic-entries N` (1-256), cocotb tests (6 AXI-Lite CRUD tests), estimate/lint/formal support (LINT016-017), 22 examples, 242 unit + 165 integration = 407 tests
 - **Phase 18** (complete): Packet rewrite actions — `rewrite:` field with 7 operations (set_dst_mac, set_src_mac, set_vlan_id, set_ttl, dec_ttl, set_src_ip, set_dst_ip) for NAT, TTL management, MAC rewriting, VLAN modification; RewriteAction data model + YAML validation, frame parser ip_ttl/ip_checksum extraction, rewrite_lut.v (generated ROM), packet_rewrite.v (RTL byte substitution with RFC 1624 checksum), templatized AXI top, simulator rewrite info, estimate/lint (LINT018-019)/formal/diff support, 23 examples, 250 unit + 181 integration = 431 tests
+- **Phase 19** (complete): Platform integration targets — `--target opennic` and `--target corundum` generate drop-in NIC wrappers with 512↔8-bit width converters, OpenNIC tuser metadata passthrough, Corundum PTP timestamp + reset inversion, estimate/lint (LINT020-021)/synth support, 25 examples, 256 unit + 195 integration = 451 tests
+- **Phase 20** (complete): cocotb 2.0 migration — pin cocotb>=2.0.0 + cocotb-tools, fix `.value.integer` → `int(.value)`, generate `run_sim.py` runner scripts (cocotb_tools.runner API) alongside Makefiles for all test modes (main, AXI, conntrack, rate limiter, dynamic), platform target width converter inclusion in runners, CI updated to use runner, 260 unit + 204 integration = 464 tests
 
 ## Documentation
 - `README.md` — Project showcase and quick start

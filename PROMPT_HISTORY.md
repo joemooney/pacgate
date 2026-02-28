@@ -1738,3 +1738,34 @@ Implement Phase 19: Platform Integration Targets. Add `--target opennic` and `--
 
 ### Git Operations
 - Commits pushed to https://github.com/joemooney/pacgate.git
+
+---
+
+## Session 24 — Phase 20: cocotb 2.0 Migration (2026-02-27)
+
+### Prompt
+"Implement cocotb 2.0 migration: pin cocotb>=2.0.0, fix .value.integer pattern, generate run_sim.py runner scripts using cocotb_tools.runner API, update CI, update docs."
+
+### Actions Taken
+
+#### Batch 1: Compatibility Fix + Runner Templates + Generation
+1. **Fixed cocotb 1.x API pattern** — Changed `dut.pass_out.value.integer` → `int(dut.pass_out.value)` in `templates/test_rate_limiter.py.tera:38`
+2. **Pinned cocotb 2.0** — Updated CI: `pip install "cocotb>=2.0.0" cocotb-tools pytest hypothesis` in all 3 jobs
+3. **Created 4 runner templates** — test_runner.py.tera, test_conntrack_runner.py.tera, test_rate_limiter_runner.py.tera, test_flow_table_runner.py.tera
+4. **Added 5 runner generation functions** to cocotb_gen.rs (main, AXI, conntrack, rate limiter, dynamic)
+5. **Wired runner generation** into compile handler in main.rs
+6. **Added 4 unit tests + 6 integration tests**
+
+#### Batch 2: CI Migration + Platform Runner Support + Docs
+1. **Updated CI** — simulate and conntrack-simulate jobs use `python run_sim.py`
+2. **Platform target support** — AXI runner includes width converter sources for OpenNIC/Corundum
+3. **Added 3 integration tests** — platform runner, default simulator, AXI runner
+4. **Updated docs** — CLAUDE.md, OVERVIEW.md, REQUIREMENTS.md, PROMPT_HISTORY.md
+
+### Test Results
+- 260 unit tests — all PASS
+- 204 integration tests — all PASS
+- Total: 464 Rust tests (from 451 in Phase 19)
+
+### Git Operations
+- Commits pushed to https://github.com/joemooney/pacgate.git

@@ -18,6 +18,7 @@
 - **Runtime flow tables**: register-based AXI-Lite-writable match entries with staging+commit atomicity (`--dynamic`)
 - **Packet rewrite actions**: set_dst_mac, set_src_mac, set_vlan_id, set_ttl, dec_ttl, set_src_ip, set_dst_ip (NAT, TTL management, MAC rewrite, VLAN modification)
 - **Platform integration**: `--target opennic` and `--target corundum` generate drop-in NIC wrappers with 512↔8-bit width converters (~2 Gbps at 250MHz)
+- **cocotb 2.0 runner**: `run_sim.py` generated alongside Makefiles using `cocotb_tools.runner` API for programmatic, cross-platform simulation
 - **IPv6 matching**: src_ipv6, dst_ipv6 (CIDR prefix), ipv6_next_header
 - **Packet simulation**: software dry-run with `simulate` subcommand (no hardware needed)
 - **Stateful simulation**: `--stateful` flag enables rate-limit + conntrack in software dry-run
@@ -59,7 +60,7 @@
 - Coverage-directed test generation (verification/coverage_driven.py)
 - Enhanced overlap detection with CIDR containment and port range analysis
 - 25 real-world YAML examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite, OpenNIC, Corundum)
-- 256 Rust unit tests + 195 integration tests = 451 total, 47 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
+- 260 Rust unit tests + 204 integration tests = 464 total, 47 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
 
 ## Architecture
 ```
@@ -123,6 +124,8 @@ pacgate compile rules.yaml --dynamic --dynamic-entries 32  # 32-entry flow table
 pacgate compile rules.yaml --target opennic   # OpenNIC Shell 250MHz wrapper
 pacgate compile rules.yaml --target corundum  # Corundum mqnic_app_block wrapper
 pacgate compile rules.yaml --json      # JSON output with warnings
+# After compile: cd gen/tb && python run_sim.py   # cocotb 2.0 runner (recommended)
+# After compile: cd gen/tb && make                 # Makefile-based (legacy, still supported)
 pacgate validate rules.yaml            # Validate YAML only (no output)
 pacgate init [rules.yaml]              # Create starter rules file
 pacgate estimate rules.yaml            # FPGA resource estimate + timing
@@ -158,7 +161,7 @@ pacgate doc rules.yaml                 # Generate HTML rule documentation
 pacgate bench rules.yaml               # Benchmark compile time + simulation throughput + LUT/FF scaling
 pacgate bench rules.yaml --json        # JSON benchmark report
 pacgate diff old.yaml new.yaml --html report.html  # Generate HTML diff visualization report
-cargo test                             # 431 tests (250 unit + 181 integration)
+cargo test                             # 464 tests (260 unit + 204 integration)
 pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 ```
 
@@ -190,7 +193,7 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 - `rtl/rate_limiter.v` — Token-bucket rate limiter (parameterized PPS, BURST)
 - `rtl/axis_512_to_8.v` — 512→8-bit AXI-Stream width converter (for platform targets)
 - `rtl/axis_8_to_512.v` — 8→512-bit AXI-Stream width converter (for platform targets)
-- `templates/*.tera` — 22+ Tera templates (+ synth scripts, rate limiter TB, HTML docs, diff report, MCY config, flow table, dynamic top, rewrite_lut, packet_filter_axi_top)
+- `templates/*.tera` — 26+ Tera templates (+ synth scripts, rate limiter TB, HTML docs, diff report, MCY config, flow table, dynamic top, rewrite_lut, packet_filter_axi_top, cocotb 2.0 runner scripts)
 - `templates/rewrite_lut.v.tera` — Combinational ROM mapping rule_idx to rewrite operations
 - `templates/packet_filter_axi_top.v.tera` — Templatized AXI top-level with rewrite engine wiring
 - `templates/diff_report.html.tera` — HTML diff visualization template (color-coded additions/removals/modifications)
@@ -230,7 +233,7 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 
 ## Environment
 - Rust toolchain (cargo)
-- Python venv at `.venv/` with cocotb
+- Python venv at `.venv/` with cocotb>=2.0.0 + cocotb-tools
 - Icarus Verilog (iverilog/vvp)
 - Target: Xilinx 7-series (Artix-7), architecture-portable Verilog
 - Optional: Yosys (synthesis), SymbiYosys (formal verification), Hypothesis (property testing)
@@ -253,3 +256,4 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 - **Phase 17**: Complete — Runtime-updateable flow tables: `--dynamic` flag replaces static per-rule matchers with register-based `flow_table.v` (AXI-Lite writable, staging+commit atomicity), YAML rules as initial values, `--dynamic-entries N` (1-256), cocotb tests (6 AXI-Lite CRUD tests), estimate/lint/formal support (LINT016-017), dynamic_firewall.yaml example, 242 unit + 165 integration = 407 tests
 - **Phase 18**: Complete — Packet rewrite actions: `rewrite:` field with 7 operations (set_dst_mac, set_src_mac, set_vlan_id, set_ttl, dec_ttl, set_src_ip, set_dst_ip), RewriteAction model + YAML validation, frame parser ip_ttl/ip_checksum extraction, rewrite_lut.v (generated ROM), packet_rewrite.v (RTL byte substitution with RFC 1624 checksum), templatized AXI top with rewrite wiring, simulator rewrite info, estimate/lint (LINT018-019)/formal/diff support, rewrite_actions.yaml example, 250 unit + 181 integration = 431 tests
 - **Phase 19**: Complete — Platform integration targets: `--target opennic` and `--target corundum` generate drop-in NIC wrappers with 512↔8-bit width converters (axis_512_to_8.v, axis_8_to_512.v), OpenNIC tuser metadata passthrough, Corundum PTP timestamp + reset inversion, estimate/lint (LINT020-021)/synth support, 2 platform examples, CI jobs, 256 unit + 195 integration = 451 tests
+- **Phase 20**: Complete — cocotb 2.0 migration: pin cocotb>=2.0.0 + cocotb-tools, fix `.value.integer` → `int(.value)`, generate `run_sim.py` runner scripts (cocotb_tools.runner API) alongside Makefiles for all test modes (main, AXI, conntrack, rate limiter, dynamic), platform target width converter inclusion, CI updated to use runner, 260 unit + 204 integration = 464 tests
