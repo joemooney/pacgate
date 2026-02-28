@@ -3415,3 +3415,49 @@ fn target_ports_rejected() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("incompatible"), "error should mention incompatibility: {}", stderr);
 }
+
+#[test]
+fn target_estimate_includes_width_converters() {
+    let output = pacgate_bin()
+        .args(["estimate", "rules/examples/opennic_l3l4.yaml", "--target", "opennic", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "estimate --target opennic failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    assert_eq!(json["platform_target"], "opennic");
+    assert!(json["width_converters"]["luts"].as_u64().unwrap() > 0, "width converter LUTs should be > 0");
+    assert!(json["width_converters"]["ffs"].as_u64().unwrap() > 0, "width converter FFs should be > 0");
+}
+
+#[test]
+fn target_lint_includes_lint020_021() {
+    let output = pacgate_bin()
+        .args(["lint", "rules/examples/opennic_l3l4.yaml", "--target", "opennic", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "lint --target opennic failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    let findings = json["findings"].as_array().unwrap();
+    let codes: Vec<&str> = findings.iter().map(|f| f["code"].as_str().unwrap()).collect();
+    assert!(codes.contains(&"LINT020"), "Should have LINT020 (throughput limitation)");
+    assert!(codes.contains(&"LINT021"), "Should have LINT021 (implicit AXI)");
+}
+
+#[test]
+fn target_synth_includes_platform_files() {
+    let tmp = tempfile::tempdir().unwrap();
+    // First compile with target to generate RTL
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/opennic_l3l4.yaml", "--target", "opennic", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    // Now run synth to check file list includes width converters
+    let output = pacgate_bin()
+        .args(["synth", "rules/examples/opennic_l3l4.yaml", "--axi", "--json", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "synth failed: {}", String::from_utf8_lossy(&output.stderr));
+}

@@ -1670,3 +1670,71 @@ Add packet rewrite actions to PacGate. Rules can include a `rewrite:` field with
 
 ### Git Operations
 - Commits pushed to https://github.com/joemooney/pacgate.git
+
+---
+
+## Session 20 — Phase 19: Platform Integration Targets (OpenNIC + Corundum)
+**Date**: 2026-02-27
+
+### Prompt
+Implement Phase 19: Platform Integration Targets. Add `--target opennic` and `--target corundum` flags to generate drop-in NIC wrappers with 512↔8-bit width converters for the two most popular open-source FPGA NIC platforms.
+
+### Actions Taken
+
+#### Batch 1: Width Converters + CLI --target Flag
+- Created `rtl/axis_512_to_8.v` — 512-bit AXI-Stream deserializer with FSM (IDLE→DRAIN), contiguous tkeep counting, backpressure handling
+- Created `rtl/axis_8_to_512.v` — 8-bit AXI-Stream serializer with byte accumulation, tkeep generation, output-pending backpressure
+- Added `PlatformTarget` enum (Standalone/OpenNic/Corundum) to `src/verilog_gen.rs` with case-insensitive parsing
+- Added `--target` CLI flag to Compile command in `src/main.rs`
+- Validation: rejects `--target` with `--dynamic` and `--ports > 1`; auto-enables `--axi`
+- Added `copy_width_converter_rtl()` function
+- 6 unit tests (parse variants, case insensitivity, is_platform), 4 integration tests
+
+#### Batch 2: OpenNIC Wrapper Template + Generation
+- Created `templates/pacgate_opennic_250.v.tera` — OpenNIC Shell 250MHz user box wrapper
+  - tuser_size/tuser_src/tuser_dst metadata passthrough (latched on frame completion)
+  - Internal: axis_512_to_8 → packet_filter_axi_top → axis_8_to_512
+- Created `rules/examples/opennic_l3l4.yaml` — L3/L4 firewall example
+- Added `generate_opennic_wrapper()` function
+- 4 integration tests (wrapper generated, wrapper content, JSON output, example validates)
+
+#### Batch 3: Corundum Wrapper Template + Generation
+- Created `templates/pacgate_corundum_app.v.tera` — Corundum mqnic_app_block replacement
+  - Active-high reset inversion (`wire rst_n = ~rst`)
+  - PTP timestamp passthrough on tuser
+  - Parameterized AXIS_DATA_WIDTH and PTP_TS_WIDTH
+- Created `rules/examples/corundum_datacenter.yaml` — data center firewall example
+- Added `generate_corundum_wrapper()` function
+- 4 integration tests + ports rejection test
+
+#### Batch 4: Estimate, Lint, Synth, Docs, CI
+- `estimate` command: `--target` flag, width converter overhead (~80 LUTs + ~1100 FFs), platform wrapper (~20 LUTs + ~50 FFs)
+- `lint` command: `--target` flag, LINT020 (throughput limitation notice), LINT021 (implicit AXI notice)
+- `synth_gen.rs`: `collect_rtl_files_with_target()` includes width converters for platform targets
+- CI: `opennic-compile` and `corundum-compile` jobs with iverilog lint
+- Documentation: CLAUDE.md, OVERVIEW.md, REQUIREMENTS.md, PROMPT_HISTORY.md updated
+
+### Files Created
+- `rtl/axis_512_to_8.v` — 512→8 width converter
+- `rtl/axis_8_to_512.v` — 8→512 width converter
+- `templates/pacgate_opennic_250.v.tera` — OpenNIC wrapper template
+- `templates/pacgate_corundum_app.v.tera` — Corundum wrapper template
+- `rules/examples/opennic_l3l4.yaml` — OpenNIC example
+- `rules/examples/corundum_datacenter.yaml` — Corundum example
+
+### Files Modified
+- `src/verilog_gen.rs` — PlatformTarget enum, copy/generate functions, 6 unit tests
+- `src/main.rs` — --target flag on compile/estimate/lint, LINT020/021, validation
+- `src/synth_gen.rs` — collect_rtl_files_with_target() with platform file inclusion
+- `tests/integration_test.rs` — 14 integration tests for platform targets
+- `.github/workflows/ci.yml` — opennic-compile, corundum-compile jobs
+
+### Test Results
+- 256 unit tests — all PASS
+- 195 integration tests — all PASS
+- Total: 451 Rust tests (from 431 in Phase 18)
+- Both width converters pass iverilog -g2012 lint
+- All 25 YAML examples validate
+
+### Git Operations
+- Commits pushed to https://github.com/joemooney/pacgate.git

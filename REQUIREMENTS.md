@@ -751,6 +751,48 @@
 - REQ-1270: rewrite_actions.yaml example demonstrating NAT, TTL, MAC, VLAN rewrite [IMPLEMENTED]
 
 ### Testing
-- REQ-1280: 250 Rust unit tests (through Phase 18) [IMPLEMENTED]
-- REQ-1281: 181 Rust integration tests (through Phase 18) [IMPLEMENTED]
+- REQ-1280: 256 Rust unit tests (through Phase 19) [IMPLEMENTED]
+- REQ-1281: 195 Rust integration tests (through Phase 19) [IMPLEMENTED]
 - REQ-1282: 47 Python scoreboard unit tests (through Phase 18) [IMPLEMENTED]
+
+## Phase 19: Platform Integration Targets
+
+### Platform Target CLI
+- REQ-1300: `--target` flag on `compile` command (standalone/opennic/corundum) [IMPLEMENTED]
+- REQ-1301: Platform target implicitly enables `--axi` mode [IMPLEMENTED]
+- REQ-1302: Platform target incompatible with `--dynamic` (V1) [IMPLEMENTED]
+- REQ-1303: Platform target incompatible with `--ports > 1` (V1) [IMPLEMENTED]
+- REQ-1304: Platform target compatible with `--counters`, `--rate-limit`, `--conntrack`, rewrite [IMPLEMENTED]
+- REQ-1305: JSON compile output includes `"target"` field [IMPLEMENTED]
+
+### Width Converters
+- REQ-1310: `axis_512_to_8.v` — hand-written 512→8-bit AXI-Stream deserializer [IMPLEMENTED]
+- REQ-1311: `axis_8_to_512.v` — hand-written 8→512-bit AXI-Stream serializer [IMPLEMENTED]
+- REQ-1312: Width converters pass iverilog lint [IMPLEMENTED]
+- REQ-1313: Width converters copied to gen/rtl/ for platform targets [IMPLEMENTED]
+
+### OpenNIC Shell Integration
+- REQ-1320: `pacgate_opennic_250.v` generated from template for `--target opennic` [IMPLEMENTED]
+- REQ-1321: OpenNIC wrapper has 512-bit AXI-Stream with tuser_size/tuser_src/tuser_dst [IMPLEMENTED]
+- REQ-1322: tuser metadata latched on input frame, forwarded on output frame [IMPLEMENTED]
+- REQ-1323: Internal pipeline: axis_512_to_8 → packet_filter_axi_top → axis_8_to_512 [IMPLEMENTED]
+
+### Corundum Integration
+- REQ-1330: `pacgate_corundum_app.v` generated from template for `--target corundum` [IMPLEMENTED]
+- REQ-1331: Corundum wrapper has sync RX/TX interface with PTP timestamp on tuser [IMPLEMENTED]
+- REQ-1332: Active-high reset inverted to PacGate's active-low convention [IMPLEMENTED]
+- REQ-1333: Parameterized AXIS_DATA_WIDTH and PTP_TS_WIDTH [IMPLEMENTED]
+
+### Tool Support
+- REQ-1340: `estimate --target` adds width converter resources (~80 LUTs + ~1100 FFs) [IMPLEMENTED]
+- REQ-1341: LINT020 — platform target throughput limitation notice [IMPLEMENTED]
+- REQ-1342: LINT021 — platform target implicit AXI notice [IMPLEMENTED]
+- REQ-1343: `synth` file list includes width converters for platform targets [IMPLEMENTED]
+
+### Examples
+- REQ-1350: opennic_l3l4.yaml — L3/L4 firewall for OpenNIC target [IMPLEMENTED]
+- REQ-1351: corundum_datacenter.yaml — data center firewall for Corundum target [IMPLEMENTED]
+
+### CI
+- REQ-1360: `opennic-compile` CI job with iverilog lint [IMPLEMENTED]
+- REQ-1361: `corundum-compile` CI job with iverilog lint [IMPLEMENTED]

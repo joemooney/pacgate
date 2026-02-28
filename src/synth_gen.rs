@@ -78,6 +78,18 @@ pub fn collect_rtl_files(
     has_rate_limit: bool,
     _ports: u16,
 ) -> Vec<String> {
+    collect_rtl_files_with_target(gen_dir, has_axi, has_counters, has_conntrack, has_rate_limit, _ports, "standalone")
+}
+
+pub fn collect_rtl_files_with_target(
+    gen_dir: &Path,
+    has_axi: bool,
+    has_counters: bool,
+    has_conntrack: bool,
+    has_rate_limit: bool,
+    _ports: u16,
+    target: &str,
+) -> Vec<String> {
     let mut files = Vec::new();
 
     // Hand-written RTL
@@ -102,7 +114,14 @@ pub fn collect_rtl_files(
         files.push("rtl/rate_limiter.v".to_string());
     }
 
-    // Generated RTL
+    // Platform target: width converters
+    let is_platform = target == "opennic" || target == "corundum";
+    if is_platform {
+        files.push("rtl/axis_512_to_8.v".to_string());
+        files.push("rtl/axis_8_to_512.v".to_string());
+    }
+
+    // Generated RTL (includes platform wrappers since they are generated into gen/rtl/)
     let rtl_dir = gen_dir.join("rtl");
     if rtl_dir.exists() {
         if let Ok(entries) = std::fs::read_dir(&rtl_dir) {
@@ -118,6 +137,8 @@ pub fn collect_rtl_files(
                         && name != "axi_lite_csr.v"
                         && name != "conntrack_table.v"
                         && name != "rate_limiter.v"
+                        && name != "axis_512_to_8.v"
+                        && name != "axis_8_to_512.v"
                 })
                 .map(|e| format!("gen/rtl/{}", e.file_name().to_string_lossy()))
                 .collect();

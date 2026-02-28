@@ -108,6 +108,10 @@ enum Commands {
         /// Number of flow table entries (for dynamic estimation)
         #[arg(long, default_value = "16")]
         dynamic_entries: u16,
+
+        /// Platform target: standalone (default), opennic, or corundum
+        #[arg(long, default_value = "standalone")]
+        target: String,
     },
     /// Output a DOT graph of the rule set for visualization
     Graph {
@@ -164,6 +168,10 @@ enum Commands {
         /// Number of flow table entries (for dynamic lint)
         #[arg(long, default_value = "16")]
         dynamic_entries: u16,
+
+        /// Platform target for lint checks
+        #[arg(long, default_value = "standalone")]
+        target: String,
     },
     /// Generate SVA assertions and SymbiYosys formal verification files
     Formal {
@@ -683,9 +691,10 @@ fn main() -> Result<()> {
                 diff_rules(&old_config, &new_config, json)?;
             }
         }
-        Commands::Lint { rules, json, dynamic, dynamic_entries } => {
+        Commands::Lint { rules, json, dynamic, dynamic_entries, target } => {
+            let platform = verilog_gen::PlatformTarget::from_str(&target)?;
             let (config, warnings) = loader::load_rules_with_warnings(&rules)?;
-            let findings = lint_rules(&config, &warnings, dynamic, dynamic_entries);
+            let findings = lint_rules(&config, &warnings, dynamic, dynamic_entries, &platform);
             if json {
                 println!("{}", serde_json::to_string_pretty(&findings)?);
             } else {
@@ -732,7 +741,8 @@ fn main() -> Result<()> {
                 println!("  cd {}/formal && sby -f packet_filter.sby", output.display());
             }
         }
-        Commands::Estimate { rules, json, dynamic, dynamic_entries } => {
+        Commands::Estimate { rules, json, dynamic, dynamic_entries, target } => {
+            let platform = verilog_gen::PlatformTarget::from_str(&target)?;
             let (config, warnings) = loader::load_rules_with_warnings(&rules)?;
             if dynamic {
                 let estimate = compute_dynamic_estimate(dynamic_entries);
@@ -749,6 +759,30 @@ fn main() -> Result<()> {
             } else {
                 if json {
                     let mut estimate = compute_resource_estimate(&config);
+                    // Add platform target overhead
+                    if platform.is_platform() {
+                        let obj = estimate.as_object_mut().unwrap();
+                        obj.insert("platform_target".to_string(), serde_json::json!(platform.name()));
+                        obj.insert("width_converters".to_string(), serde_json::json!({
+                            "luts": 80,
+                            "ffs": 1100,
+                            "note": "axis_512_to_8 + axis_8_to_512 width converters"
+                        }));
+                        obj.insert("platform_wrapper".to_string(), serde_json::json!({
+                            "luts": 20,
+                            "ffs": 50,
+                            "note": format!("{} wrapper overhead", platform.name())
+                        }));
+                        // Update totals
+                        if let Some(total) = obj.get_mut("total") {
+                            let cur_luts = total["luts"].as_u64().unwrap_or(0);
+                            let cur_ffs = total["ffs"].as_u64().unwrap_or(0);
+                            *total = serde_json::json!({
+                                "luts": cur_luts + 100,
+                                "ffs": cur_ffs + 1150,
+                            });
+                        }
+                    }
                     estimate.as_object_mut().unwrap().insert("warnings".to_string(), serde_json::json!(warnings));
                     println!("{}", serde_json::to_string_pretty(&estimate)?);
                 } else {
@@ -756,6 +790,10 @@ fn main() -> Result<()> {
                         eprintln!("Warning: {}", w);
                     }
                     print_resource_estimate(&config);
+                    if platform.is_platform() {
+                        println!();
+                        println!("  Platform target: {} (adds ~80 LUTs + ~1100 FFs for width converters)", platform.name());
+                    }
                 }
             }
         }
@@ -2631,7 +2669,7 @@ fn print_dynamic_estimate(num_entries: u16) {
     println!();
 }
 
-fn lint_rules(config: &model::FilterConfig, warnings: &[String], dynamic: bool, dynamic_entries: u16) -> serde_json::Value {
+fn lint_rules(config: &model::FilterConfig, warnings: &[String], dynamic: bool, dynamic_entries: u16, platform: &verilog_gen::PlatformTarget) -> serde_json::Value {
     let rules = &config.pacgate.rules;
     let mut findings: Vec<serde_json::Value> = Vec::new();
 
@@ -2991,6 +3029,26 @@ fn lint_rules(config: &model::FilterConfig, warnings: &[String], dynamic: bool, 
             "code": "LINT017",
             "message": "Dynamic flow table V1: supports L2/L3/L4 fields only (ethertype, MAC, IP, ports, VLAN)",
             "suggestion": "IPv6, GTP-U, MPLS, IGMP/MLD, byte_match, and VXLAN VNI are not yet supported in dynamic mode"
+        }));
+    }
+
+    // Check 20: Platform target throughput limitation
+    if platform.is_platform() {
+        findings.push(serde_json::json!({
+            "level": "info",
+            "code": "LINT020",
+            "message": format!("Platform target '{}': V1 uses 512<->8 width converters limiting throughput to ~2 Gbps at 250MHz", platform.name()),
+            "suggestion": "Suitable for 1GbE, development, and prototyping; wide pipeline deferred to future version"
+        }));
+    }
+
+    // Check 21: Platform target implicitly enables AXI
+    if platform.is_platform() {
+        findings.push(serde_json::json!({
+            "level": "info",
+            "code": "LINT021",
+            "message": format!("Platform target '{}' implicitly enables AXI-Stream mode", platform.name()),
+            "suggestion": "No action needed; --axi is automatically enabled for platform targets"
         }));
     }
 

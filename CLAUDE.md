@@ -17,6 +17,7 @@
 - **Connection tracking**: CRC-based hash table with timeout (`--conntrack`)
 - **Runtime flow tables**: register-based AXI-Lite-writable match entries with staging+commit atomicity (`--dynamic`)
 - **Packet rewrite actions**: set_dst_mac, set_src_mac, set_vlan_id, set_ttl, dec_ttl, set_src_ip, set_dst_ip (NAT, TTL management, MAC rewrite, VLAN modification)
+- **Platform integration**: `--target opennic` and `--target corundum` generate drop-in NIC wrappers with 512↔8-bit width converters (~2 Gbps at 250MHz)
 - **IPv6 matching**: src_ipv6, dst_ipv6 (CIDR prefix), ipv6_next_header
 - **Packet simulation**: software dry-run with `simulate` subcommand (no hardware needed)
 - **Stateful simulation**: `--stateful` flag enables rate-limit + conntrack in software dry-run
@@ -43,7 +44,7 @@
 - **Coverage-directed closure**: CoverageDirector wired into test loop with XML export
 - **Boundary test generation**: auto-derived CIDR/port boundary tests + formally-derived negative tests
 - **Enhanced property tests**: 9 Hypothesis-based tests including CIDR/port/IPv6 boundary checks
-- `lint` subcommand for best-practice analysis and security checks (19 lint rules)
+- `lint` subcommand for best-practice analysis and security checks (21 lint rules)
 - FPGA resource estimation (LUTs/FFs for Artix-7) + timing/pipeline analysis
 - `--json` flag on compile/validate/estimate/diff/formal/lint for CI/scripting integration
 - `diff` subcommand for rule set change management
@@ -57,8 +58,8 @@
 - Coverage XML export with merge support across runs
 - Coverage-directed test generation (verification/coverage_driven.py)
 - Enhanced overlap detection with CIDR containment and port range analysis
-- 23 real-world YAML examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite)
-- 250 Rust unit tests + 181 integration tests = 431 total, 47 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
+- 25 real-world YAML examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite, OpenNIC, Corundum)
+- 256 Rust unit tests + 195 integration tests = 451 total, 47 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
 
 ## Architecture
 ```
@@ -92,6 +93,12 @@ Mermaid .md --> pacgate from-mermaid --> YAML rules
 - `packet_filter_dynamic_top` — dynamic mode top-level (generated, `--dynamic`)
   - `frame_parser` — same hand-written parser
   - `flow_table` — register-based match entries with AXI-Lite CRUD (generated from template)
+- `pacgate_opennic_250` — OpenNIC Shell 250MHz wrapper (generated, `--target opennic`)
+  - `axis_512_to_8` — 512→8-bit width converter (rtl/axis_512_to_8.v)
+  - `packet_filter_axi_top` — core AXI filter pipeline
+  - `axis_8_to_512` — 8→512-bit width converter (rtl/axis_8_to_512.v)
+- `pacgate_corundum_app` — Corundum mqnic_app_block replacement (generated, `--target corundum`)
+  - Same internal structure: axis_512_to_8 → filter → axis_8_to_512
 - `rule_counters` — per-rule 64-bit packet/byte counters (rtl/rule_counters.v)
 - `axi_lite_csr` — AXI4-Lite register interface for counter readout (rtl/axi_lite_csr.v)
 - `conntrack_table` — connection tracking hash table (rtl/conntrack_table.v)
@@ -113,6 +120,8 @@ pacgate compile rules.yaml --conntrack # Include connection tracking RTL
 pacgate compile rules.yaml --rate-limit # Include rate limiter RTL
 pacgate compile rules.yaml --dynamic   # Runtime-updateable flow table (AXI-Lite)
 pacgate compile rules.yaml --dynamic --dynamic-entries 32  # 32-entry flow table
+pacgate compile rules.yaml --target opennic   # OpenNIC Shell 250MHz wrapper
+pacgate compile rules.yaml --target corundum  # Corundum mqnic_app_block wrapper
 pacgate compile rules.yaml --json      # JSON output with warnings
 pacgate validate rules.yaml            # Validate YAML only (no output)
 pacgate init [rules.yaml]              # Create starter rules file
@@ -179,10 +188,14 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 - `rtl/packet_rewrite.v` — Hand-written byte substitution engine with RFC 1624 incremental checksum
 - `rtl/conntrack_table.v` — Connection tracking hash table with CRC hash + timeout
 - `rtl/rate_limiter.v` — Token-bucket rate limiter (parameterized PPS, BURST)
+- `rtl/axis_512_to_8.v` — 512→8-bit AXI-Stream width converter (for platform targets)
+- `rtl/axis_8_to_512.v` — 8→512-bit AXI-Stream width converter (for platform targets)
 - `templates/*.tera` — 22+ Tera templates (+ synth scripts, rate limiter TB, HTML docs, diff report, MCY config, flow table, dynamic top, rewrite_lut, packet_filter_axi_top)
 - `templates/rewrite_lut.v.tera` — Combinational ROM mapping rule_idx to rewrite operations
 - `templates/packet_filter_axi_top.v.tera` — Templatized AXI top-level with rewrite engine wiring
 - `templates/diff_report.html.tera` — HTML diff visualization template (color-coded additions/removals/modifications)
+- `templates/pacgate_opennic_250.v.tera` — OpenNIC Shell 250MHz user box wrapper template
+- `templates/pacgate_corundum_app.v.tera` — Corundum mqnic_app_block wrapper template
 - `verification/` — Python verification framework (packet, scoreboard, coverage, driver, properties, coverage_driven, test_scoreboard)
 - `rules/examples/` — 23 YAML examples
 - `rules/templates/` — 7 rule template YAML snippets
@@ -211,6 +224,8 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 - Overlap detection: CIDR prefix containment + port range analysis (not just string equality)
 - Packet rewrite is in-place only (no frame length changes); supports MAC/VLAN/TTL/IP substitution with RFC 1624 incremental checksum
 - AXI-Stream modules are hand-written (not generated) since they are infrastructure
+- Platform targets (OpenNIC/Corundum): 512↔8-bit width converters limit V1 to ~2 Gbps; suitable for 1GbE/dev/prototyping
+- OpenNIC wrapper preserves tuser_size/tuser_src/tuser_dst metadata; Corundum wrapper inverts active-high reset and passes PTP timestamp
 - License: Proprietary (see LICENSE)
 
 ## Environment
@@ -237,3 +252,4 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 - **Phase 16**: Complete — Simulator completeness + verification depth: rate-limit simulation (token-bucket in software), conntrack simulation (5-tuple hash + reverse lookup), --stateful CLI flag, strengthened SVA (rate-limit enforcement, GTP/MPLS/IGMP/MLD prereq + bounds assertions, protocol cover statements), protocol property tests wired into generated test files, byte_match in HTML docs, CI expansion (conntrack-simulate, formal-generate, rate-limit-simulate jobs)
 - **Phase 17**: Complete — Runtime-updateable flow tables: `--dynamic` flag replaces static per-rule matchers with register-based `flow_table.v` (AXI-Lite writable, staging+commit atomicity), YAML rules as initial values, `--dynamic-entries N` (1-256), cocotb tests (6 AXI-Lite CRUD tests), estimate/lint/formal support (LINT016-017), dynamic_firewall.yaml example, 242 unit + 165 integration = 407 tests
 - **Phase 18**: Complete — Packet rewrite actions: `rewrite:` field with 7 operations (set_dst_mac, set_src_mac, set_vlan_id, set_ttl, dec_ttl, set_src_ip, set_dst_ip), RewriteAction model + YAML validation, frame parser ip_ttl/ip_checksum extraction, rewrite_lut.v (generated ROM), packet_rewrite.v (RTL byte substitution with RFC 1624 checksum), templatized AXI top with rewrite wiring, simulator rewrite info, estimate/lint (LINT018-019)/formal/diff support, rewrite_actions.yaml example, 250 unit + 181 integration = 431 tests
+- **Phase 19**: Complete — Platform integration targets: `--target opennic` and `--target corundum` generate drop-in NIC wrappers with 512↔8-bit width converters (axis_512_to_8.v, axis_8_to_512.v), OpenNIC tuser metadata passthrough, Corundum PTP timestamp + reset inversion, estimate/lint (LINT020-021)/synth support, 2 platform examples, CI jobs, 256 unit + 195 integration = 451 tests

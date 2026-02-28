@@ -50,6 +50,10 @@ rules.yaml ──> Compiler (Rust) ──┬──> Verilog (DUT)
   - `rule_counters` — per-rule 64-bit packet/byte counters (optional, --counters)
   - `axi_lite_csr` — AXI4-Lite register interface for counter readout
 - `conntrack_table` — connection tracking hash table (optional, --conntrack)
+- `pacgate_opennic_250` — OpenNIC Shell wrapper (optional, --target opennic)
+  - `axis_512_to_8` → `packet_filter_axi_top` → `axis_8_to_512`
+- `pacgate_corundum_app` — Corundum app block (optional, --target corundum)
+  - Same width converter + filter pipeline, with reset inversion + PTP timestamp
 
 ## Match Fields
 | Layer | Field | Type | Example |

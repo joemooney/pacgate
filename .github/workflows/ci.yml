@@ -372,3 +372,63 @@ jobs:
 
       - name: Lint dynamic_firewall with --dynamic
         run: cargo run --release -- lint rules/examples/dynamic_firewall.yaml --dynamic --json
+
+  opennic-compile:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+
+      - name: Install Icarus Verilog
+        run: sudo apt-get update && sudo apt-get install -y iverilog
+
+      - name: Build PacGate compiler
+        run: cargo build --release
+
+      - name: Compile with --target opennic
+        run: cargo run --release -- compile rules/examples/opennic_l3l4.yaml --target opennic
+
+      - name: Lint generated Verilog (OpenNIC)
+        run: iverilog -g2012 -o /dev/null gen/rtl/*.v rtl/*.v
+
+  corundum-compile:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+
+      - name: Install Icarus Verilog
+        run: sudo apt-get update && sudo apt-get install -y iverilog
+
+      - name: Build PacGate compiler
+        run: cargo build --release
+
+      - name: Compile with --target corundum
+        run: cargo run --release -- compile rules/examples/corundum_datacenter.yaml --target corundum
+
+      - name: Lint generated Verilog (Corundum)
+        run: iverilog -g2012 -o /dev/null gen/rtl/*.v rtl/*.v
