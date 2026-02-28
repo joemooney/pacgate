@@ -45,6 +45,9 @@ struct GlobalProtocolFlags {
     has_ipv6_tc: bool,
     has_tcp_flags: bool,
     has_icmp: bool,
+    has_icmpv6: bool,
+    has_arp: bool,
+    has_ipv6_ext: bool,
 }
 
 fn build_condition_expr(mc: &crate::model::MatchCriteria) -> Result<String> {
@@ -226,6 +229,35 @@ fn build_condition_expr(mc: &crate::model::MatchCriteria) -> Result<String> {
         conditions.push(format!("(icmp_code == 8'd{})", c));
     }
 
+    // ICMPv6 type/code
+    if let Some(t) = mc.icmpv6_type {
+        conditions.push(format!("(icmpv6_type == 8'd{})", t));
+    }
+    if let Some(c) = mc.icmpv6_code {
+        conditions.push(format!("(icmpv6_code == 8'd{})", c));
+    }
+
+    // ARP fields
+    if let Some(op) = mc.arp_opcode {
+        conditions.push(format!("(arp_opcode == 16'd{})", op));
+    }
+    if let Some(ref spa) = mc.arp_spa {
+        let prefix = Ipv4Prefix::parse(spa)?;
+        conditions.push(format!("(arp_spa == {})", prefix.to_verilog_value()));
+    }
+    if let Some(ref tpa) = mc.arp_tpa {
+        let prefix = Ipv4Prefix::parse(tpa)?;
+        conditions.push(format!("(arp_tpa == {})", prefix.to_verilog_value()));
+    }
+
+    // IPv6 extension fields
+    if let Some(hl) = mc.ipv6_hop_limit {
+        conditions.push(format!("(ipv6_hop_limit == 8'd{})", hl));
+    }
+    if let Some(fl) = mc.ipv6_flow_label {
+        conditions.push(format!("(ipv6_flow_label == 20'd{})", fl));
+    }
+
     // Byte-offset matching
     if let Some(ref byte_matches) = mc.byte_match {
         for bm in byte_matches {
@@ -341,6 +373,9 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
     let has_ipv6_tc = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_ipv6_tc());
     let has_tcp_flags = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_tcp_flags());
     let has_icmp = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_icmp());
+    let has_icmpv6 = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_icmpv6());
+    let has_arp = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_arp());
+    let has_ipv6_ext = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_ipv6_ext());
 
     // Global protocol flags — all rules in a design must have consistent port lists
     let global_protos = GlobalProtocolFlags {
@@ -352,6 +387,9 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         has_ipv6_tc,
         has_tcp_flags,
         has_icmp,
+        has_icmpv6,
+        has_arp,
+        has_ipv6_ext,
     };
 
     // Generate per-rule matchers (stateless: combinational, stateful: registered FSM)
@@ -389,6 +427,9 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         ctx.insert("has_ipv6_tc", &has_ipv6_tc);
         ctx.insert("has_tcp_flags", &has_tcp_flags);
         ctx.insert("has_icmp", &has_icmp);
+        ctx.insert("has_icmpv6", &has_icmpv6);
+        ctx.insert("has_arp", &has_arp);
+        ctx.insert("has_ipv6_ext", &has_ipv6_ext);
         ctx.insert("has_rewrite", &has_rewrite);
         ctx.insert("idx_bits", &idx_bits);
 
@@ -962,6 +1003,9 @@ fn generate_stateless_rule(
     ctx.insert("has_ipv6_tc", &global_protos.has_ipv6_tc);
     ctx.insert("has_tcp_flags", &global_protos.has_tcp_flags);
     ctx.insert("has_icmp", &global_protos.has_icmp);
+    ctx.insert("has_icmpv6", &global_protos.has_icmpv6);
+    ctx.insert("has_arp", &global_protos.has_arp);
+    ctx.insert("has_ipv6_ext", &global_protos.has_ipv6_ext);
     let byte_cap_info: Vec<std::collections::HashMap<String, serde_json::Value>> = byte_offsets.iter().map(|(offset, len)| {
         let mut map = std::collections::HashMap::new();
         map.insert("offset".to_string(), serde_json::json!(offset));
@@ -1292,6 +1336,9 @@ fn generate_fsm_rule(
     ctx.insert("has_ipv6_tc", &global_protos.has_ipv6_tc);
     ctx.insert("has_tcp_flags", &global_protos.has_tcp_flags);
     ctx.insert("has_icmp", &global_protos.has_icmp);
+    ctx.insert("has_icmpv6", &global_protos.has_icmpv6);
+    ctx.insert("has_arp", &global_protos.has_arp);
+    ctx.insert("has_ipv6_ext", &global_protos.has_ipv6_ext);
 
     let rendered = tera.render("rule_fsm.v.tera", &ctx)
         .with_context(|| format!("Failed to render rule_fsm for rule {}", rule.name))?;

@@ -45,6 +45,19 @@ module rule_match_{{ rule_index }} (
     input  wire [7:0]  icmp_type_field,
     input  wire [7:0]  icmp_code,
 {% endif %}
+{% if has_icmpv6 %}
+    input  wire [7:0]  icmpv6_type,
+    input  wire [7:0]  icmpv6_code,
+{% endif %}
+{% if has_arp %}
+    input  wire [15:0] arp_opcode,
+    input  wire [31:0] arp_spa,
+    input  wire [31:0] arp_tpa,
+{% endif %}
+{% if has_ipv6_ext %}
+    input  wire [7:0]  ipv6_hop_limit,
+    input  wire [19:0] ipv6_flow_label,
+{% endif %}
 {% if has_byte_capture %}
 {% for cap in byte_captures %}
     input  wire [{{ cap.bit_width - 1 }}:0] byte_cap_{{ cap.offset }},

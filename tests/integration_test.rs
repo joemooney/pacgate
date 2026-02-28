@@ -4322,3 +4322,221 @@ pacgate:
     assert!(assertions.contains("tcp_flags"), "should include TCP flags assertions");
     assert!(assertions.contains("icmp"), "should include ICMP assertions");
 }
+
+// --- Phase 23: ICMPv6, ARP, IPv6 extensions ---
+
+#[test]
+fn compile_icmpv6_rule() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("icmpv6.yaml");
+    let out_dir = tmp.path().join("gen");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: ndp_ns
+      priority: 100
+      match:
+        ethertype: "0x86DD"
+        ipv6_next_header: 58
+        icmpv6_type: 135
+      action: pass
+"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["compile", yaml.to_str().unwrap(), "-o", out_dir.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let verilog = std::fs::read_to_string(out_dir.join("rtl/rule_match_0.v")).unwrap();
+    assert!(verilog.contains("icmpv6_type == 8'd135"), "should have ICMPv6 type comparison");
+}
+
+#[test]
+fn compile_arp_opcode_rule() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("arp.yaml");
+    let out_dir = tmp.path().join("gen");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: arp_req
+      priority: 100
+      match:
+        ethertype: "0x0806"
+        arp_opcode: 1
+      action: pass
+"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["compile", yaml.to_str().unwrap(), "-o", out_dir.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let verilog = std::fs::read_to_string(out_dir.join("rtl/rule_match_0.v")).unwrap();
+    assert!(verilog.contains("arp_opcode == 16'd1"), "should have ARP opcode comparison");
+}
+
+#[test]
+fn compile_ipv6_flow_label_rule() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("ipv6ext.yaml");
+    let out_dir = tmp.path().join("gen");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: flow_rule
+      priority: 100
+      match:
+        ethertype: "0x86DD"
+        ipv6_flow_label: 12345
+      action: pass
+"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["compile", yaml.to_str().unwrap(), "-o", out_dir.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let verilog = std::fs::read_to_string(out_dir.join("rtl/rule_match_0.v")).unwrap();
+    assert!(verilog.contains("ipv6_flow_label == 20'd12345"), "should have flow label comparison");
+}
+
+#[test]
+fn simulate_icmpv6_echo_match() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("icmpv6_sim.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_echo
+      priority: 100
+      match:
+        ethertype: "0x86DD"
+        ipv6_next_header: 58
+        icmpv6_type: 128
+      action: pass
+"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["simulate", yaml.to_str().unwrap(),
+               "--packet", "ethertype=0x86DD,ipv6_next_header=58,icmpv6_type=128"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("allow_echo") || stdout.contains("pass"), "should match icmpv6 echo rule");
+}
+
+#[test]
+fn simulate_arp_request_match() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("arp_sim.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_arp_req
+      priority: 100
+      match:
+        ethertype: "0x0806"
+        arp_opcode: 1
+      action: pass
+"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["simulate", yaml.to_str().unwrap(),
+               "--packet", "ethertype=0x0806,arp_opcode=1"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("allow_arp_req") || stdout.contains("pass"), "should match ARP request rule");
+}
+
+#[test]
+fn simulate_ipv6_hop_limit_match() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("hop_sim.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_ttl64
+      priority: 100
+      match:
+        ethertype: "0x86DD"
+        ipv6_hop_limit: 64
+      action: pass
+"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["simulate", yaml.to_str().unwrap(),
+               "--packet", "ethertype=0x86DD,ipv6_hop_limit=64"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("allow_ttl64") || stdout.contains("pass"), "should match hop limit rule");
+}
+
+#[test]
+fn validate_arp_opcode_out_of_range() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("bad_arp.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: bad
+      priority: 100
+      match:
+        ethertype: "0x0806"
+        arp_opcode: 3
+      action: pass
+"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["validate", yaml.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("arp_opcode must be 1") || stderr.contains("arp_opcode"), "should reject arp_opcode=3");
+}
+
+#[test]
+fn validate_icmpv6_code_without_type() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("bad_icmpv6.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: bad
+      priority: 100
+      match:
+        ethertype: "0x86DD"
+        icmpv6_code: 0
+      action: pass
+"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["validate", yaml.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("icmpv6_code requires icmpv6_type"), "should reject icmpv6_code without type");
+}

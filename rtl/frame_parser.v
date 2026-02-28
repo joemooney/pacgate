@@ -3,23 +3,27 @@
 //           src_ip, dst_ip, ip_protocol, ip_ttl, ip_checksum, src_port, dst_port (IPv4/TCP/UDP)
 //           ip_dscp, ip_ecn (IPv4 TOS byte: DSCP[7:2] + ECN[1:0])
 //           ipv6_dscp, ipv6_ecn (IPv6 Traffic Class: DSCP[7:2] + ECN[1:0])
-//           src_ipv6, dst_ipv6, ipv6_next_header (IPv6)
+//           src_ipv6, dst_ipv6, ipv6_next_header, ipv6_hop_limit, ipv6_flow_label (IPv6)
 //           tcp_flags (TCP flags byte at offset 13 from TCP header)
 //           icmp_type, icmp_code (ICMP type/code for IPv4 protocol 1)
+//           icmpv6_type, icmpv6_code (ICMPv6 type/code for IPv6 next_header 58)
 //           vxlan_vni (VXLAN Network Identifier)
 //           gtp_teid (GTP-U Tunnel Endpoint ID, 5G)
 //           mpls_label, mpls_tc, mpls_bos (MPLS label stack)
 //           igmp_type (IGMP message type), mld_type (MLD message type)
+//           arp_opcode, arp_spa, arp_tpa (ARP header fields)
 // Handles 802.1Q VLAN-tagged frames (EtherType 0x8100)
 // Handles IPv4 header parsing (20-byte fixed, IHL=5)
 // Handles IPv6 header parsing (40-byte fixed)
 // Handles TCP/UDP port extraction (first 4 bytes of L4 header)
 // Handles TCP flags extraction (byte 13 of TCP header)
 // Handles ICMP type/code extraction (IPv4 protocol 1)
+// Handles ICMPv6 type/code extraction (IPv6 next_header 58) with MLD backward compatibility
 // Handles VXLAN tunnel detection (UDP dst port 4789)
 // Handles GTP-U tunnel detection (UDP dst port 2152)
 // Handles MPLS label stack parsing (EtherType 0x8847/0x8848)
 // Handles IGMP (IPv4 protocol 2) and MLD (ICMPv6 type 130-132)
+// Handles ARP header parsing (EtherType 0x0806)
 //
 // Interface: simple byte-stream (not AXI-Stream)
 //   pkt_data[7:0], pkt_valid, pkt_sof, pkt_eof — input
@@ -99,25 +103,42 @@ module frame_parser (
     output reg  [7:0]  icmp_code,     // ICMP code
     output reg         icmp_valid,    // frame has ICMP header
 
+    // ICMPv6 type/code (IPv6 next_header 58)
+    output reg  [7:0]  icmpv6_type,     // ICMPv6 type
+    output reg  [7:0]  icmpv6_code,     // ICMPv6 code
+    output reg         icmpv6_valid,    // ICMPv6 fields valid
+
+    // ARP fields (EtherType 0x0806)
+    output reg  [15:0] arp_opcode,      // ARP opcode (1=request, 2=reply)
+    output reg  [31:0] arp_spa,         // ARP sender protocol address
+    output reg  [31:0] arp_tpa,         // ARP target protocol address
+    output reg         arp_valid,       // ARP fields valid
+
+    // IPv6 extension fields
+    output reg  [7:0]  ipv6_hop_limit,  // IPv6 hop limit (byte 7)
+    output reg  [19:0] ipv6_flow_label, // IPv6 flow label (bytes 1-3, lower 20 bits)
+
     output reg         fields_valid // pulse: all header fields extracted
 );
 
     // Parser states
-    localparam S_IDLE      = 4'd0;
-    localparam S_DST_MAC   = 4'd1;
-    localparam S_SRC_MAC   = 4'd2;
-    localparam S_ETYPE     = 4'd3;
-    localparam S_VLAN_TAG  = 4'd4;
-    localparam S_ETYPE2    = 4'd5;  // real ethertype after VLAN
-    localparam S_IP_HDR    = 4'd6;  // IPv4 header (20 bytes)
-    localparam S_L4_HDR    = 4'd7;  // TCP/UDP first 4 bytes
-    localparam S_VXLAN_HDR = 4'd8;  // VXLAN header (8 bytes)
-    localparam S_PAYLOAD   = 4'd9;
-    localparam S_IPV6_HDR  = 4'd10; // IPv6 header (40 bytes)
-    localparam S_GTP_HDR   = 4'd11; // GTP-U header (8 bytes min)
-    localparam S_MPLS_HDR  = 4'd12; // MPLS label stack
-    localparam S_IGMP_HDR  = 4'd13; // IGMP message header
-    localparam S_ICMP_HDR  = 4'd14; // ICMP message header (type + code)
+    localparam S_IDLE       = 5'd0;
+    localparam S_DST_MAC    = 5'd1;
+    localparam S_SRC_MAC    = 5'd2;
+    localparam S_ETYPE      = 5'd3;
+    localparam S_VLAN_TAG   = 5'd4;
+    localparam S_ETYPE2     = 5'd5;  // real ethertype after VLAN
+    localparam S_IP_HDR     = 5'd6;  // IPv4 header (20 bytes)
+    localparam S_L4_HDR     = 5'd7;  // TCP/UDP first 4 bytes
+    localparam S_VXLAN_HDR  = 5'd8;  // VXLAN header (8 bytes)
+    localparam S_PAYLOAD    = 5'd9;
+    localparam S_IPV6_HDR   = 5'd10; // IPv6 header (40 bytes)
+    localparam S_GTP_HDR    = 5'd11; // GTP-U header (8 bytes min)
+    localparam S_MPLS_HDR   = 5'd12; // MPLS label stack
+    localparam S_IGMP_HDR   = 5'd13; // IGMP message header
+    localparam S_ICMP_HDR   = 5'd14; // ICMP message header (type + code)
+    localparam S_ICMPV6_HDR = 5'd15; // ICMPv6 type + code (MLD backward compat)
+    localparam S_ARP_HDR    = 5'd16; // ARP header (28 bytes)
 
     reg [4:0] state;
     reg [5:0] byte_cnt;  // counts bytes within current state (up to 39 for IPv6)
@@ -168,6 +189,15 @@ module frame_parser (
             icmp_type_field <= 8'd0;
             icmp_code    <= 8'd0;
             icmp_valid   <= 1'b0;
+            icmpv6_type  <= 8'd0;
+            icmpv6_code  <= 8'd0;
+            icmpv6_valid <= 1'b0;
+            arp_opcode   <= 16'd0;
+            arp_spa      <= 32'd0;
+            arp_tpa      <= 32'd0;
+            arp_valid    <= 1'b0;
+            ipv6_hop_limit  <= 8'd0;
+            ipv6_flow_label <= 20'd0;
             fields_valid <= 1'b0;
         end else begin
             fields_valid <= 1'b0;  // default: deassert
@@ -217,6 +247,15 @@ module frame_parser (
                 icmp_type_field <= 8'd0;
                 icmp_code   <= 8'd0;
                 icmp_valid  <= 1'b0;
+                icmpv6_type <= 8'd0;
+                icmpv6_code <= 8'd0;
+                icmpv6_valid <= 1'b0;
+                arp_opcode  <= 16'd0;
+                arp_spa     <= 32'd0;
+                arp_tpa     <= 32'd0;
+                arp_valid   <= 1'b0;
+                ipv6_hop_limit  <= 8'd0;
+                ipv6_flow_label <= 20'd0;
             end else if (pkt_valid) begin
                 case (state)
                     S_DST_MAC: begin
@@ -265,6 +304,11 @@ module frame_parser (
                             else if (ethertype[15:8] == 8'h88 && (pkt_data == 8'h47 || pkt_data == 8'h48)) begin
                                 state    <= S_MPLS_HDR;
                                 byte_cnt <= 6'd0;
+                            end
+                            // Check for ARP (0x0806)
+                            else if (ethertype[15:8] == 8'h08 && pkt_data == 8'h06) begin
+                                state    <= S_ARP_HDR;
+                                byte_cnt <= 6'd0;
                             end else begin
                                 state        <= S_PAYLOAD;
                                 fields_valid <= 1'b1;
@@ -305,6 +349,11 @@ module frame_parser (
                             // Check for MPLS after VLAN
                             else if (ethertype[15:8] == 8'h88 && (pkt_data == 8'h47 || pkt_data == 8'h48)) begin
                                 state    <= S_MPLS_HDR;
+                                byte_cnt <= 6'd0;
+                            end
+                            // Check for ARP after VLAN (0x0806)
+                            else if (ethertype[15:8] == 8'h08 && pkt_data == 8'h06) begin
+                                state    <= S_ARP_HDR;
                                 byte_cnt <= 6'd0;
                             end else begin
                                 state        <= S_PAYLOAD;
@@ -456,8 +505,13 @@ module frame_parser (
                                 // ECN  = TC[1:0] = pkt_data[5:4]
                                 ipv6_dscp <= {ipv6_tc_hi[3:0], pkt_data[7:6]};
                                 ipv6_ecn  <= pkt_data[5:4];
+                                // Flow label [19:16] from lower nibble of byte 1
+                                ipv6_flow_label[19:16] <= pkt_data[3:0];
                             end
+                            6'd2: ipv6_flow_label[15:8] <= pkt_data;
+                            6'd3: ipv6_flow_label[7:0]  <= pkt_data;
                             6'd6: ipv6_next_header <= pkt_data;
+                            6'd7: ipv6_hop_limit <= pkt_data;
                             // Source IPv6: bytes 8-23
                             6'd8:  src_ipv6[127:120] <= pkt_data;
                             6'd9:  src_ipv6[119:112] <= pkt_data;
@@ -499,9 +553,9 @@ module frame_parser (
                                     state    <= S_L4_HDR;
                                     byte_cnt <= 6'd0;
                                 end
-                                // Check for ICMPv6 (next header 58) — may contain MLD
+                                // Check for ICMPv6 (next header 58) — type/code + MLD backward compat
                                 else if (ipv6_next_header == 8'd58) begin
-                                    state    <= S_IGMP_HDR;  // reuse for MLD (first byte = type)
+                                    state    <= S_ICMPV6_HDR;
                                     byte_cnt <= 6'd0;
                                 end else begin
                                     state        <= S_PAYLOAD;
@@ -604,6 +658,63 @@ module frame_parser (
                             end
                         endcase
                         // byte_cnt is advanced in case 0, case 1 transitions to PAYLOAD
+                    end
+
+                    S_ICMPV6_HDR: begin
+                        // ICMPv6 header: byte 0 = type, byte 1 = code
+                        case (byte_cnt)
+                            6'd0: begin
+                                icmpv6_type <= pkt_data;
+                                byte_cnt <= 6'd1;
+                            end
+                            6'd1: begin
+                                icmpv6_code  <= pkt_data;
+                                icmpv6_valid <= 1'b1;
+                                // MLD backward compatibility: types 130-132
+                                if (icmpv6_type == 8'd130 || icmpv6_type == 8'd131 || icmpv6_type == 8'd132) begin
+                                    mld_type  <= icmpv6_type;
+                                    mld_valid <= 1'b1;
+                                end
+                                state        <= S_PAYLOAD;
+                                fields_valid <= 1'b1;
+                            end
+                        endcase
+                        // byte_cnt is advanced in case 0, case 1 transitions to PAYLOAD
+                    end
+
+                    S_ARP_HDR: begin
+                        // ARP header (28 bytes):
+                        // Bytes 0-1: Hardware type (skip)
+                        // Bytes 2-3: Protocol type (skip)
+                        // Byte 4: Hardware address length (skip)
+                        // Byte 5: Protocol address length (skip)
+                        // Bytes 6-7: Opcode
+                        // Bytes 8-13: Sender hardware address (skip)
+                        // Bytes 14-17: Sender protocol address (SPA)
+                        // Bytes 18-23: Target hardware address (skip)
+                        // Bytes 24-27: Target protocol address (TPA)
+                        case (byte_cnt)
+                            6'd6:  arp_opcode[15:8] <= pkt_data;
+                            6'd7:  arp_opcode[7:0]  <= pkt_data;
+                            6'd14: arp_spa[31:24] <= pkt_data;
+                            6'd15: arp_spa[23:16] <= pkt_data;
+                            6'd16: arp_spa[15:8]  <= pkt_data;
+                            6'd17: arp_spa[7:0]   <= pkt_data;
+                            6'd24: arp_tpa[31:24] <= pkt_data;
+                            6'd25: arp_tpa[23:16] <= pkt_data;
+                            6'd26: arp_tpa[15:8]  <= pkt_data;
+                            6'd27: begin
+                                arp_tpa[7:0] <= pkt_data;
+                                arp_valid    <= 1'b1;
+                                state        <= S_PAYLOAD;
+                                fields_valid <= 1'b1;
+                            end
+                            default: ;
+                        endcase
+
+                        if (byte_cnt != 6'd27) begin
+                            byte_cnt <= byte_cnt + 6'd1;
+                        end
                     end
 
                     S_PAYLOAD: begin

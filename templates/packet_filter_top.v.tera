@@ -101,6 +101,21 @@ module packet_filter_top (
     wire [7:0]  icmp_code;
     wire        icmp_valid;
 
+    // Frame parser outputs — ICMPv6
+    wire [7:0]  icmpv6_type;
+    wire [7:0]  icmpv6_code;
+    wire        icmpv6_valid;
+
+    // Frame parser outputs — ARP
+    wire [15:0] arp_opcode;
+    wire [31:0] arp_spa;
+    wire [31:0] arp_tpa;
+    wire        arp_valid;
+
+    // Frame parser outputs — IPv6 extensions
+    wire [7:0]  ipv6_hop_limit;
+    wire [19:0] ipv6_flow_label;
+
     wire        fields_valid;
 
     frame_parser u_parser (
@@ -150,6 +165,15 @@ module packet_filter_top (
         .icmp_type_field (icmp_type_field),
         .icmp_code    (icmp_code),
         .icmp_valid   (icmp_valid),
+        .icmpv6_type  (icmpv6_type),
+        .icmpv6_code  (icmpv6_code),
+        .icmpv6_valid (icmpv6_valid),
+        .arp_opcode   (arp_opcode),
+        .arp_spa      (arp_spa),
+        .arp_tpa      (arp_tpa),
+        .arp_valid    (arp_valid),
+        .ipv6_hop_limit  (ipv6_hop_limit),
+        .ipv6_flow_label (ipv6_flow_label),
         .fields_valid (fields_valid)
     );
 
@@ -226,6 +250,19 @@ module packet_filter_top (
 {% if has_icmp %}
         .icmp_type_field (icmp_type_field),
         .icmp_code    (icmp_code),
+{% endif %}
+{% if has_icmpv6 %}
+        .icmpv6_type  (icmpv6_type),
+        .icmpv6_code  (icmpv6_code),
+{% endif %}
+{% if has_arp %}
+        .arp_opcode   (arp_opcode),
+        .arp_spa      (arp_spa),
+        .arp_tpa      (arp_tpa),
+{% endif %}
+{% if has_ipv6_ext %}
+        .ipv6_hop_limit  (ipv6_hop_limit),
+        .ipv6_flow_label (ipv6_flow_label),
 {% endif %}
 {% if has_byte_capture %}
 {% for cap in byte_captures %}

@@ -65,6 +65,23 @@ pub struct MatchCriteria {
     pub icmp_type: Option<u8>,     // 0-255 (e.g., 8=echo request, 0=echo reply)
     #[serde(default)]
     pub icmp_code: Option<u8>,     // 0-255
+    // ICMPv6 Type/Code (IPv6 next_header 58)
+    #[serde(default)]
+    pub icmpv6_type: Option<u8>,   // 0-255 (e.g., 128=echo request, 133-137=NDP)
+    #[serde(default)]
+    pub icmpv6_code: Option<u8>,   // 0-255
+    // ARP fields (ethertype 0x0806)
+    #[serde(default)]
+    pub arp_opcode: Option<u16>,   // 1=request, 2=reply
+    #[serde(default)]
+    pub arp_spa: Option<String>,   // Sender Protocol Address (IPv4 dotted-quad)
+    #[serde(default)]
+    pub arp_tpa: Option<String>,   // Target Protocol Address (IPv4 dotted-quad)
+    // IPv6 extension fields
+    #[serde(default)]
+    pub ipv6_hop_limit: Option<u8>,    // 0-255 (TTL equivalent)
+    #[serde(default)]
+    pub ipv6_flow_label: Option<u32>,  // 0-0xFFFFF (20-bit)
     // Byte-offset matching
     #[serde(default)]
     pub byte_match: Option<Vec<ByteMatch>>,
@@ -281,6 +298,21 @@ impl MatchCriteria {
     /// Returns true if this criteria uses ICMP type/code matching
     pub fn uses_icmp(&self) -> bool {
         self.icmp_type.is_some() || self.icmp_code.is_some()
+    }
+
+    /// Returns true if this criteria uses ICMPv6 type/code matching
+    pub fn uses_icmpv6(&self) -> bool {
+        self.icmpv6_type.is_some() || self.icmpv6_code.is_some()
+    }
+
+    /// Returns true if this criteria uses ARP fields
+    pub fn uses_arp(&self) -> bool {
+        self.arp_opcode.is_some() || self.arp_spa.is_some() || self.arp_tpa.is_some()
+    }
+
+    /// Returns true if this criteria uses IPv6 extension fields
+    pub fn uses_ipv6_ext(&self) -> bool {
+        self.ipv6_hop_limit.is_some() || self.ipv6_flow_label.is_some()
     }
 }
 
@@ -1471,5 +1503,123 @@ pacgate:
         assert!(rw.set_vlan_id.is_none());
         assert!(rw.set_ttl.is_none());
         assert!(rw.set_dst_ip.is_none());
+    }
+
+    // --- ICMPv6/ARP/IPv6 ext helpers ---
+
+    #[test]
+    fn uses_icmpv6_true_type() {
+        let mc = MatchCriteria { icmpv6_type: Some(128), ..Default::default() };
+        assert!(mc.uses_icmpv6());
+    }
+
+    #[test]
+    fn uses_icmpv6_true_code() {
+        let mc = MatchCriteria { icmpv6_code: Some(0), ..Default::default() };
+        assert!(mc.uses_icmpv6());
+    }
+
+    #[test]
+    fn uses_icmpv6_false() {
+        let mc = MatchCriteria::default();
+        assert!(!mc.uses_icmpv6());
+    }
+
+    #[test]
+    fn uses_arp_true_opcode() {
+        let mc = MatchCriteria { arp_opcode: Some(1), ..Default::default() };
+        assert!(mc.uses_arp());
+    }
+
+    #[test]
+    fn uses_arp_true_spa() {
+        let mc = MatchCriteria { arp_spa: Some("10.0.0.1".to_string()), ..Default::default() };
+        assert!(mc.uses_arp());
+    }
+
+    #[test]
+    fn uses_arp_true_tpa() {
+        let mc = MatchCriteria { arp_tpa: Some("10.0.0.1".to_string()), ..Default::default() };
+        assert!(mc.uses_arp());
+    }
+
+    #[test]
+    fn uses_arp_false() {
+        let mc = MatchCriteria::default();
+        assert!(!mc.uses_arp());
+    }
+
+    #[test]
+    fn uses_ipv6_ext_true_hop_limit() {
+        let mc = MatchCriteria { ipv6_hop_limit: Some(64), ..Default::default() };
+        assert!(mc.uses_ipv6_ext());
+    }
+
+    #[test]
+    fn uses_ipv6_ext_true_flow_label() {
+        let mc = MatchCriteria { ipv6_flow_label: Some(12345), ..Default::default() };
+        assert!(mc.uses_ipv6_ext());
+    }
+
+    #[test]
+    fn uses_ipv6_ext_false() {
+        let mc = MatchCriteria::default();
+        assert!(!mc.uses_ipv6_ext());
+    }
+
+    #[test]
+    fn deserialize_icmpv6_arp_ipv6_ext() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: icmpv6_test
+      priority: 100
+      match:
+        ethertype: "0x86DD"
+        ipv6_next_header: 58
+        icmpv6_type: 128
+        icmpv6_code: 0
+      action: pass
+    - name: arp_test
+      priority: 90
+      match:
+        ethertype: "0x0806"
+        arp_opcode: 1
+        arp_spa: "10.0.0.1"
+        arp_tpa: "10.0.0.2"
+      action: pass
+    - name: ipv6_ext_test
+      priority: 80
+      match:
+        ethertype: "0x86DD"
+        ipv6_hop_limit: 64
+        ipv6_flow_label: 1048575
+      action: pass
+"#;
+        let config: FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.pacgate.rules.len(), 3);
+        assert_eq!(config.pacgate.rules[0].match_criteria.icmpv6_type, Some(128));
+        assert_eq!(config.pacgate.rules[0].match_criteria.icmpv6_code, Some(0));
+        assert_eq!(config.pacgate.rules[1].match_criteria.arp_opcode, Some(1));
+        assert_eq!(config.pacgate.rules[1].match_criteria.arp_spa.as_deref(), Some("10.0.0.1"));
+        assert_eq!(config.pacgate.rules[1].match_criteria.arp_tpa.as_deref(), Some("10.0.0.2"));
+        assert_eq!(config.pacgate.rules[2].match_criteria.ipv6_hop_limit, Some(64));
+        assert_eq!(config.pacgate.rules[2].match_criteria.ipv6_flow_label, Some(1048575));
+    }
+
+    #[test]
+    fn arp_opcode_boundary() {
+        let mc = MatchCriteria { arp_opcode: Some(2), ..Default::default() };
+        assert!(mc.uses_arp());
+    }
+
+    #[test]
+    fn ipv6_flow_label_max() {
+        let mc = MatchCriteria { ipv6_flow_label: Some(0xFFFFF), ..Default::default() };
+        assert!(mc.uses_ipv6_ext());
+        assert_eq!(mc.ipv6_flow_label, Some(1048575));
     }
 }

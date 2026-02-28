@@ -34,6 +34,13 @@ pub struct SimPacket {
     pub tcp_flags_mask: Option<u8>,
     pub icmp_type: Option<u8>,
     pub icmp_code: Option<u8>,
+    pub icmpv6_type: Option<u8>,
+    pub icmpv6_code: Option<u8>,
+    pub arp_opcode: Option<u16>,
+    pub arp_spa: Option<String>,
+    pub arp_tpa: Option<String>,
+    pub ipv6_hop_limit: Option<u8>,
+    pub ipv6_flow_label: Option<u32>,
 }
 
 /// Rewrite actions that would be applied to a passed packet
@@ -206,6 +213,31 @@ pub fn parse_packet_spec(spec: &str) -> Result<SimPacket> {
             }
             "icmp_code" => {
                 pkt.icmp_code = Some(value.parse().map_err(|e| anyhow::anyhow!("Bad icmp_code '{}': {}", value, e))?);
+            }
+            "icmpv6_type" => {
+                pkt.icmpv6_type = Some(value.parse().map_err(|e| anyhow::anyhow!("Bad icmpv6_type '{}': {}", value, e))?);
+            }
+            "icmpv6_code" => {
+                pkt.icmpv6_code = Some(value.parse().map_err(|e| anyhow::anyhow!("Bad icmpv6_code '{}': {}", value, e))?);
+            }
+            "arp_opcode" => {
+                pkt.arp_opcode = Some(value.parse().map_err(|e| anyhow::anyhow!("Bad arp_opcode '{}': {}", value, e))?);
+            }
+            "arp_spa" => {
+                Ipv4Prefix::parse(value)?; // validate
+                pkt.arp_spa = Some(value.to_string());
+            }
+            "arp_tpa" => {
+                Ipv4Prefix::parse(value)?; // validate
+                pkt.arp_tpa = Some(value.to_string());
+            }
+            "ipv6_hop_limit" => {
+                pkt.ipv6_hop_limit = Some(value.parse().map_err(|e| anyhow::anyhow!("Bad ipv6_hop_limit '{}': {}", value, e))?);
+            }
+            "ipv6_flow_label" => {
+                let v: u32 = value.parse().map_err(|e| anyhow::anyhow!("Bad ipv6_flow_label '{}': {}", value, e))?;
+                if v > 0xFFFFF { bail!("ipv6_flow_label must be 0-1048575, got {}", v); }
+                pkt.ipv6_flow_label = Some(v);
             }
             _ => bail!("Unknown packet field '{}'", key),
         }
@@ -807,6 +839,97 @@ pub fn match_criteria_against_packet(mc: &MatchCriteria, pkt: &SimPacket) -> (bo
         fields.push(FieldMatch {
             field: "icmp_code".to_string(),
             rule_value: rule_code.to_string(),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // ICMPv6 type
+    if let Some(rule_type) = mc.icmpv6_type {
+        let pkt_val = pkt.icmpv6_type.map(|v| v.to_string()).unwrap_or("none".to_string());
+        let matches = pkt.icmpv6_type.map(|v| v == rule_type).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "icmpv6_type".to_string(),
+            rule_value: rule_type.to_string(),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // ICMPv6 code
+    if let Some(rule_code) = mc.icmpv6_code {
+        let pkt_val = pkt.icmpv6_code.map(|v| v.to_string()).unwrap_or("none".to_string());
+        let matches = pkt.icmpv6_code.map(|v| v == rule_code).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "icmpv6_code".to_string(),
+            rule_value: rule_code.to_string(),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // ARP opcode
+    if let Some(rule_op) = mc.arp_opcode {
+        let pkt_val = pkt.arp_opcode.map(|v| v.to_string()).unwrap_or("none".to_string());
+        let matches = pkt.arp_opcode.map(|v| v == rule_op).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "arp_opcode".to_string(),
+            rule_value: rule_op.to_string(),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // ARP SPA
+    if let Some(ref rule_spa) = mc.arp_spa {
+        let pkt_val = pkt.arp_spa.as_deref().unwrap_or("none");
+        let matches = pkt.arp_spa.as_ref().map(|p| ipv4_matches_cidr(p, rule_spa)).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "arp_spa".to_string(),
+            rule_value: rule_spa.clone(),
+            packet_value: pkt_val.to_string(),
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // ARP TPA
+    if let Some(ref rule_tpa) = mc.arp_tpa {
+        let pkt_val = pkt.arp_tpa.as_deref().unwrap_or("none");
+        let matches = pkt.arp_tpa.as_ref().map(|p| ipv4_matches_cidr(p, rule_tpa)).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "arp_tpa".to_string(),
+            rule_value: rule_tpa.clone(),
+            packet_value: pkt_val.to_string(),
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // IPv6 hop limit
+    if let Some(rule_hl) = mc.ipv6_hop_limit {
+        let pkt_val = pkt.ipv6_hop_limit.map(|v| v.to_string()).unwrap_or("none".to_string());
+        let matches = pkt.ipv6_hop_limit.map(|v| v == rule_hl).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "ipv6_hop_limit".to_string(),
+            rule_value: rule_hl.to_string(),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // IPv6 flow label
+    if let Some(rule_fl) = mc.ipv6_flow_label {
+        let pkt_val = pkt.ipv6_flow_label.map(|v| v.to_string()).unwrap_or("none".to_string());
+        let matches = pkt.ipv6_flow_label.map(|v| v == rule_fl).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "ipv6_flow_label".to_string(),
+            rule_value: rule_fl.to_string(),
             packet_value: pkt_val,
             matches,
         });
@@ -1986,5 +2109,98 @@ pacgate:
         let result = simulate(&config, &pkt);
         assert_eq!(result.action, Action::Pass);
         assert_eq!(result.rule_name.as_deref(), Some("host_unreachable"));
+    }
+
+    #[test]
+    fn test_icmpv6_type_match() {
+        let pkt = parse_packet_spec("ethertype=0x86DD,ipv6_next_header=58,icmpv6_type=128").unwrap();
+        assert_eq!(pkt.icmpv6_type, Some(128));
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_icmpv6_echo
+      priority: 100
+      match:
+        ethertype: "0x86DD"
+        ipv6_next_header: 58
+        icmpv6_type: 128
+      action: pass
+"#;
+        let config: crate::model::FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let result = simulate(&config, &pkt);
+        assert_eq!(result.action, Action::Pass);
+        assert_eq!(result.rule_name.as_deref(), Some("allow_icmpv6_echo"));
+    }
+
+    #[test]
+    fn test_arp_opcode_match() {
+        let pkt = parse_packet_spec("ethertype=0x0806,arp_opcode=1").unwrap();
+        assert_eq!(pkt.arp_opcode, Some(1));
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_arp_request
+      priority: 100
+      match:
+        ethertype: "0x0806"
+        arp_opcode: 1
+      action: pass
+"#;
+        let config: crate::model::FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let result = simulate(&config, &pkt);
+        assert_eq!(result.action, Action::Pass);
+        assert_eq!(result.rule_name.as_deref(), Some("allow_arp_request"));
+    }
+
+    #[test]
+    fn test_arp_spa_match() {
+        let pkt = parse_packet_spec("ethertype=0x0806,arp_opcode=2,arp_spa=10.0.0.1").unwrap();
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_gateway_reply
+      priority: 100
+      match:
+        ethertype: "0x0806"
+        arp_opcode: 2
+        arp_spa: "10.0.0.1"
+      action: pass
+"#;
+        let config: crate::model::FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let result = simulate(&config, &pkt);
+        assert_eq!(result.action, Action::Pass);
+        assert_eq!(result.rule_name.as_deref(), Some("allow_gateway_reply"));
+    }
+
+    #[test]
+    fn test_ipv6_hop_limit_match() {
+        let pkt = parse_packet_spec("ethertype=0x86DD,ipv6_hop_limit=64").unwrap();
+        assert_eq!(pkt.ipv6_hop_limit, Some(64));
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_ttl64
+      priority: 100
+      match:
+        ethertype: "0x86DD"
+        ipv6_hop_limit: 64
+      action: pass
+"#;
+        let config: crate::model::FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let result = simulate(&config, &pkt);
+        assert_eq!(result.action, Action::Pass);
+        assert_eq!(result.rule_name.as_deref(), Some("allow_ttl64"));
     }
 }

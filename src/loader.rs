@@ -139,6 +139,33 @@ fn validate_match_criteria(mc: &crate::model::MatchCriteria, rule_name: &str) ->
         anyhow::bail!("icmp_code requires icmp_type in rule '{}'", rule_name);
     }
 
+    // ICMPv6 validation: icmpv6_code requires icmpv6_type
+    if mc.icmpv6_code.is_some() && mc.icmpv6_type.is_none() {
+        anyhow::bail!("icmpv6_code requires icmpv6_type in rule '{}'", rule_name);
+    }
+
+    // ARP validation
+    if let Some(op) = mc.arp_opcode {
+        if op != 1 && op != 2 {
+            anyhow::bail!("arp_opcode must be 1 (request) or 2 (reply), got {} in rule '{}'", op, rule_name);
+        }
+    }
+    if let Some(ref spa) = mc.arp_spa {
+        crate::model::Ipv4Prefix::parse(spa)
+            .map_err(|e| anyhow::anyhow!("Invalid arp_spa '{}' in rule '{}': {}", spa, rule_name, e))?;
+    }
+    if let Some(ref tpa) = mc.arp_tpa {
+        crate::model::Ipv4Prefix::parse(tpa)
+            .map_err(|e| anyhow::anyhow!("Invalid arp_tpa '{}' in rule '{}': {}", tpa, rule_name, e))?;
+    }
+
+    // IPv6 flow_label validation: 20-bit max (0-1048575)
+    if let Some(fl) = mc.ipv6_flow_label {
+        if fl > 0xFFFFF {
+            anyhow::bail!("ipv6_flow_label must be 0-1048575 (20-bit), got {} in rule '{}'", fl, rule_name);
+        }
+    }
+
     Ok(())
 }
 
@@ -797,6 +824,54 @@ pub fn criteria_shadows(a: &crate::model::MatchCriteria, b: &crate::model::Match
         }
     }
 
+    // ICMPv6 shadow checks
+    if let Some(a_icmpv6) = a.icmpv6_type {
+        match b.icmpv6_type {
+            Some(b_icmpv6) if a_icmpv6 == b_icmpv6 => {},
+            _ => return false,
+        }
+    }
+    if let Some(a_code) = a.icmpv6_code {
+        match b.icmpv6_code {
+            Some(b_code) if a_code == b_code => {},
+            _ => return false,
+        }
+    }
+
+    // ARP shadow checks
+    if let Some(a_op) = a.arp_opcode {
+        match b.arp_opcode {
+            Some(b_op) if a_op == b_op => {},
+            _ => return false,
+        }
+    }
+    if let Some(ref a_spa) = a.arp_spa {
+        match &b.arp_spa {
+            Some(b_spa) if a_spa == b_spa => {},
+            _ => return false,
+        }
+    }
+    if let Some(ref a_tpa) = a.arp_tpa {
+        match &b.arp_tpa {
+            Some(b_tpa) if a_tpa == b_tpa => {},
+            _ => return false,
+        }
+    }
+
+    // IPv6 extension shadow checks
+    if let Some(a_hl) = a.ipv6_hop_limit {
+        match b.ipv6_hop_limit {
+            Some(b_hl) if a_hl == b_hl => {},
+            _ => return false,
+        }
+    }
+    if let Some(a_fl) = a.ipv6_flow_label {
+        match b.ipv6_flow_label {
+            Some(b_fl) if a_fl == b_fl => {},
+            _ => return false,
+        }
+    }
+
     true
 }
 
@@ -924,6 +999,33 @@ fn criteria_overlaps(a: &crate::model::MatchCriteria, b: &crate::model::MatchCri
     }
     if let (Some(a_code), Some(b_code)) = (a.icmp_code, b.icmp_code) {
         if a_code != b_code { return false; }
+    }
+
+    // ICMPv6 overlap checks
+    if let (Some(a_icmpv6), Some(b_icmpv6)) = (a.icmpv6_type, b.icmpv6_type) {
+        if a_icmpv6 != b_icmpv6 { return false; }
+    }
+    if let (Some(a_code), Some(b_code)) = (a.icmpv6_code, b.icmpv6_code) {
+        if a_code != b_code { return false; }
+    }
+
+    // ARP overlap checks
+    if let (Some(a_op), Some(b_op)) = (a.arp_opcode, b.arp_opcode) {
+        if a_op != b_op { return false; }
+    }
+    if let (Some(ref a_spa), Some(ref b_spa)) = (&a.arp_spa, &b.arp_spa) {
+        if a_spa != b_spa { return false; }
+    }
+    if let (Some(ref a_tpa), Some(ref b_tpa)) = (&a.arp_tpa, &b.arp_tpa) {
+        if a_tpa != b_tpa { return false; }
+    }
+
+    // IPv6 extension overlap checks
+    if let (Some(a_hl), Some(b_hl)) = (a.ipv6_hop_limit, b.ipv6_hop_limit) {
+        if a_hl != b_hl { return false; }
+    }
+    if let (Some(a_fl), Some(b_fl)) = (a.ipv6_flow_label, b.ipv6_flow_label) {
+        if a_fl != b_fl { return false; }
     }
 
     true
@@ -1698,6 +1800,63 @@ pacgate:
     fn accept_valid_icmp_type_code() {
         let yaml = valid_yaml(
             "    - name: echo\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n        ip_protocol: 1\n        icmp_type: 8\n        icmp_code: 0\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn reject_icmpv6_code_without_type() {
+        let yaml = valid_yaml(
+            "    - name: bad\n      priority: 100\n      match:\n        ethertype: \"0x86DD\"\n        icmpv6_code: 0\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("icmpv6_code requires icmpv6_type"));
+    }
+
+    #[test]
+    fn reject_arp_opcode_out_of_range() {
+        let yaml = valid_yaml(
+            "    - name: bad\n      priority: 100\n      match:\n        ethertype: \"0x0806\"\n        arp_opcode: 3\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("arp_opcode must be 1 (request) or 2 (reply)"));
+    }
+
+    #[test]
+    fn reject_ipv6_flow_label_too_large() {
+        let yaml = valid_yaml(
+            "    - name: bad\n      priority: 100\n      match:\n        ethertype: \"0x86DD\"\n        ipv6_flow_label: 1048576\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("ipv6_flow_label must be 0-1048575"));
+    }
+
+    #[test]
+    fn accept_valid_icmpv6() {
+        let yaml = valid_yaml(
+            "    - name: ndp_ns\n      priority: 100\n      match:\n        ethertype: \"0x86DD\"\n        ipv6_next_header: 58\n        icmpv6_type: 135\n        icmpv6_code: 0\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn accept_valid_arp() {
+        let yaml = valid_yaml(
+            "    - name: arp_req\n      priority: 100\n      match:\n        ethertype: \"0x0806\"\n        arp_opcode: 1\n        arp_spa: \"10.0.0.1\"\n        arp_tpa: \"10.0.0.2\"\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn accept_valid_ipv6_ext() {
+        let yaml = valid_yaml(
+            "    - name: ipv6_ext\n      priority: 100\n      match:\n        ethertype: \"0x86DD\"\n        ipv6_hop_limit: 64\n        ipv6_flow_label: 12345\n      action: pass",
         );
         let result = load_rules_from_str(&yaml);
         assert!(result.is_ok());
