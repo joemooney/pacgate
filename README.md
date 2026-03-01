@@ -37,7 +37,7 @@
 
 PacGate is an **FPGA packet filtering compiler** that turns YAML rule definitions into both **synthesizable Verilog hardware** and a **complete verification environment** — from a single specification.
 
-No other tool generates both the hardware implementation *and* the test harness from the same spec. Commercial tools assume the RTL already exists. PacGate generates both, guaranteeing perfect alignment between what you specify, what gets built, and what gets tested.
+No other tool generates both the hardware implementation *and* the test harness from the same spec. All major commercial tools assume the RTL already exists. PacGate generates both, guaranteeing perfect alignment between what you specify, what gets built, and what gets tested.
 
 ### One Spec, Four Outputs
 
