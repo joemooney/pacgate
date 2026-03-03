@@ -17,6 +17,7 @@
 9. [CI/CD Integration](#9-cicd-integration)
 10. [Troubleshooting](#10-troubleshooting)
 11. [EtherType Reference](#11-ethertype-reference)
+12. [System-Level Simulation Lab](#12-system-level-simulation-lab)
 
 ---
 
@@ -27,6 +28,7 @@
 - **Rust** (1.70+): `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
 - **Python 3** (3.8+): For cocotb simulation
 - **Icarus Verilog** (11+): `sudo apt install iverilog` or `brew install icarus-verilog`
+- **Questa/QuestaSim** (optional): Alternative simulator (`vlog`/`vsim` in PATH, valid license)
 - **cocotb**: `pip install cocotb cocotb-coverage`
 - **Hypothesis** (optional): `pip install hypothesis` (for property testing)
 - **SymbiYosys** (optional): For formal verification
@@ -745,6 +747,9 @@ cd gen/tb && make
 
 # Or use the Makefile shortcut
 make sim RULES=rules/examples/enterprise.yaml
+
+# Or run with Questa/QuestaSim
+make sim RULES=rules/examples/enterprise.yaml SIM=questa
 ```
 
 ### Understanding Test Output
@@ -1023,6 +1028,20 @@ git clone https://github.com/steveicarus/iverilog.git
 cd iverilog && sh autoconf.sh && ./configure && make && sudo make install
 ```
 
+### "vlog/vsim not found" (Questa/QuestaSim)
+
+Ensure Questa/QuestaSim is installed and available on `PATH`:
+```bash
+which vlog
+which vsim
+```
+
+Then run:
+```bash
+make sim RULES=rules/examples/enterprise.yaml SIM=questa
+make lint LINT_SIM=questa
+```
+
 ### "cocotb module not found"
 
 Install cocotb in your Python environment:
@@ -1094,3 +1113,114 @@ A comprehensive reference of EtherTypes relevant to packet filtering:
 | `33:33:*:*:*:*` | IPv6 mcast | IPv6 Multicast |
 | `01:00:0c:cc:cc:cd` | PVST+ | Cisco Per-VLAN STP |
 | `01:1b:19:*:*:*` | PTP | PTP Multicast |
+
+---
+
+## 12. System-Level Simulation Lab
+
+This section maps a full "RMAC-style" verification request to what PacGate can implement today with high confidence.
+
+### What Fits PacGate Directly
+
+- Python-driven orchestration of traffic events and regressions
+- File-based interfaces for packet/event definitions
+- Verification of pass/drop behavior against expected outcomes
+- Error-mode testing using malformed or edge-case packet fields
+- Throughput and scaling checks using repeated simulation calls
+
+### What Is Out of Scope for PacGate Core
+
+- Vendor-specific RMAC IP generation and auto-negotiation setup
+- Full PHY bring-up and hardware timing closure workflows
+- Deep electrical/PCS/PMA behavior verification
+
+For those, PacGate should be treated as the policy/filter core inside a broader bench.
+
+### Recommended Architecture
+
+1. Use PacGate rules (`rules/examples/*.yaml`) as source of truth.
+2. Use the simulator app (`simulator-app/`) for rapid event-driven testing.
+3. Use Python scripts for large batch regressions (1000+ packets).
+4. Export JSON artifacts for CI pass/fail and diff tracking.
+
+### Fast Start: Web-Driven System Simulation
+
+```bash
+cargo build
+python3 simulator-app/server.py
+```
+
+Then open `http://127.0.0.1:8787` and:
+
+1. Select a rule file.
+2. Trigger single packets with expected action checks.
+3. Run built-in scenarios.
+4. Save custom scenarios for regressions.
+5. Inspect scenario diff (expected vs actual action).
+
+### Fast Start: 1000-Packet Python Regression
+
+Create `simulator-app/examples/run_1000.py`:
+
+```python
+#!/usr/bin/env python3
+import json
+import subprocess
+
+RULES = "rules/examples/allow_arp.yaml"
+PKT_PASS = "ethertype=0x0806,src_mac=00:11:22:33:44:55,dst_mac=ff:ff:ff:ff:ff:ff"
+PKT_DROP = "ethertype=0x0800,src_ip=10.0.0.1,dst_ip=10.0.0.2,ip_protocol=6,dst_port=443"
+
+def run(pkt):
+    cmd = [
+        "target/debug/pacgate", "simulate", RULES,
+        "--packet", pkt, "--json"
+    ]
+    out = subprocess.check_output(cmd, text=True)
+    return json.loads(out)
+
+def main():
+    mismatches = 0
+    for i in range(1000):
+        expected = "pass" if i % 2 == 0 else "drop"
+        pkt = PKT_PASS if expected == "pass" else PKT_DROP
+        got = run(pkt)["action"]
+        if got != expected:
+            mismatches += 1
+    print(json.dumps({"total": 1000, "mismatches": mismatches}, indent=2))
+
+if __name__ == "__main__":
+    main()
+```
+
+Run:
+
+```bash
+python3 simulator-app/examples/run_1000.py
+```
+
+### Error Injection Patterns (File-Driven)
+
+Use packet specs with invalid or adversarial values to test parser and policy boundaries:
+
+- Invalid MAC format
+- Out-of-range DSCP/ECN values
+- Malformed IPv6 flow label
+- Unexpected EtherType for protocol-specific rules
+
+Example:
+
+```bash
+target/debug/pacgate simulate rules/examples/l3l4_firewall.yaml \
+  --packet "ethertype=0x0800,ip_protocol=6,dst_port=443,tcp_flags=0xFF,tcp_flags_mask=0x00" \
+  --json
+```
+
+### CI Integration Pattern
+
+Use simulator outputs as machine-readable gates:
+
+1. Run scenario pack.
+2. Fail build on mismatch count > 0.
+3. Archive JSON results per commit.
+4. Compare mismatches across branches for regression detection.

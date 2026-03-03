@@ -9,3 +9,6 @@ __pycache__/
 *.pyc
 sim_build/
 results.xml
+simulator-app/data/custom_scenarios.json
+sim_regress_result.json
+topology_result.json

@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pacinet.dev/schemas/paclab/scenario_v2.schema.json",
+  "title": "PacLab Scenario v2",
+  "description": "Scenario definition with optional topology/switch semantics.",
+  "type": "object",
+  "required": ["id", "name", "events"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "enum": ["v1", "v2"] },
+    "id": { "type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9_.-]+$" },
+    "name": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "default_rules_file": { "type": "string", "minLength": 1 },
+    "stateful": { "type": "boolean" },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "topology": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "ports"],
+      "properties": {
+        "kind": { "type": "string", "minLength": 1 },
+        "ports": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "subnet", "mac"],
+            "properties": {
+              "id": { "type": "integer", "minimum": 0 },
+              "name": { "type": "string", "minLength": 1 },
+              "subnet": { "type": "string", "minLength": 1 },
+              "mac": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    "events": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "packet"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "packet": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": {
+              "oneOf": [
+                { "type": "string" },
+                { "type": "integer" },
+                { "type": "number" },
+                { "type": "boolean" }
+              ]
+            }
+          },
+          "expected_action": { "type": "string", "enum": ["pass", "drop"] },
+          "delay_ms": { "type": "integer", "minimum": 0 },
+          "meta": { "type": "object", "additionalProperties": true },
+          "ingress_port": { "type": "integer", "minimum": 0 },
+          "expected_egress_port": { "type": "integer", "minimum": 0 },
+          "expected_switch_action": { "type": "string", "enum": ["forward", "drop"] },
+          "inject_rmac_error": { "type": "boolean" }
+        }
+      }
+    }
+  }
+}

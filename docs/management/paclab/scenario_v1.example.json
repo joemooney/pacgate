@@ -1,0 +1,34 @@
+{
+  "id": "allow_arp_regression_v1",
+  "name": "Allow ARP Regression",
+  "description": "Checks pass/drop behavior for ARP and non-ARP traffic.",
+  "default_rules_file": "rules/examples/allow_arp.yaml",
+  "stateful": false,
+  "tags": ["baseline", "l2"],
+  "events": [
+    {
+      "name": "ARP broadcast should pass",
+      "packet": {
+        "ethertype": "0x0806",
+        "src_mac": "00:11:22:33:44:55",
+        "dst_mac": "ff:ff:ff:ff:ff:ff"
+      },
+      "expected_action": "pass"
+    },
+    {
+      "name": "IPv4 packet should drop",
+      "packet": {
+        "ethertype": "0x0800",
+        "src_ip": "10.0.0.1",
+        "dst_ip": "10.0.0.2",
+        "ip_protocol": 6,
+        "dst_port": 443
+      },
+      "expected_action": "drop",
+      "delay_ms": 5,
+      "meta": {
+        "note": "Intentional negative case"
+      }
+    }
+  ]
+}

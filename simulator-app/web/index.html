@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PacGate Simulator</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header>
+        <h1>PacGate Simulator</h1>
+        <p>Trigger packet events and inspect PacGate decisions in real time.</p>
+      </header>
+
+      <section class="panel">
+        <h2>Simulation Controls</h2>
+        <div class="row">
+          <label for="rulesFile">Rules file</label>
+          <select id="rulesFile"></select>
+        </div>
+        <div class="row">
+          <label for="stateful">Stateful mode</label>
+          <input type="checkbox" id="stateful" />
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Single Event</h2>
+        <p class="hint">Fill only fields you want to match.</p>
+        <div class="grid">
+          <label>ethertype <input id="ethertype" placeholder="0x0800" /></label>
+          <label>src_ip <input id="src_ip" placeholder="10.0.0.1" /></label>
+          <label>dst_ip <input id="dst_ip" placeholder="10.0.0.2" /></label>
+          <label>ip_protocol <input id="ip_protocol" placeholder="6" /></label>
+          <label>src_port <input id="src_port" placeholder="12345" /></label>
+          <label>dst_port <input id="dst_port" placeholder="443" /></label>
+          <label>src_mac <input id="src_mac" placeholder="00:11:22:33:44:55" /></label>
+          <label>dst_mac <input id="dst_mac" placeholder="ff:ff:ff:ff:ff:ff" /></label>
+          <label>tcp_flags <input id="tcp_flags" placeholder="0x02" /></label>
+          <label>tcp_flags_mask <input id="tcp_flags_mask" placeholder="0x02" /></label>
+        </div>
+        <div class="row">
+          <label for="singleExpectedAction">Expected action</label>
+          <select id="singleExpectedAction">
+            <option value="">(none)</option>
+            <option value="pass">pass</option>
+            <option value="drop">drop</option>
+          </select>
+        </div>
+        <button id="simulateBtn">Simulate Packet</button>
+      </section>
+
+      <section class="panel">
+        <h2>Scenario Runner</h2>
+        <div class="row">
+          <label for="scenarioSelect">Scenario</label>
+          <select id="scenarioSelect"></select>
+          <button id="deleteScenarioBtn" class="danger">Delete Custom</button>
+        </div>
+        <button id="runScenarioBtn">Run Scenario</button>
+      </section>
+
+      <section class="panel">
+        <h2>Scenario Diff</h2>
+        <p class="hint">Expected vs actual action for the most recent scenario run.</p>
+        <div id="scenarioDiff">No scenario run yet.</div>
+      </section>
+
+      <section class="panel">
+        <h2>Custom Scenario Editor</h2>
+        <div class="grid custom-grid">
+          <label>id <input id="customScenarioId" placeholder="my_regression_case" /></label>
+          <label>name <input id="customScenarioName" placeholder="My Regression Case" /></label>
+          <label>default_rules_file <input id="customScenarioRules" placeholder="rules/examples/allow_arp.yaml" /></label>
+          <label>stateful <input id="customScenarioStateful" type="checkbox" /></label>
+        </div>
+        <label>description <input id="customScenarioDescription" placeholder="Optional description" /></label>
+        <label>
+          events JSON
+          <textarea id="customScenarioEvents" rows="10" spellcheck="false">[
+  {
+    "name": "ARP pass",
+    "packet": {"ethertype": "0x0806", "src_mac": "00:11:22:33:44:55", "dst_mac": "ff:ff:ff:ff:ff:ff"},
+    "expected_action": "pass"
+  }
+]</textarea>
+        </label>
+        <div class="row">
+          <button id="saveScenarioBtn" class="secondary">Save Scenario</button>
+          <button id="loadScenarioBtn">Load Selected Into Editor</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Latest Result</h2>
+        <pre id="latestResult">No simulation executed yet.</pre>
+      </section>
+
+      <section class="panel">
+        <h2>Execution Log</h2>
+        <button id="refreshLogBtn" class="secondary">Refresh Log</button>
+        <div id="logList" class="log-list"></div>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

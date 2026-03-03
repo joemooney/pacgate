@@ -13,6 +13,7 @@
 | Rust | 1.75+ | PacGate compiler |
 | Python | 3.10+ | cocotb test framework |
 | Icarus Verilog | 12.0+ | Verilog simulation |
+| Questa/QuestaSim | 2022+ | Alternative Verilog/SystemVerilog simulation |
 | cocotb | 2.0+ | Python-to-Verilog test bridge |
 | GTKWave | 3.3+ | Waveform viewer (optional) |
 
@@ -24,9 +25,12 @@
 # Rust (if not installed)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
-# Icarus Verilog
+# Icarus Verilog (default simulator)
 sudo apt install iverilog  # Ubuntu/Debian
 brew install icarus-verilog # macOS
+
+# OR use Questa/QuestaSim (installed/licensed separately)
+# Ensure vlog/vsim are in PATH
 
 # Python venv + cocotb
 python3 -m venv .venv
@@ -76,6 +80,9 @@ This generates:
 ```bash
 source .venv/bin/activate
 make sim RULES=my_rules.yaml
+
+# Alternative with Questa/QuestaSim
+make sim RULES=my_rules.yaml SIM=questa
 ```
 
 Expected output:
@@ -124,7 +131,9 @@ pacgate validate rules.yaml
 |--------|---------|-------------|
 | `compile` | `make compile RULES=file.yaml` | Generate RTL + tests |
 | `sim` | `make sim RULES=file.yaml` | Compile + simulate |
+| `sim` (Questa) | `make sim RULES=file.yaml SIM=questa` | Compile + simulate with Questa |
 | `lint` | `make lint` | Icarus Verilog lint check |
+| `lint` (Questa) | `make lint LINT_SIM=questa` | Questa `vlog -lint` check |
 | `clean` | `make clean` | Remove generated files |
 
 ## Writing Rules

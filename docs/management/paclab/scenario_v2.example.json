@@ -1,0 +1,56 @@
+{
+  "schema_version": "v2",
+  "id": "rmac2_l3_switch_baseline",
+  "name": "RMAC 2-port L3 Switch Baseline",
+  "description": "Two RMAC endpoints with subnet gating and switch forwarding/drop behavior.",
+  "default_rules_file": "rules/examples/l3l4_firewall.yaml",
+  "stateful": false,
+  "topology": {
+    "kind": "l3_switch_2port",
+    "ports": [
+      { "id": 0, "name": "rmac0", "subnet": "10.0.0.0/24", "mac": "AA:BB:CC:DD:00:00" },
+      { "id": 1, "name": "rmac1", "subnet": "10.0.1.0/24", "mac": "AA:BB:CC:DD:01:00" }
+    ]
+  },
+  "events": [
+    {
+      "name": "Forward from port0 to subnet of port1",
+      "ingress_port": 0,
+      "packet": {
+        "ethertype": "0x0800",
+        "src_ip": "10.0.0.10",
+        "dst_ip": "10.0.1.20",
+        "ip_protocol": 6,
+        "dst_port": 443
+      },
+      "expected_action": "pass",
+      "expected_switch_action": "forward",
+      "expected_egress_port": 1
+    },
+    {
+      "name": "Drop for ingress subnet mismatch",
+      "ingress_port": 0,
+      "packet": {
+        "ethertype": "0x0800",
+        "src_ip": "10.0.2.10",
+        "dst_ip": "10.0.1.20",
+        "ip_protocol": 6,
+        "dst_port": 443
+      },
+      "expected_switch_action": "drop"
+    },
+    {
+      "name": "Drop due to injected RMAC error",
+      "ingress_port": 1,
+      "inject_rmac_error": true,
+      "packet": {
+        "ethertype": "0x0800",
+        "src_ip": "10.0.1.15",
+        "dst_ip": "10.0.0.5",
+        "ip_protocol": 6,
+        "dst_port": 443
+      },
+      "expected_switch_action": "drop"
+    }
+  ]
+}

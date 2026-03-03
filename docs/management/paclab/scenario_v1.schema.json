@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pacinet.dev/schemas/paclab/scenario_v1.schema.json",
+  "title": "PacLab Scenario v1",
+  "description": "Scenario definition for PacLab/PacGate system-level simulation orchestration.",
+  "type": "object",
+  "required": ["id", "name", "events"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_.-]+$",
+      "description": "Stable scenario identifier."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable scenario name."
+    },
+    "description": {
+      "type": "string",
+      "description": "Optional scenario description."
+    },
+    "default_rules_file": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Default PacGate rules file for this scenario."
+    },
+    "stateful": {
+      "type": "boolean",
+      "default": false,
+      "description": "Enable PacGate --stateful simulation mode."
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true,
+      "description": "Optional category tags."
+    },
+    "events": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "packet"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Event label shown in reports."
+          },
+          "packet": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": {
+              "oneOf": [
+                { "type": "string" },
+                { "type": "integer" },
+                { "type": "number" },
+                { "type": "boolean" }
+              ]
+            },
+            "description": "PacGate packet key/value fields."
+          },
+          "expected_action": {
+            "type": "string",
+            "enum": ["pass", "drop"],
+            "description": "Expected PacGate action for diff reporting."
+          },
+          "delay_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0,
+            "description": "Delay before running this event (ms)."
+          },
+          "meta": {
+            "type": "object",
+            "description": "Optional extension metadata.",
+            "additionalProperties": true
+          }
+        }
+      },
+      "description": "Ordered event sequence to execute."
+    }
+  }
+}

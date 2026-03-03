@@ -620,3 +620,164 @@ git show "$OLD_RULES" > /tmp/old_rules.yaml 2>/dev/null || exit 0
 # Diff
 pacgate diff /tmp/old_rules.yaml "$NEW_RULES" --json
 ```
+
+---
+
+## Workshop 9: System Simulation Regression Lab (45 min)
+
+### Objective
+Build a repeatable, Python-driven system simulation flow for 1000+ packets, expected/actual action diffs, and error injection.
+
+### Steps
+
+#### Step 1: Build PacGate and Start Simulator UI
+
+```bash
+cargo build
+python3 simulator-app/server.py
+```
+
+Open `http://127.0.0.1:8787`.
+
+#### Step 2: Run a Built-In Scenario with Diff View
+
+In the UI:
+
+1. Select `allow_arp_then_drop_ipv4`.
+2. Click `Run Scenario`.
+3. Check `Scenario Diff` and confirm mismatch count is `0`.
+
+#### Step 3: Create and Save a Custom Scenario
+
+Use `Custom Scenario Editor` and paste events like:
+
+```json
+[
+  {
+    "name": "Expected ARP pass",
+    "packet": {
+      "ethertype": "0x0806",
+      "src_mac": "00:11:22:33:44:55",
+      "dst_mac": "ff:ff:ff:ff:ff:ff"
+    },
+    "expected_action": "pass"
+  },
+  {
+    "name": "Intentional mismatch",
+    "packet": {
+      "ethertype": "0x0800",
+      "src_ip": "10.0.0.1",
+      "dst_ip": "10.0.0.2",
+      "ip_protocol": 6,
+      "dst_port": 443
+    },
+    "expected_action": "pass"
+  }
+]
+```
+
+Save, run, and verify mismatch count is `1`.
+
+#### Step 4: Run 1000-Packet Python Regression
+
+```bash
+python3 simulator-app/examples/run_1000.py \
+  --rules rules/examples/allow_arp.yaml \
+  --count 1000
+```
+
+Expected output:
+
+```json
+{
+  "rules": "rules/examples/allow_arp.yaml",
+  "count": 1000,
+  "mismatches": 0,
+  "elapsed_sec": 1.234,
+  "packets_per_sec": 810.37
+}
+```
+
+#### Step 5: Add Error Injection Cases
+
+Run malformed/edge packet specs directly:
+
+```bash
+target/debug/pacgate simulate rules/examples/l3l4_firewall.yaml \
+  --packet "ethertype=0x0800,ip_protocol=6,dst_port=443,tcp_flags=0xFF,tcp_flags_mask=0x00" \
+  --json
+```
+
+Add these cases into your custom scenario JSON and set expected actions.
+
+#### Step 6: Gate in CI
+
+Use this pattern in a CI step:
+
+```bash
+python3 simulator-app/examples/run_1000.py --count 1000 > sim_result.json
+python3 -c "import json; d=json.load(open('sim_result.json')); assert d['mismatches']==0, d"
+```
+
+### Outcome
+
+You now have:
+
+1. A web UI flow for scenario authoring and diff analysis.
+2. A scriptable high-volume regression path.
+3. A practical bridge between policy validation and system-level traffic testing.
+
+---
+
+## Workshop 10: Two-RMAC Switch Topology Lab (60 min)
+
+### Objective
+Run a system-level topology simulation with two RMAC endpoints and an L3 switch model that tracks:
+
+1. RMAC error/drop counts
+2. PacGate policy decisions
+3. Switch forward/drop counts and drop reasons
+
+### Steps
+
+#### Step 1: Build PacGate
+
+```bash
+cargo build
+```
+
+#### Step 2: Validate Scenario v2
+
+```bash
+python3 simulator-app/tools/paclab_validate.py \
+  docs/management/paclab/scenario_v2.example.json --json
+```
+
+#### Step 3: Run Topology Scenario
+
+```bash
+python3 simulator-app/tools/run_topology.py \
+  docs/management/paclab/scenario_v2.example.json \
+  --bin target/debug/pacgate \
+  --output topology_result.json
+```
+
+#### Step 4: Inspect Counters
+
+```bash
+python3 - <<'PY'
+import json
+d = json.load(open('topology_result.json'))
+print(json.dumps(d['stats'], indent=2))
+print('mismatch_count =', d['mismatch_count'])
+PY
+```
+
+#### Step 5: Add a Drop-Mode Test
+
+Edit the scenario and add an event where destination IP has no matching egress subnet.  
+Expected outcome: `expected_switch_action: drop` and drop reason `no_route`.
+
+### Outcome
+
+You now have a practical model for the "network switch between RMACs" request that can be run in CI and expanded into RTL/HIL phases later.

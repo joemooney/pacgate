@@ -18,6 +18,8 @@
 | Management | [Executive Summary](management/executive-summary.md) | Problem, solution, ROI, status | Leadership |
 | Management | [Innovation Analysis](management/innovation-analysis.md) | Competitive landscape, IP, roadmap | Leadership, Strategy |
 | Management | [Roadmap](management/roadmap.md) | Phase timeline through 2027 | Leadership, PM |
+| Management | [Companion Product Proposal](management/companion-product-proposal.md) | Scope proposal for PacLab system-verification companion | Leadership, PM, Architects |
+| Management | [PacLab Schema Draft](management/paclab/README.md) | Draft scenario schema and example for PacLab orchestration | Engineers, Architects |
 | Management | [Slideshow](management/SLIDESHOW.md) | 13-slide product overview presentation | Leadership |
 | Management | [Why PacGate?](WHY_PACGATE.md) | Value proposition for skeptics and decision-makers | Leadership, Architects |
 | Research | [Research Report](RESEARCH.md) | cocotb, coverage, mutation testing, formal verification | Engineers, Academics |

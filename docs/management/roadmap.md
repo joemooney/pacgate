@@ -45,6 +45,15 @@ Future
 │                   │                   │                   │
 ```
 
+### Companion Product Exploration
+
+Proposed companion for the PaciNet family:
+
+- **PacLab**: system-level verification orchestration layer
+- Role: scenario management, campaign execution, expected/actual diff reporting
+- Integration: consumes PacGate CLI/simulator outputs; does not replace PacGate compilation core
+- Status: proposal documented in `docs/management/companion-product-proposal.md`
+
 ## Phase Details
 
 ### Phase 1: Basic Filter (COMPLETE)

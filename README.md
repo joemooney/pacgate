@@ -104,16 +104,35 @@ pacgate diff rules/examples/allow_arp.yaml rules/examples/enterprise.yaml
 ### Run Simulation
 
 ```bash
-# Prerequisites: Python 3, cocotb, Icarus Verilog
+# Prerequisites: Python 3, cocotb, and either Icarus Verilog or Questa/QuestaSim
 pip install cocotb cocotb-coverage hypothesis
 
-# Compile and simulate
+# Compile and simulate with Icarus (default)
 make sim RULES=rules/examples/enterprise.yaml
+
+# Compile and simulate with Questa/QuestaSim
+make sim RULES=rules/examples/enterprise.yaml SIM=questa
 
 # Run with AXI-Stream wrapper
 pacgate compile rules/examples/enterprise.yaml --axi -o gen/
 make sim-axi RULES=rules/examples/enterprise.yaml
 ```
+
+### Web Simulator App
+
+PacGate now includes a separate simulator application with a web UI for driving packet events and inspecting responses.
+
+```bash
+# Build pacgate binary
+cargo build
+
+# Start simulator app
+python3 simulator-app/server.py
+```
+
+Open `http://127.0.0.1:8787`.
+
+See [`simulator-app/README.md`](simulator-app/README.md) for details.
 
 ### Formal Verification
 

@@ -69,6 +69,60 @@ jobs:
           name: scoreboard-test-results
           path: scoreboard-results.xml
 
+  sim-regress:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build PacGate compiler
+        run: cargo build
+
+      - name: Run simulator regression gate
+        run: make sim-regress RULES=rules/examples/allow_arp.yaml SIM_REGRESS_COUNT=200
+
+      - name: Upload simulator regression artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sim-regress-result
+          path: sim_regress_result.json
+
+  sim-topology:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build PacGate compiler
+        run: cargo build
+
+      - name: Run topology scenario gate
+        run: make sim-topology TOPOLOGY_SCENARIO=docs/management/paclab/scenario_v2.example.json
+
+      - name: Upload topology result artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sim-topology-result
+          path: topology_result.json
+
   simulate:
     runs-on: ubuntu-latest
     needs: build-and-test
@@ -116,7 +170,7 @@ jobs:
       - name: Run simulation (cocotb 2.0 runner)
         run: |
           source .venv/bin/activate
-          cd gen/tb && python run_sim.py
+          cd gen/tb && SIM=icarus python run_sim.py
 
       - name: Run property tests
         continue-on-error: true
@@ -147,6 +201,53 @@ jobs:
         with:
           name: waveforms-${{ matrix.example }}
           path: gen/tb/sim_build/*.fst
+
+  simulate-questa:
+    if: ${{ vars.ENABLE_QUESTA_CI == 'true' }}
+    runs-on: self-hosted
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install "cocotb>=2.0.0" cocotb-tools pytest hypothesis
+
+      - name: Verify Questa tools are present
+        run: |
+          which vlog
+          which vsim
+
+      - name: Build PacGate compiler
+        run: cargo build --release
+
+      - name: Compile enterprise rules
+        run: cargo run --release -- compile rules/examples/enterprise.yaml
+
+      - name: Lint generated Verilog with Questa
+        run: make lint RULES=rules/examples/enterprise.yaml LINT_SIM=questa
+
+      - name: Run simulation with Questa
+        run: |
+          source .venv/bin/activate
+          cd gen/tb && SIM=questa python run_sim.py
+
+      - name: Upload Questa simulation results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-questa
+          path: gen/tb/results.xml
 
   conntrack-compile:
     runs-on: ubuntu-latest
