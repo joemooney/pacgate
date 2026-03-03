@@ -1193,8 +1193,16 @@
 ### Lint
 - REQ-2380: LINT038: OAM fields without ethertype 0x8902 [IMPLEMENTED]
 
+### Tools (main.rs)
+- REQ-2381: Estimate: +8 LUTs per rule with OAM (3-bit level + 8-bit opcode comparators) [IMPLEMENTED]
+- REQ-2382: Stats: uses_oam_level and uses_oam_opcode counters (JSON + text) [IMPLEMENTED]
+- REQ-2383: Diff: oam_level and oam_opcode field change detection (text + JSON + HTML) [IMPLEMENTED]
+- REQ-2384: Doc: oam_level and oam_opcode in rule_info match_fields [IMPLEMENTED]
+- REQ-2385: Graph: OAM labels on rule nodes (oam_level={val}, oam_opcode={val}) [IMPLEMENTED]
+- REQ-2386: CI: oam_monitoring added to simulate matrix [IMPLEMENTED]
+
 ### Example
-- REQ-2390: oam_monitoring.yaml example (5 rules: CCM/DMM/DMR/LBR/IPv4) [IMPLEMENTED]
+- REQ-2390: oam_monitoring.yaml example (5 rules: CCM/DMM/DMR/LBR/ARP) [IMPLEMENTED]
 
 ### Test Counts
 - REQ-2395: 426 Rust unit tests (through Phase 25.5) [IMPLEMENTED]
