@@ -5298,3 +5298,109 @@ fn all_examples_simulate_phase24() {
         assert!(stdout.contains("PASS"), "Simulate {} should match a PASS rule: {}", name, stdout);
     }
 }
+
+// ============================================================
+// Phase 25.1: GRE Tunnel Parsing integration tests
+// ============================================================
+
+#[test]
+fn compile_gre_tunnel_rules() {
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["compile", "rules/examples/gre_tunnel.yaml"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile gre_tunnel failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Compilation complete"));
+}
+
+#[test]
+fn validate_gre_tunnel_rules() {
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["validate", "rules/examples/gre_tunnel.yaml"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "validate gre_tunnel failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("5 rules"));
+}
+
+#[test]
+fn validate_gre_key_requires_protocol() {
+    let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: bad_gre
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 47
+        gre_key: 12345
+      action: pass
+"#;
+    let tmp = std::env::temp_dir().join("bad_gre_key.yaml");
+    std::fs::write(&tmp, yaml).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["validate", tmp.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("gre_key requires gre_protocol"), "Expected gre_key validation error: {}", stderr);
+}
+
+#[test]
+fn simulate_gre_keyed_match() {
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["simulate", "rules/examples/gre_tunnel.yaml", "--packet",
+            "ethertype=0x0800,ip_protocol=47,gre_protocol=0x0800,gre_key=1000"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("gre_ipv4_keyed"), "Should match gre_ipv4_keyed: {}", stdout);
+    assert!(stdout.contains("PASS"));
+}
+
+#[test]
+fn simulate_gre_protocol_only_match() {
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["simulate", "rules/examples/gre_tunnel.yaml", "--packet",
+            "ethertype=0x0800,ip_protocol=47,gre_protocol=25944"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("gre_transparent_bridge"), "Should match transparent bridge: {}", stdout);
+    assert!(stdout.contains("PASS"));
+}
+
+#[test]
+fn simulate_gre_drop_unknown() {
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["simulate", "rules/examples/gre_tunnel.yaml", "--packet",
+            "ethertype=0x0800,ip_protocol=47,gre_protocol=0x0800,gre_key=9999"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // gre_key=9999 doesn't match keyed rules (key 1000/2000), but gre_any (priority 70) drops all GRE
+    assert!(stdout.contains("DROP"), "Should drop unknown GRE key: {}", stdout);
+}
+
+#[test]
+fn simulate_gre_json_output() {
+    let output = Command::new(env!("CARGO_BIN_EXE_pacgate"))
+        .args(["simulate", "rules/examples/gre_tunnel.yaml", "--packet",
+            "ethertype=0x0800,ip_protocol=47,gre_protocol=0x0800,gre_key=1000", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["action"], "pass");
+    assert_eq!(json["matched_rule"], "gre_ipv4_keyed");
+}

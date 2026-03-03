@@ -185,6 +185,11 @@ fn validate_match_criteria(mc: &crate::model::MatchCriteria, rule_name: &str) ->
         }
     }
 
+    // GRE tunnel validation: gre_key requires gre_protocol
+    if mc.gre_key.is_some() && mc.gre_protocol.is_none() {
+        anyhow::bail!("gre_key requires gre_protocol in rule '{}'", rule_name);
+    }
+
     Ok(())
 }
 
@@ -572,6 +577,7 @@ pub fn check_rule_overlaps(rules: &[crate::model::StatelessRule]) -> Vec<String>
             && !mc.uses_byte_match()
             && !mc.uses_gtp() && !mc.uses_mpls() && !mc.uses_multicast()
             && !mc.uses_dscp_ecn() && !mc.uses_ipv6_tc() && !mc.uses_tcp_flags() && !mc.uses_icmp()
+            && !mc.uses_gre()
         {
             warnings.push(format!(
                 "rule '{}' (priority {}) has no match criteria — matches ALL packets",
@@ -948,6 +954,20 @@ pub fn criteria_shadows(a: &crate::model::MatchCriteria, b: &crate::model::Match
         }
     }
 
+    // GRE tunnel
+    if let Some(a_proto) = a.gre_protocol {
+        match b.gre_protocol {
+            Some(b_proto) if a_proto == b_proto => {},
+            _ => return false,
+        }
+    }
+    if let Some(a_key) = a.gre_key {
+        match b.gre_key {
+            Some(b_key) if a_key == b_key => {},
+            _ => return false,
+        }
+    }
+
     true
 }
 
@@ -1121,6 +1141,14 @@ fn criteria_overlaps(a: &crate::model::MatchCriteria, b: &crate::model::MatchCri
     }
     if let (Some(a_off), Some(b_off)) = (a.ip_frag_offset, b.ip_frag_offset) {
         if a_off != b_off { return false; }
+    }
+
+    // GRE tunnel overlap checks
+    if let (Some(a_proto), Some(b_proto)) = (a.gre_protocol, b.gre_protocol) {
+        if a_proto != b_proto { return false; }
+    }
+    if let (Some(a_key), Some(b_key)) = (a.gre_key, b.gre_key) {
+        if a_key != b_key { return false; }
     }
 
     true
@@ -2041,6 +2069,36 @@ pacgate:
     fn accept_valid_port_rewrite() {
         let yaml = valid_yaml(
             "    - name: nat\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n        ip_protocol: 6\n        dst_port: 80\n      action: pass\n      rewrite:\n        set_dst_port: 8080\n        set_src_port: 4000",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_ok());
+    }
+
+    // --- GRE tunnel validation ---
+
+    #[test]
+    fn accept_valid_gre() {
+        let yaml = valid_yaml(
+            "    - name: gre\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n        ip_protocol: 47\n        gre_protocol: 2048\n        gre_key: 12345\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn reject_gre_key_without_protocol() {
+        let yaml = valid_yaml(
+            "    - name: bad\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n        ip_protocol: 47\n        gre_key: 12345\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("gre_key requires gre_protocol"));
+    }
+
+    #[test]
+    fn accept_gre_protocol_only() {
+        let yaml = valid_yaml(
+            "    - name: gre\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n        ip_protocol: 47\n        gre_protocol: 2048\n      action: pass",
         );
         let result = load_rules_from_str(&yaml);
         assert!(result.is_ok());

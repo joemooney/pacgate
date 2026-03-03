@@ -145,6 +145,11 @@ module packet_filter_top (
     wire [7:0]  ipv6_hop_limit;
     wire [19:0] ipv6_flow_label;
 
+    // Frame parser outputs — GRE tunnel
+    wire [15:0] gre_protocol;
+    wire [31:0] gre_key;
+    wire        gre_valid;
+
     wire        fields_valid;
 
     frame_parser u_parser (
@@ -212,6 +217,9 @@ module packet_filter_top (
         .arp_valid    (arp_valid),
         .ipv6_hop_limit  (ipv6_hop_limit),
         .ipv6_flow_label (ipv6_flow_label),
+        .gre_protocol    (gre_protocol),
+        .gre_key         (gre_key),
+        .gre_valid       (gre_valid),
         .fields_valid (fields_valid)
     );
 
@@ -310,6 +318,10 @@ module packet_filter_top (
         .ip_dont_fragment  (ip_dont_fragment),
         .ip_more_fragments (ip_more_fragments),
         .ip_frag_offset    (ip_frag_offset),
+{% endif %}
+{% if has_gre %}
+        .gre_protocol      (gre_protocol),
+        .gre_key           (gre_key),
 {% endif %}
 {% if has_byte_capture %}
 {% for cap in byte_captures %}

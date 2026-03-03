@@ -191,6 +191,15 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
             tc.insert("ip_frag_offset".to_string(), offset.to_string());
             tc.insert("has_ip_frag".to_string(), "true".to_string());
         }
+        // GRE tunnel fields
+        if let Some(proto) = rule.match_criteria.gre_protocol {
+            tc.insert("gre_protocol".to_string(), format!("0x{:04X}", proto));
+            tc.insert("has_gre".to_string(), "true".to_string());
+        }
+        if let Some(key) = rule.match_criteria.gre_key {
+            tc.insert("gre_key".to_string(), key.to_string());
+            tc.insert("has_gre".to_string(), "true".to_string());
+        }
         test_cases.push(tc);
     }
 
@@ -426,6 +435,13 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         if let Some(fl) = rule.match_criteria.ipv6_flow_label {
             sr.insert("ipv6_flow_label".to_string(), fl.to_string());
         }
+        // GRE tunnel scoreboard fields
+        if let Some(proto) = rule.match_criteria.gre_protocol {
+            sr.insert("gre_protocol".to_string(), format!("0x{:04X}", proto));
+        }
+        if let Some(key) = rule.match_criteria.gre_key {
+            sr.insert("gre_key".to_string(), key.to_string());
+        }
         scoreboard_rules.push(sr);
     }
 
@@ -460,6 +476,7 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         ctx.insert("has_ipv6_ext_rules", &rules.iter().any(|r| r.match_criteria.uses_ipv6_ext()));
         ctx.insert("has_qinq_rules", &rules.iter().any(|r| r.match_criteria.uses_qinq()));
         ctx.insert("has_ip_frag_rules", &rules.iter().any(|r| r.match_criteria.uses_ip_frag()));
+        ctx.insert("has_gre_rules", &rules.iter().any(|r| r.match_criteria.uses_gre()));
 
         let rendered = tera.render("test_properties.py.tera", &ctx)?;
         std::fs::write(tb_dir.join("test_properties.py"), &rendered)?;

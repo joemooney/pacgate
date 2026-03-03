@@ -46,6 +46,8 @@ pub struct SimPacket {
     pub ip_dont_fragment: Option<bool>,
     pub ip_more_fragments: Option<bool>,
     pub ip_frag_offset: Option<u16>,
+    pub gre_protocol: Option<u16>,
+    pub gre_key: Option<u32>,
 }
 
 /// Rewrite actions that would be applied to a passed packet
@@ -266,6 +268,19 @@ pub fn parse_packet_spec(spec: &str) -> Result<SimPacket> {
                 let v: u16 = value.parse().map_err(|e| anyhow::anyhow!("Bad ip_frag_offset '{}': {}", value, e))?;
                 if v > 8191 { bail!("ip_frag_offset must be 0-8191, got {}", v); }
                 pkt.ip_frag_offset = Some(v);
+            }
+            "gre_protocol" => {
+                let v = if value.starts_with("0x") || value.starts_with("0X") {
+                    u16::from_str_radix(value.trim_start_matches("0x").trim_start_matches("0X"), 16)
+                        .map_err(|e| anyhow::anyhow!("Bad gre_protocol '{}': {}", value, e))?
+                } else {
+                    value.parse().map_err(|e| anyhow::anyhow!("Bad gre_protocol '{}': {}", value, e))?
+                };
+                pkt.gre_protocol = Some(v);
+            }
+            "gre_key" => {
+                let v: u32 = value.parse().map_err(|e| anyhow::anyhow!("Bad gre_key '{}': {}", value, e))?;
+                pkt.gre_key = Some(v);
             }
             _ => bail!("Unknown packet field '{}'", key),
         }
@@ -1025,6 +1040,32 @@ pub fn match_criteria_against_packet(mc: &MatchCriteria, pkt: &SimPacket) -> (bo
         fields.push(FieldMatch {
             field: "ip_frag_offset".to_string(),
             rule_value: rule_fo.to_string(),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // gre_protocol
+    if let Some(rule_proto) = mc.gre_protocol {
+        let pkt_val = pkt.gre_protocol.map(|v| format!("0x{:04x}", v)).unwrap_or_else(|| "none".to_string());
+        let matches = pkt.gre_protocol.map(|v| v == rule_proto).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "gre_protocol".to_string(),
+            rule_value: format!("0x{:04x}", rule_proto),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // gre_key
+    if let Some(rule_key) = mc.gre_key {
+        let pkt_val = pkt.gre_key.map(|v| v.to_string()).unwrap_or_else(|| "none".to_string());
+        let matches = pkt.gre_key.map(|v| v == rule_key).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "gre_key".to_string(),
+            rule_value: rule_key.to_string(),
             packet_value: pkt_val,
             matches,
         });

@@ -50,6 +50,7 @@ struct GlobalProtocolFlags {
     has_ipv6_ext: bool,
     has_qinq: bool,
     has_ip_frag: bool,
+    has_gre: bool,
 }
 
 fn build_condition_expr(mc: &crate::model::MatchCriteria) -> Result<String> {
@@ -279,6 +280,14 @@ fn build_condition_expr(mc: &crate::model::MatchCriteria) -> Result<String> {
         conditions.push(format!("(ip_frag_offset == 13'd{})", offset));
     }
 
+    // GRE tunnel
+    if let Some(proto) = mc.gre_protocol {
+        conditions.push(format!("(gre_protocol == 16'h{:04x})", proto));
+    }
+    if let Some(key) = mc.gre_key {
+        conditions.push(format!("(gre_key == 32'd{})", key));
+    }
+
     // Byte-offset matching
     if let Some(ref byte_matches) = mc.byte_match {
         for bm in byte_matches {
@@ -399,6 +408,7 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
     let has_ipv6_ext = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_ipv6_ext());
     let has_qinq = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_qinq());
     let has_ip_frag = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_ip_frag());
+    let has_gre = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_gre());
 
     // Global protocol flags — all rules in a design must have consistent port lists
     let global_protos = GlobalProtocolFlags {
@@ -415,6 +425,7 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         has_ipv6_ext,
         has_qinq,
         has_ip_frag,
+        has_gre,
     };
 
     // Generate per-rule matchers (stateless: combinational, stateful: registered FSM)
@@ -457,6 +468,7 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         ctx.insert("has_ipv6_ext", &has_ipv6_ext);
         ctx.insert("has_qinq", &has_qinq);
         ctx.insert("has_ip_frag", &has_ip_frag);
+        ctx.insert("has_gre", &has_gre);
         ctx.insert("has_rewrite", &has_rewrite);
         ctx.insert("idx_bits", &idx_bits);
 
@@ -1049,6 +1061,7 @@ fn generate_stateless_rule(
     ctx.insert("has_ipv6_ext", &global_protos.has_ipv6_ext);
     ctx.insert("has_qinq", &global_protos.has_qinq);
     ctx.insert("has_ip_frag", &global_protos.has_ip_frag);
+    ctx.insert("has_gre", &global_protos.has_gre);
     let byte_cap_info: Vec<std::collections::HashMap<String, serde_json::Value>> = byte_offsets.iter().map(|(offset, len)| {
         let mut map = std::collections::HashMap::new();
         map.insert("offset".to_string(), serde_json::json!(offset));
@@ -1384,6 +1397,7 @@ fn generate_fsm_rule(
     ctx.insert("has_ipv6_ext", &global_protos.has_ipv6_ext);
     ctx.insert("has_qinq", &global_protos.has_qinq);
     ctx.insert("has_ip_frag", &global_protos.has_ip_frag);
+    ctx.insert("has_gre", &global_protos.has_gre);
 
     let rendered = tera.render("rule_fsm.v.tera", &ctx)
         .with_context(|| format!("Failed to render rule_fsm for rule {}", rule.name))?;

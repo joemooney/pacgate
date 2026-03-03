@@ -511,6 +511,27 @@ module packet_filter_assertions (
 {% endfor %}
 {% endif %}
 
+{% if has_gre %}
+    // ── GRE Tunnel Assertions ───────────────────────────────────────────
+    // GRE: IP protocol 47, gre_protocol (16-bit), gre_key (32-bit optional).
+
+    // GRE prerequisite: GRE rule match implies ip_protocol == 47
+{% for idx in gre_rule_indices %}
+    assert_gre_prereq_rule_{{ idx }}: assert property (@(posedge clk) disable iff (!rst_n)
+        (match_hit_{{ idx }} |-> (parsed_ip_protocol == 8'd47)))
+        else $error("ASSERT FAIL: GRE rule {{ idx }} matched but ip_protocol != 47 (GRE)");
+{% endfor %}
+
+    // Cover: GRE tunnel detected
+    cover_gre_valid: cover property (@(posedge clk) disable iff (!rst_n) gre_valid);
+
+    // Cover: each GRE rule exercised
+{% for idx in gre_rule_indices %}
+    cover_gre_rule_{{ idx }}: cover property (@(posedge clk) disable iff (!rst_n)
+        match_hit_{{ idx }});
+{% endfor %}
+{% endif %}
+
 {% if has_rewrite_rules %}
     // ── Rewrite Engine Assertions ───────────────────────────────────
     // Rewrite must only be applied when the packet is passed (not dropped).

@@ -1,0 +1,52 @@
+# gre_tunnel.yaml — GRE tunnel filtering rules
+# Match GRE-encapsulated traffic by protocol type and optional key
+#
+# GRE (Generic Routing Encapsulation, IP protocol 47) wraps inner packets.
+# Common inner protocol types: 0x0800 (IPv4), 0x86DD (IPv6), 0x6558 (transparent Ethernet bridging)
+# GRE Key is optional (K flag) and used for tunnel multiplexing.
+#
+# 5 rules: keyed IPv4 GRE, keyed IPv6 GRE, transparent bridge, any GRE, allow ARP
+
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: gre_ipv4_keyed
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 47
+        gre_protocol: 2048
+        gre_key: 1000
+      action: pass
+
+    - name: gre_ipv6_keyed
+      priority: 90
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 47
+        gre_protocol: 34525
+        gre_key: 2000
+      action: pass
+
+    - name: gre_transparent_bridge
+      priority: 80
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 47
+        gre_protocol: 25944
+      action: pass
+
+    - name: gre_any
+      priority: 70
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 47
+      action: drop
+
+    - name: allow_arp
+      priority: 50
+      match:
+        ethertype: "0x0806"
+      action: pass

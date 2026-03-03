@@ -128,6 +128,9 @@ class Rule:
     ip_dont_fragment: Optional[bool] = None
     ip_more_fragments: Optional[bool] = None
     ip_frag_offset: Optional[int] = None
+    # GRE tunnel fields
+    gre_protocol: Optional[int] = None
+    gre_key: Optional[int] = None
 
     def matches(self, frame: EthernetFrame, extracted: Optional[dict] = None) -> bool:
         """Check if this rule matches the given frame.
@@ -341,6 +344,16 @@ class Rule:
         if self.ip_frag_offset is not None:
             pkt_frag_offset = extracted.get("ip_frag_offset")
             if pkt_frag_offset is None or pkt_frag_offset != self.ip_frag_offset:
+                return False
+
+        # GRE tunnel matching
+        if self.gre_protocol is not None:
+            pkt_gre_protocol = extracted.get("gre_protocol")
+            if pkt_gre_protocol is None or pkt_gre_protocol != self.gre_protocol:
+                return False
+        if self.gre_key is not None:
+            pkt_gre_key = extracted.get("gre_key")
+            if pkt_gre_key is None or pkt_gre_key != self.gre_key:
                 return False
 
         return True

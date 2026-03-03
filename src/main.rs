@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 mod model;
 mod loader;
 mod verilog_gen;
@@ -1510,6 +1511,8 @@ fn generate_rule_documentation(
         if let Some(df) = rule.match_criteria.ip_dont_fragment { match_fields.push(format!("ip_dont_fragment: {}", df)); }
         if let Some(mf) = rule.match_criteria.ip_more_fragments { match_fields.push(format!("ip_more_fragments: {}", mf)); }
         if let Some(fo) = rule.match_criteria.ip_frag_offset { match_fields.push(format!("ip_frag_offset: {}", fo)); }
+        if let Some(gp) = rule.match_criteria.gre_protocol { match_fields.push(format!("gre_protocol: 0x{:04X}", gp)); }
+        if let Some(gk) = rule.match_criteria.gre_key { match_fields.push(format!("gre_key: {}", gk)); }
         if let Some(ref bms) = rule.match_criteria.byte_match {
             for bm in bms {
                 match_fields.push(format!("byte_match: offset={}, value={}, mask={}", bm.offset, bm.value, bm.mask.as_deref().unwrap_or("FF")));
@@ -1765,6 +1768,8 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
     let mut uses_ip_dont_fragment = 0;
     let mut uses_ip_more_fragments = 0;
     let mut uses_ip_frag_offset = 0;
+    let mut uses_gre_protocol = 0;
+    let mut uses_gre_key = 0;
     let mut match_field_count = Vec::new();
 
     for rule in rules.iter().filter(|r| !r.is_stateful()) {
@@ -1806,6 +1811,8 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
         if mc.ip_dont_fragment.is_some() { uses_ip_dont_fragment += 1; count += 1; }
         if mc.ip_more_fragments.is_some() { uses_ip_more_fragments += 1; count += 1; }
         if mc.ip_frag_offset.is_some() { uses_ip_frag_offset += 1; count += 1; }
+        if mc.gre_protocol.is_some() { uses_gre_protocol += 1; count += 1; }
+        if mc.gre_key.is_some() { uses_gre_key += 1; count += 1; }
         match_field_count.push(count);
     }
 
@@ -1866,6 +1873,8 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
             "ip_dont_fragment": uses_ip_dont_fragment,
             "ip_more_fragments": uses_ip_more_fragments,
             "ip_frag_offset": uses_ip_frag_offset,
+            "gre_protocol": uses_gre_protocol,
+            "gre_key": uses_gre_key,
         },
         "match_complexity": {
             "avg_fields_per_rule": format!("{:.1}", avg_fields),
@@ -1915,6 +1924,8 @@ fn print_stats(config: &model::FilterConfig) {
     let mut uses_outer_vlan_id = 0usize;
     let mut uses_ip_dont_fragment = 0usize;
     let mut uses_ip_frag_offset = 0usize;
+    let mut uses_gre_protocol = 0usize;
+    let mut uses_gre_key = 0usize;
 
     for rule in rules.iter().filter(|r| !r.is_stateful()) {
         let mc = &rule.match_criteria;
@@ -1939,6 +1950,8 @@ fn print_stats(config: &model::FilterConfig) {
         if mc.outer_vlan_id.is_some() { uses_outer_vlan_id += 1; }
         if mc.ip_dont_fragment.is_some() { uses_ip_dont_fragment += 1; }
         if mc.ip_frag_offset.is_some() { uses_ip_frag_offset += 1; }
+        if mc.gre_protocol.is_some() { uses_gre_protocol += 1; }
+        if mc.gre_key.is_some() { uses_gre_key += 1; }
     }
 
     // Priority spacing
@@ -2009,6 +2022,12 @@ fn print_stats(config: &model::FilterConfig) {
         }
         if uses_ip_frag_offset > 0 {
             println!("  ip_frag_off  [{:>2}/{}] |{}|", uses_ip_frag_offset, stateless, bar(uses_ip_frag_offset));
+        }
+        if uses_gre_protocol > 0 {
+            println!("  gre_protocol [{:>2}/{}] |{}|", uses_gre_protocol, stateless, bar(uses_gre_protocol));
+        }
+        if uses_gre_key > 0 {
+            println!("  gre_key      [{:>2}/{}] |{}|", uses_gre_key, stateless, bar(uses_gre_key));
         }
     }
     println!();
@@ -2091,6 +2110,8 @@ fn print_dot_graph(config: &model::FilterConfig) {
             if let Some(df) = mc.ip_dont_fragment { criteria.push(format!("ip_dont_fragment={}", df)); }
             if let Some(mf) = mc.ip_more_fragments { criteria.push(format!("ip_more_fragments={}", mf)); }
             if let Some(fo) = mc.ip_frag_offset { criteria.push(format!("ip_frag_offset={}", fo)); }
+            if let Some(gp) = mc.gre_protocol { criteria.push(format!("gre_protocol=0x{:04X}", gp)); }
+            if let Some(gk) = mc.gre_key { criteria.push(format!("gre_key={}", gk)); }
         } else {
             criteria.push("(FSM states)".to_string());
         }
@@ -2318,6 +2339,14 @@ fn diff_rules(old: &model::FilterConfig, new: &model::FilterConfig, json: bool) 
                     changes.push(format!("ip_frag_offset: {:?} -> {:?}",
                         old_rule.match_criteria.ip_frag_offset, new_rule.match_criteria.ip_frag_offset));
                 }
+                if old_rule.match_criteria.gre_protocol != new_rule.match_criteria.gre_protocol {
+                    changes.push(format!("gre_protocol: {:?} -> {:?}",
+                        old_rule.match_criteria.gre_protocol, new_rule.match_criteria.gre_protocol));
+                }
+                if old_rule.match_criteria.gre_key != new_rule.match_criteria.gre_key {
+                    changes.push(format!("gre_key: {:?} -> {:?}",
+                        old_rule.match_criteria.gre_key, new_rule.match_criteria.gre_key));
+                }
                 if old_rule.is_stateful() != new_rule.is_stateful() {
                     changes.push(format!("type: {} -> {}",
                         if old_rule.is_stateful() { "stateful" } else { "stateless" },
@@ -2473,6 +2502,8 @@ fn generate_diff_html(
         if let Some(df) = mc.ip_dont_fragment { parts.push(format!("ip_dont_fragment={}", df)); }
         if let Some(mf) = mc.ip_more_fragments { parts.push(format!("ip_more_fragments={}", mf)); }
         if let Some(fo) = mc.ip_frag_offset { parts.push(format!("ip_frag_offset={}", fo)); }
+        if let Some(gp) = mc.gre_protocol { parts.push(format!("gre_protocol=0x{:04X}", gp)); }
+        if let Some(gk) = mc.gre_key { parts.push(format!("gre_key={}", gk)); }
         if parts.is_empty() { "any".to_string() } else { parts.join(", ") }
     };
 
@@ -2784,6 +2815,20 @@ fn generate_diff_html(
                         "new_value": format!("{:?}", new_rule.match_criteria.ip_frag_offset),
                     }));
                 }
+                if old_rule.match_criteria.gre_protocol != new_rule.match_criteria.gre_protocol {
+                    changes.push(serde_json::json!({
+                        "field": "gre_protocol",
+                        "old_value": format!("{:?}", old_rule.match_criteria.gre_protocol),
+                        "new_value": format!("{:?}", new_rule.match_criteria.gre_protocol),
+                    }));
+                }
+                if old_rule.match_criteria.gre_key != new_rule.match_criteria.gre_key {
+                    changes.push(serde_json::json!({
+                        "field": "gre_key",
+                        "old_value": format!("{:?}", old_rule.match_criteria.gre_key),
+                        "new_value": format!("{:?}", new_rule.match_criteria.gre_key),
+                    }));
+                }
 
                 if changes.is_empty() {
                     unchanged_count += 1;
@@ -2941,6 +2986,8 @@ fn compute_resource_estimate(config: &model::FilterConfig) -> serde_json::Value 
             if mc.ip_dont_fragment.is_some() { fields += 1; } // 1-bit comparator
             if mc.ip_more_fragments.is_some() { fields += 1; } // 1-bit comparator
             if mc.ip_frag_offset.is_some() { fields += 1; }   // 13-bit comparator
+            if mc.gre_protocol.is_some() { fields += 1; }     // 16-bit comparator
+            if mc.gre_key.is_some() { fields += 2; }          // 32-bit comparator
             rule_luts += 10 + fields * 12;
         }
     }
@@ -3071,6 +3118,8 @@ fn print_resource_estimate(config: &model::FilterConfig) {
             if mc.ip_dont_fragment.is_some() { fields += 1; }
             if mc.ip_more_fragments.is_some() { fields += 1; }
             if mc.ip_frag_offset.is_some() { fields += 1; }
+            if mc.gre_protocol.is_some() { fields += 1; }
+            if mc.gre_key.is_some() { fields += 2; }
             rule_luts += 10 + fields * 12;
         }
     }
@@ -3787,6 +3836,21 @@ fn lint_rules(config: &model::FilterConfig, warnings: &[String], dynamic: bool, 
                     "suggestion": "No action needed — L4 checksum is automatically updated by the rewrite engine"
                 }));
                 break; // Only report once
+            }
+        }
+    }
+
+    // LINT033: GRE fields without ip_protocol=47
+    for rule in &config.pacgate.rules {
+        if rule.match_criteria.uses_gre() {
+            let has_gre_proto = rule.match_criteria.ip_protocol == Some(47);
+            if !has_gre_proto {
+                findings.push(serde_json::json!({
+                    "level": "warning",
+                    "code": "LINT033",
+                    "message": format!("Rule '{}' uses gre_protocol/gre_key without ip_protocol: 47 — GRE requires IP protocol 47", rule.name),
+                    "suggestion": "Add 'ip_protocol: 47' to ensure GRE matching only applies to GRE-encapsulated packets"
+                }));
             }
         }
     }

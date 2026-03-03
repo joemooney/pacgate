@@ -28,6 +28,7 @@
 // Handles MPLS label stack parsing (EtherType 0x8847/0x8848)
 // Handles IGMP (IPv4 protocol 2) and MLD (ICMPv6 type 130-132)
 // Handles ARP header parsing (EtherType 0x0806)
+// Handles GRE tunnel detection (IP protocol 47) with optional key
 //
 // Interface: simple byte-stream (not AXI-Stream)
 //   pkt_data[7:0], pkt_valid, pkt_sof, pkt_eof — input
@@ -137,6 +138,11 @@ module frame_parser (
     output reg  [7:0]  ipv6_hop_limit,  // IPv6 hop limit (byte 7)
     output reg  [19:0] ipv6_flow_label, // IPv6 flow label (bytes 1-3, lower 20 bits)
 
+    // GRE tunnel fields (IP protocol 47)
+    output reg  [15:0] gre_protocol,    // GRE Protocol Type (bytes 2-3)
+    output reg  [31:0] gre_key,         // GRE Key (bytes 4-7, if K flag set)
+    output reg         gre_valid,       // frame has GRE header
+
     output reg         fields_valid // pulse: all header fields extracted
 );
 
@@ -159,11 +165,13 @@ module frame_parser (
     localparam S_ICMPV6_HDR = 5'd15; // ICMPv6 type + code (MLD backward compat)
     localparam S_ARP_HDR    = 5'd16; // ARP header (28 bytes)
     localparam S_OUTER_VLAN = 5'd17; // QinQ outer VLAN (802.1ad)
+    localparam S_GRE_HDR    = 5'd18; // GRE header (4-8 bytes)
 
     reg [4:0] state;
     reg [5:0] byte_cnt;  // counts bytes within current state (up to 39 for IPv6)
     reg [3:0] ipv6_tc_hi; // stores upper 4 bits of IPv6 Traffic Class (from byte 0)
     reg [10:0] frame_byte_cnt;  // absolute byte counter from SOF
+    reg        gre_key_present; // GRE K flag (bit 2 of flags byte 0)
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -202,6 +210,10 @@ module frame_parser (
             vxlan_valid  <= 1'b0;
             gtp_teid     <= 32'd0;
             gtp_valid    <= 1'b0;
+            gre_protocol <= 16'd0;
+            gre_key      <= 32'd0;
+            gre_valid    <= 1'b0;
+            gre_key_present <= 1'b0;
             mpls_label   <= 20'd0;
             mpls_tc      <= 3'd0;
             mpls_bos     <= 1'b0;
@@ -297,6 +309,10 @@ module frame_parser (
                 arp_valid   <= 1'b0;
                 ipv6_hop_limit  <= 8'd0;
                 ipv6_flow_label <= 20'd0;
+                gre_protocol    <= 16'd0;
+                gre_key         <= 32'd0;
+                gre_valid       <= 1'b0;
+                gre_key_present <= 1'b0;
             end else if (pkt_valid) begin
                 // Increment absolute byte counter
                 frame_byte_cnt <= frame_byte_cnt + 11'd1;
@@ -520,6 +536,11 @@ module frame_parser (
                                 // Check for IGMP (protocol 2)
                                 else if (ip_protocol == 8'd2) begin
                                     state    <= S_IGMP_HDR;
+                                    byte_cnt <= 6'd0;
+                                end
+                                // Check for GRE (protocol 47)
+                                else if (ip_protocol == 8'd47) begin
+                                    state    <= S_GRE_HDR;
                                     byte_cnt <= 6'd0;
                                 end else begin
                                     state        <= S_PAYLOAD;
@@ -836,6 +857,60 @@ module frame_parser (
 
                         if (byte_cnt != 6'd27) begin
                             byte_cnt <= byte_cnt + 6'd1;
+                        end
+                    end
+
+                    S_GRE_HDR: begin
+                        // GRE header: minimum 4 bytes (flags + protocol type)
+                        // If K flag set (bit 2 of byte 0): 4 more bytes for key
+                        // Byte 0: flags [C|R|K|S|s|Recur|A|Flags]
+                        // Byte 1: flags continued [Ver]
+                        // Bytes 2-3: Protocol Type
+                        // Bytes 4-7: Key (if K flag set)
+                        case (byte_cnt)
+                            6'd0: begin
+                                gre_key_present <= pkt_data[5]; // K flag is bit 2 of GRE flags (bit 5 in byte 0 of RFC 2784 encoding: C=7,R=6,K=5,S=4)
+                                byte_cnt <= 6'd1;
+                            end
+                            6'd1: begin
+                                byte_cnt <= 6'd2;
+                            end
+                            6'd2: begin
+                                gre_protocol[15:8] <= pkt_data;
+                                byte_cnt <= 6'd3;
+                            end
+                            6'd3: begin
+                                gre_protocol[7:0] <= pkt_data;
+                                gre_valid <= 1'b1;
+                                if (gre_key_present) begin
+                                    byte_cnt <= 6'd4;
+                                end else begin
+                                    state        <= S_PAYLOAD;
+                                    fields_valid <= 1'b1;
+                                end
+                            end
+                            6'd4: begin
+                                gre_key[31:24] <= pkt_data;
+                                byte_cnt <= 6'd5;
+                            end
+                            6'd5: begin
+                                gre_key[23:16] <= pkt_data;
+                                byte_cnt <= 6'd6;
+                            end
+                            6'd6: begin
+                                gre_key[15:8] <= pkt_data;
+                                byte_cnt <= 6'd7;
+                            end
+                            6'd7: begin
+                                gre_key[7:0] <= pkt_data;
+                                state        <= S_PAYLOAD;
+                                fields_valid <= 1'b1;
+                            end
+                            default: ;
+                        endcase
+
+                        if (byte_cnt != 6'd3 && byte_cnt != 6'd7 && !gre_key_present) begin
+                            // handled in case above
                         end
                     end
 

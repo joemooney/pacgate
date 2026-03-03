@@ -346,6 +346,21 @@ pub fn generate_mutations(config: &FilterConfig) -> Vec<(Mutation, FilterConfig)
         }
     }
 
+    // Mutation 23: Remove gre_protocol (also removes gre_key)
+    for (i, rule) in config.pacgate.rules.iter().enumerate() {
+        if !rule.is_stateful() && rule.match_criteria.gre_protocol.is_some() {
+            let mut mutated = config.clone();
+            mutated.pacgate.rules[i].match_criteria.gre_protocol = None;
+            mutated.pacgate.rules[i].match_criteria.gre_key = None;
+            mutations.push((Mutation {
+                name: format!("remove_gre_protocol_{}", rule.name),
+                description: format!("Remove gre_protocol match from rule '{}'", rule.name),
+                mutant_index: index,
+            }, mutated));
+            index += 1;
+        }
+    }
+
     // Mutation 22: Remove set_src_port from rewrite actions
     for (i, rule) in config.pacgate.rules.iter().enumerate() {
         if !rule.is_stateful() {
@@ -1017,6 +1032,34 @@ mod tests {
         assert!(rm.1.pacgate.rules[0].match_criteria.ip_frag_offset.is_none());
         assert!(rm.1.pacgate.rules[0].match_criteria.ip_dont_fragment.is_none());
         assert!(rm.1.pacgate.rules[0].match_criteria.ip_more_fragments.is_none());
+    }
+
+    #[test]
+    fn remove_gre_protocol_mutation() {
+        let config = FilterConfig {
+            pacgate: PacgateConfig {
+                version: "1.0".to_string(),
+                defaults: Defaults { action: Action::Drop },
+                rules: vec![
+                    StatelessRule {
+                        name: "gre_rule".to_string(),
+                        priority: 100,
+                        match_criteria: MatchCriteria {
+                            gre_protocol: Some(0x0800),
+                            gre_key: Some(12345),
+                            ..Default::default()
+                        },
+                        action: Some(Action::Pass),
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
+                    },
+                ],
+                conntrack: None,
+            },
+        };
+        let mutations = generate_mutations(&config);
+        let rm = mutations.iter().find(|(m, _)| m.name.starts_with("remove_gre_protocol_")).unwrap();
+        assert!(rm.1.pacgate.rules[0].match_criteria.gre_protocol.is_none());
+        assert!(rm.1.pacgate.rules[0].match_criteria.gre_key.is_none());
     }
 
     #[test]

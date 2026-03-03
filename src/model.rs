@@ -94,6 +94,11 @@ pub struct MatchCriteria {
     pub ip_more_fragments: Option<bool>,  // MF flag
     #[serde(default)]
     pub ip_frag_offset: Option<u16>,      // 13-bit fragment offset (0-8191)
+    // GRE tunnel fields (IP protocol 47)
+    #[serde(default)]
+    pub gre_protocol: Option<u16>,        // GRE Protocol Type (e.g., 0x0800, 0x86DD, 0x6558)
+    #[serde(default)]
+    pub gre_key: Option<u32>,             // GRE Key (32-bit, present when K flag set)
     // Byte-offset matching
     #[serde(default)]
     pub byte_match: Option<Vec<ByteMatch>>,
@@ -356,6 +361,11 @@ impl MatchCriteria {
     /// Returns true if this criteria uses IPv4 fragmentation fields
     pub fn uses_ip_frag(&self) -> bool {
         self.ip_dont_fragment.is_some() || self.ip_more_fragments.is_some() || self.ip_frag_offset.is_some()
+    }
+
+    /// Returns true if this criteria uses GRE tunnel fields
+    pub fn uses_gre(&self) -> bool {
+        self.gre_protocol.is_some() || self.gre_key.is_some()
     }
 }
 
@@ -1809,5 +1819,49 @@ pacgate:
         let rw = config.pacgate.rules[2].rewrite.as_ref().unwrap();
         assert_eq!(rw.set_dst_port, Some(8080));
         assert_eq!(rw.set_src_port, Some(4000));
+    }
+
+    // --- GRE tunnel helpers ---
+
+    #[test]
+    fn uses_gre_true_protocol() {
+        let mc = MatchCriteria { gre_protocol: Some(0x0800), ..Default::default() };
+        assert!(mc.uses_gre());
+    }
+
+    #[test]
+    fn uses_gre_true_key() {
+        let mc = MatchCriteria { gre_key: Some(12345), ..Default::default() };
+        assert!(mc.uses_gre());
+    }
+
+    #[test]
+    fn uses_gre_false() {
+        let mc = MatchCriteria::default();
+        assert!(!mc.uses_gre());
+    }
+
+    #[test]
+    fn deserialize_gre_rule() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: gre_tunnel
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 47
+        gre_protocol: 2048
+        gre_key: 99999
+      action: pass
+"#;
+        let config: FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let rule = &config.pacgate.rules[0];
+        assert_eq!(rule.match_criteria.gre_protocol, Some(2048));
+        assert_eq!(rule.match_criteria.gre_key, Some(99999));
+        assert_eq!(rule.match_criteria.ip_protocol, Some(47));
     }
 }

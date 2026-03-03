@@ -67,6 +67,10 @@ module rule_match_{{ rule_index }} (
     input  wire        ip_more_fragments,
     input  wire [12:0] ip_frag_offset,
 {% endif %}
+{% if has_gre %}
+    input  wire [15:0] gre_protocol,
+    input  wire [31:0] gre_key,
+{% endif %}
 {% if has_byte_capture %}
 {% for cap in byte_captures %}
     input  wire [{{ cap.bit_width - 1 }}:0] byte_cap_{{ cap.offset }},
