@@ -16,6 +16,7 @@
 //           arp_opcode, arp_spa, arp_tpa (ARP header fields)
 //           oam_level, oam_opcode (IEEE 802.1ag CFM OAM fields)
 //           nsh_spi, nsh_si, nsh_next_protocol (NSH RFC 8300)
+//           geneve_vni (Geneve Virtual Network Identifier, RFC 8926)
 //           l4_port_offset (absolute byte position of L4 src_port MSB)
 // Handles 802.1Q VLAN-tagged frames (EtherType 0x8100)
 // Handles 802.1ad QinQ double-tagged frames (EtherType 0x88A8 / 0x9100)
@@ -32,6 +33,7 @@
 // Handles ARP header parsing (EtherType 0x0806)
 // Handles OAM/CFM parsing (EtherType 0x8902, IEEE 802.1ag)
 // Handles NSH parsing (EtherType 0x894F, RFC 8300)
+// Handles Geneve tunnel detection (UDP dst port 6081, RFC 8926)
 // Handles GRE tunnel detection (IP protocol 47) with optional key
 //
 // Interface: simple byte-stream (not AXI-Stream)
@@ -158,6 +160,10 @@ module frame_parser (
     output reg  [7:0]  nsh_next_protocol, // Next Protocol (byte 2: 1=IPv4, 2=IPv6, 3=Ethernet)
     output reg         nsh_valid,        // NSH fields extracted
 
+    // Geneve fields (RFC 8926, UDP dst port 6081)
+    output reg  [23:0] geneve_vni,       // Virtual Network Identifier (bytes 4-6)
+    output reg         geneve_valid,     // Geneve fields extracted
+
     output reg         fields_valid // pulse: all header fields extracted
 );
 
@@ -183,6 +189,7 @@ module frame_parser (
     localparam S_GRE_HDR    = 5'd18; // GRE header (4-8 bytes)
     localparam S_OAM_HDR    = 5'd19; // OAM/CFM header (EtherType 0x8902)
     localparam S_NSH_HDR    = 5'd20; // NSH header (EtherType 0x894F, RFC 8300)
+    localparam S_GENEVE_HDR = 5'd21; // Geneve header (UDP dst port 6081, RFC 8926)
 
     reg [4:0] state;
     reg [5:0] byte_cnt;  // counts bytes within current state (up to 39 for IPv6)
@@ -238,6 +245,8 @@ module frame_parser (
             nsh_si           <= 8'd0;
             nsh_next_protocol <= 8'd0;
             nsh_valid        <= 1'b0;
+            geneve_vni       <= 24'd0;
+            geneve_valid     <= 1'b0;
             mpls_label   <= 20'd0;
             mpls_tc      <= 3'd0;
             mpls_bos     <= 1'b0;
@@ -344,6 +353,8 @@ module frame_parser (
                 nsh_si           <= 8'd0;
                 nsh_next_protocol <= 8'd0;
                 nsh_valid        <= 1'b0;
+                geneve_vni       <= 24'd0;
+                geneve_valid     <= 1'b0;
             end else if (pkt_valid) begin
                 // Increment absolute byte counter
                 frame_byte_cnt <= frame_byte_cnt + 11'd1;
@@ -640,7 +651,13 @@ module frame_parser (
                                     state    <= S_GTP_HDR;
                                     byte_cnt <= 6'd0;
                                 end
-                                // UDP (not VXLAN/GTP): done
+                                // Check for Geneve: UDP + dst port 6081 (0x17C1)
+                                else if (ip_protocol == 8'd17 &&
+                                         dst_port[15:8] == 8'h17 && pkt_data == 8'hC1) begin
+                                    state    <= S_GENEVE_HDR;
+                                    byte_cnt <= 6'd0;
+                                end
+                                // UDP (not VXLAN/GTP/Geneve): done
                                 else if (ip_protocol == 8'd17) begin
                                     state        <= S_PAYLOAD;
                                     fields_valid <= 1'b1;
@@ -1043,6 +1060,39 @@ module frame_parser (
                                 fields_valid <= 1'b1;
                             end
                             default: ;
+                        endcase
+                    end
+
+                    S_GENEVE_HDR: begin
+                        // Geneve header (RFC 8926, UDP dst port 6081):
+                        // 8-byte fixed header:
+                        //   Byte 0: Version[7:6] + OptLen[5:0]
+                        //   Byte 1: O[7] + C[6] + Reserved[5:0]
+                        //   Byte 2: Protocol Type[15:8]
+                        //   Byte 3: Protocol Type[7:0]
+                        //   Byte 4: VNI[23:16]
+                        //   Byte 5: VNI[15:8]
+                        //   Byte 6: VNI[7:0]
+                        //   Byte 7: Reserved
+                        case (byte_cnt)
+                            6'd4: begin
+                                geneve_vni[23:16] <= pkt_data;
+                                byte_cnt <= 6'd5;
+                            end
+                            6'd5: begin
+                                geneve_vni[15:8] <= pkt_data;
+                                byte_cnt <= 6'd6;
+                            end
+                            6'd6: begin
+                                geneve_vni[7:0] <= pkt_data;
+                                byte_cnt <= 6'd7;
+                            end
+                            6'd7: begin
+                                geneve_valid <= 1'b1;
+                                state        <= S_PAYLOAD;
+                                fields_valid <= 1'b1;
+                            end
+                            default: byte_cnt <= byte_cnt + 6'd1;
                         endcase
                     end
 

@@ -90,6 +90,7 @@ module packet_filter_axi_top #(
     // Parsed fields for rewrite
     wire        filter_vlan_valid;
     wire        filter_outer_vlan_valid;
+    wire        filter_ipv6_valid;
     wire [7:0]  filter_ip_ttl;
     wire [15:0] filter_ip_checksum;
     wire [31:0] filter_src_ip;
@@ -116,6 +117,7 @@ module packet_filter_axi_top #(
         .decision_default  (decision_default),
         .vlan_valid     (filter_vlan_valid),
         .outer_vlan_valid (filter_outer_vlan_valid),
+        .ipv6_valid     (filter_ipv6_valid),
         .ip_ttl         (filter_ip_ttl),
         .ip_checksum    (filter_ip_checksum),
         .src_ip         (filter_src_ip),
@@ -178,6 +180,10 @@ module packet_filter_axi_top #(
     wire [5:0]  rw_dscp;
     wire [15:0] rw_src_port;
     wire [15:0] rw_dst_port;
+    wire [7:0]  rw_hop_limit;
+    wire [1:0]  rw_ecn;
+    wire [2:0]  rw_vlan_pcp;
+    wire [11:0] rw_outer_vlan_id;
 
     rewrite_lut u_rewrite_lut (
         .rule_idx         (decision_rule_idx),
@@ -192,7 +198,11 @@ module packet_filter_axi_top #(
         .rewrite_dst_ip   (rw_dst_ip),
         .rewrite_dscp     (rw_dscp),
         .rewrite_src_port (rw_src_port),
-        .rewrite_dst_port (rw_dst_port)
+        .rewrite_dst_port (rw_dst_port),
+        .rewrite_hop_limit (rw_hop_limit),
+        .rewrite_ecn       (rw_ecn),
+        .rewrite_vlan_pcp  (rw_vlan_pcp),
+        .rewrite_outer_vlan_id (rw_outer_vlan_id)
     );
 
     // Packet rewrite engine: byte substitution between FIFO and output
@@ -218,6 +228,11 @@ module packet_filter_axi_top #(
         .rewrite_dscp    (rw_dscp),
         .rewrite_src_port(rw_src_port),
         .rewrite_dst_port(rw_dst_port),
+        .rewrite_hop_limit (rw_hop_limit),
+        .rewrite_ecn       (rw_ecn),
+        .is_ipv6           (filter_ipv6_valid),
+        .rewrite_vlan_pcp  (rw_vlan_pcp),
+        .rewrite_outer_vlan_id (rw_outer_vlan_id),
         .has_vlan        (filter_vlan_valid),
         .has_outer_vlan  (filter_outer_vlan_valid),
         .orig_ip_ttl     (filter_ip_ttl),

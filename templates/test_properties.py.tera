@@ -27,6 +27,8 @@ try:
         check_cidr_boundary, check_port_range_boundary, check_ipv6_cidr_match,
         check_tunnel_determinism, check_protocol_determinism,
         gtp_u_frames, mpls_frames, igmp_frames, mld_frames,
+        gre_frames, oam_frames, nsh_frames, arp_frames,
+        icmp_frames, icmpv6_frames, qinq_frames, tcp_flags_frames,
     )
     from verification.scoreboard import PacketFilterScoreboard
 except ImportError:
@@ -218,6 +220,78 @@ if HYPOTHESIS_AVAILABLE:
     @settings(max_examples=50, deadline=None)
     def test_hypothesis_mld_determinism(data):
         """MLD multicast matching is deterministic."""
+        frame, extracted = data
+        assert check_protocol_determinism(scoreboard, frame, extracted)
+{% endif %}
+
+{% if has_gre_rules %}
+    @given(data=gre_frames())
+    @settings(max_examples=50, deadline=None)
+    def test_hypothesis_gre_determinism(data):
+        """GRE tunnel matching is deterministic."""
+        frame, extracted = data
+        assert check_tunnel_determinism(scoreboard, frame, extracted)
+{% endif %}
+
+{% if has_oam_rules %}
+    @given(data=oam_frames())
+    @settings(max_examples=50, deadline=None)
+    def test_hypothesis_oam_determinism(data):
+        """OAM/CFM matching is deterministic."""
+        frame, extracted = data
+        assert check_protocol_determinism(scoreboard, frame, extracted)
+{% endif %}
+
+{% if has_nsh_rules %}
+    @given(data=nsh_frames())
+    @settings(max_examples=50, deadline=None)
+    def test_hypothesis_nsh_determinism(data):
+        """NSH/SFC matching is deterministic."""
+        frame, extracted = data
+        assert check_protocol_determinism(scoreboard, frame, extracted)
+{% endif %}
+
+{% if has_arp_rules %}
+    @given(data=arp_frames())
+    @settings(max_examples=50, deadline=None)
+    def test_hypothesis_arp_determinism(data):
+        """ARP matching is deterministic."""
+        frame, extracted = data
+        assert check_protocol_determinism(scoreboard, frame, extracted)
+{% endif %}
+
+{% if has_icmp_rules %}
+    @given(data=icmp_frames())
+    @settings(max_examples=50, deadline=None)
+    def test_hypothesis_icmp_determinism(data):
+        """ICMP matching is deterministic."""
+        frame, extracted = data
+        assert check_protocol_determinism(scoreboard, frame, extracted)
+{% endif %}
+
+{% if has_icmpv6_rules %}
+    @given(data=icmpv6_frames())
+    @settings(max_examples=50, deadline=None)
+    def test_hypothesis_icmpv6_determinism(data):
+        """ICMPv6 matching is deterministic."""
+        frame, extracted = data
+        assert check_protocol_determinism(scoreboard, frame, extracted)
+{% endif %}
+
+{% if has_qinq_rules %}
+    @given(data=qinq_frames())
+    @settings(max_examples=50, deadline=None)
+    def test_hypothesis_qinq_determinism(data):
+        """QinQ double VLAN matching is deterministic."""
+        frame, extracted = data
+        assert check_protocol_determinism(scoreboard, frame, extracted)
+{% endif %}
+
+{% if has_tcp_flags_rules %}
+    @given(data=tcp_flags_frames())
+    @settings(max_examples=50, deadline=None)
+    def test_hypothesis_tcp_flags_determinism(data):
+        """TCP flags matching is deterministic."""
         frame, extracted = data
         assert check_protocol_determinism(scoreboard, frame, extracted)
 {% endif %}

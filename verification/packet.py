@@ -553,6 +553,245 @@ class PacketFactory:
         )
 
     @staticmethod
+    def geneve(vni=1000, src_ip="10.0.0.1", dst_ip="10.0.0.2") -> EthernetFrame:
+        """Build a Geneve-encapsulated frame (UDP dst port 6081)."""
+        # IPv4 header (20 bytes) + UDP header (8 bytes) + Geneve header (8 bytes)
+        ip_hdr = bytearray(20)
+        ip_hdr[0] = 0x45  # Version 4, IHL 5
+        ip_hdr[9] = 17    # UDP protocol
+        parts = [int(x) for x in src_ip.split('.')]
+        ip_hdr[12:16] = bytes(parts)
+        parts = [int(x) for x in dst_ip.split('.')]
+        ip_hdr[16:20] = bytes(parts)
+        # UDP header: src port arbitrary, dst port 6081
+        udp_hdr = bytearray(8)
+        udp_hdr[0:2] = (12345).to_bytes(2, 'big')
+        udp_hdr[2:4] = (6081).to_bytes(2, 'big')
+        # Geneve header (8 bytes): version=0, opt_len=0, protocol=0x6558 (Ethernet)
+        geneve_hdr = bytearray(8)
+        geneve_hdr[2] = 0x65  # Protocol type 0x6558 (transparent Ethernet)
+        geneve_hdr[3] = 0x58
+        geneve_hdr[4] = (vni >> 16) & 0xFF
+        geneve_hdr[5] = (vni >> 8) & 0xFF
+        geneve_hdr[6] = vni & 0xFF
+        return EthernetFrame(
+            dst_mac=mac_to_bytes("00:11:22:33:44:55"),
+            src_mac=mac_to_bytes("66:77:88:99:aa:bb"),
+            ethertype=0x0800,
+            payload=bytes(ip_hdr) + bytes(udp_hdr) + bytes(geneve_hdr),
+        )
+
+    @staticmethod
+    def gre(protocol=0x0800, key=None, src_ip="10.0.0.1", dst_ip="10.0.0.2") -> EthernetFrame:
+        """Build a GRE-encapsulated frame (IP protocol 47)."""
+        ip_hdr = bytearray(20)
+        ip_hdr[0] = 0x45
+        ip_hdr[9] = 47  # GRE protocol
+        parts = [int(x) for x in src_ip.split('.')]
+        ip_hdr[12:16] = bytes(parts)
+        parts = [int(x) for x in dst_ip.split('.')]
+        ip_hdr[16:20] = bytes(parts)
+        # GRE header (4 or 8 bytes)
+        if key is not None:
+            gre_hdr = bytearray(8)
+            gre_hdr[0] = 0x20  # K flag set (bit 5)
+            gre_hdr[2:4] = protocol.to_bytes(2, 'big')
+            gre_hdr[4:8] = key.to_bytes(4, 'big')
+        else:
+            gre_hdr = bytearray(4)
+            gre_hdr[2:4] = protocol.to_bytes(2, 'big')
+        return EthernetFrame(
+            dst_mac=mac_to_bytes("00:11:22:33:44:55"),
+            src_mac=mac_to_bytes("66:77:88:99:aa:bb"),
+            ethertype=0x0800,
+            payload=bytes(ip_hdr) + bytes(gre_hdr),
+        )
+
+    @staticmethod
+    def icmp(icmp_type=8, icmp_code=0, src_ip="10.0.0.1", dst_ip="10.0.0.2") -> EthernetFrame:
+        """Build an ICMP packet (IPv4 protocol 1)."""
+        ip_hdr = bytearray(20)
+        ip_hdr[0] = 0x45
+        ip_hdr[9] = 1  # ICMP
+        parts = [int(x) for x in src_ip.split('.')]
+        ip_hdr[12:16] = bytes(parts)
+        parts = [int(x) for x in dst_ip.split('.')]
+        ip_hdr[16:20] = bytes(parts)
+        # ICMP header (4 bytes minimum)
+        icmp_hdr = bytearray(4)
+        icmp_hdr[0] = icmp_type
+        icmp_hdr[1] = icmp_code
+        return EthernetFrame(
+            dst_mac=mac_to_bytes("00:11:22:33:44:55"),
+            src_mac=mac_to_bytes("66:77:88:99:aa:bb"),
+            ethertype=0x0800,
+            payload=bytes(ip_hdr) + bytes(icmp_hdr),
+        )
+
+    @staticmethod
+    def icmpv6_msg(icmpv6_type=128, icmpv6_code=0) -> EthernetFrame:
+        """Build an ICMPv6 packet (IPv6 next_header 58)."""
+        # IPv6 header (40 bytes)
+        ipv6_hdr = bytearray(40)
+        ipv6_hdr[0] = 0x60  # Version 6
+        ipv6_hdr[6] = 58    # Next header: ICMPv6
+        ipv6_hdr[7] = 64    # Hop limit
+        # ICMPv6 header (4 bytes)
+        icmpv6_hdr = bytearray(4)
+        icmpv6_hdr[0] = icmpv6_type
+        icmpv6_hdr[1] = icmpv6_code
+        return EthernetFrame(
+            dst_mac=mac_to_bytes("00:11:22:33:44:55"),
+            src_mac=mac_to_bytes("66:77:88:99:aa:bb"),
+            ethertype=0x86DD,
+            payload=bytes(ipv6_hdr) + bytes(icmpv6_hdr),
+        )
+
+    @staticmethod
+    def arp_msg(opcode=1, spa="10.0.0.1", tpa="10.0.0.2") -> EthernetFrame:
+        """Build an ARP frame (EtherType 0x0806)."""
+        # ARP header (28 bytes)
+        arp_hdr = bytearray(28)
+        arp_hdr[0:2] = (1).to_bytes(2, 'big')           # Hardware type: Ethernet
+        arp_hdr[2:4] = (0x0800).to_bytes(2, 'big')      # Protocol type: IPv4
+        arp_hdr[4] = 6    # Hardware address length
+        arp_hdr[5] = 4    # Protocol address length
+        arp_hdr[6:8] = opcode.to_bytes(2, 'big')
+        spa_parts = [int(x) for x in spa.split('.')]
+        arp_hdr[14:18] = bytes(spa_parts)               # Sender protocol address
+        tpa_parts = [int(x) for x in tpa.split('.')]
+        arp_hdr[24:28] = bytes(tpa_parts)               # Target protocol address
+        return EthernetFrame(
+            dst_mac=mac_to_bytes("ff:ff:ff:ff:ff:ff"),
+            src_mac=mac_to_bytes("00:11:22:33:44:55"),
+            ethertype=0x0806,
+            payload=bytes(arp_hdr),
+        )
+
+    @staticmethod
+    def qinq(outer_vid=100, outer_pcp=5, inner_vid=200, inner_pcp=0) -> EthernetFrame:
+        """Build a QinQ (802.1ad) double-tagged frame."""
+        outer_tci = ((outer_pcp & 0x7) << 13) | (outer_vid & 0xFFF)
+        inner_tci = ((inner_pcp & 0x7) << 13) | (inner_vid & 0xFFF)
+        payload = bytearray(8)
+        payload[0:2] = outer_tci.to_bytes(2, 'big')
+        payload[2:4] = (0x8100).to_bytes(2, 'big')  # Inner tag ethertype
+        payload[4:6] = inner_tci.to_bytes(2, 'big')
+        payload[6:8] = (0x0800).to_bytes(2, 'big')  # Real ethertype
+        return EthernetFrame(
+            dst_mac=mac_to_bytes("00:11:22:33:44:55"),
+            src_mac=mac_to_bytes("66:77:88:99:aa:bb"),
+            ethertype=0x88A8,
+            payload=bytes(payload),
+        )
+
+    @staticmethod
+    def ip_frag(df=False, mf=True, frag_offset=0, src_ip="10.0.0.1", dst_ip="10.0.0.2") -> EthernetFrame:
+        """Build an IPv4 fragment."""
+        ip_hdr = bytearray(20)
+        ip_hdr[0] = 0x45
+        flags_frag = frag_offset & 0x1FFF
+        if df:
+            flags_frag |= 0x4000
+        if mf:
+            flags_frag |= 0x2000
+        ip_hdr[6:8] = flags_frag.to_bytes(2, 'big')
+        ip_hdr[9] = 17  # UDP
+        parts = [int(x) for x in src_ip.split('.')]
+        ip_hdr[12:16] = bytes(parts)
+        parts = [int(x) for x in dst_ip.split('.')]
+        ip_hdr[16:20] = bytes(parts)
+        return EthernetFrame(
+            dst_mac=mac_to_bytes("00:11:22:33:44:55"),
+            src_mac=mac_to_bytes("66:77:88:99:aa:bb"),
+            ethertype=0x0800,
+            payload=bytes(ip_hdr),
+        )
+
+    @staticmethod
+    def tcp_with_flags(flags=0x02, src_ip="10.0.0.1", dst_ip="10.0.0.2",
+                       src_port=12345, dst_port=80) -> EthernetFrame:
+        """Build a TCP packet with specific flags."""
+        ip_hdr = bytearray(20)
+        ip_hdr[0] = 0x45
+        ip_hdr[9] = 6  # TCP
+        parts = [int(x) for x in src_ip.split('.')]
+        ip_hdr[12:16] = bytes(parts)
+        parts = [int(x) for x in dst_ip.split('.')]
+        ip_hdr[16:20] = bytes(parts)
+        # TCP header (20 bytes min, flags at byte 13)
+        tcp_hdr = bytearray(20)
+        tcp_hdr[0:2] = src_port.to_bytes(2, 'big')
+        tcp_hdr[2:4] = dst_port.to_bytes(2, 'big')
+        tcp_hdr[12] = 0x50  # Data offset (5 * 4 = 20 bytes)
+        tcp_hdr[13] = flags
+        return EthernetFrame(
+            dst_mac=mac_to_bytes("00:11:22:33:44:55"),
+            src_mac=mac_to_bytes("66:77:88:99:aa:bb"),
+            ethertype=0x0800,
+            payload=bytes(ip_hdr) + bytes(tcp_hdr),
+        )
+
+    @staticmethod
+    def dscp_ecn(dscp=46, ecn=0, src_ip="10.0.0.1", dst_ip="10.0.0.2") -> EthernetFrame:
+        """Build an IPv4 packet with specific DSCP/ECN values."""
+        ip_hdr = bytearray(20)
+        ip_hdr[0] = 0x45
+        ip_hdr[1] = ((dscp & 0x3F) << 2) | (ecn & 0x3)  # TOS byte
+        ip_hdr[9] = 17  # UDP
+        parts = [int(x) for x in src_ip.split('.')]
+        ip_hdr[12:16] = bytes(parts)
+        parts = [int(x) for x in dst_ip.split('.')]
+        ip_hdr[16:20] = bytes(parts)
+        return EthernetFrame(
+            dst_mac=mac_to_bytes("00:11:22:33:44:55"),
+            src_mac=mac_to_bytes("66:77:88:99:aa:bb"),
+            ethertype=0x0800,
+            payload=bytes(ip_hdr),
+        )
+
+    @staticmethod
+    def ipv6_tc(dscp=46, ecn=0, hop_limit=64) -> EthernetFrame:
+        """Build an IPv6 packet with specific Traffic Class values."""
+        ipv6_hdr = bytearray(40)
+        tc = ((dscp & 0x3F) << 2) | (ecn & 0x3)
+        ipv6_hdr[0] = 0x60 | ((tc >> 4) & 0x0F)
+        ipv6_hdr[1] = ((tc & 0x0F) << 4)
+        ipv6_hdr[6] = 59  # No next header
+        ipv6_hdr[7] = hop_limit
+        return EthernetFrame(
+            dst_mac=mac_to_bytes("00:11:22:33:44:55"),
+            src_mac=mac_to_bytes("66:77:88:99:aa:bb"),
+            ethertype=0x86DD,
+            payload=bytes(ipv6_hdr),
+        )
+
+    @staticmethod
+    def ipv6_ext(hop_limit=64, flow_label=0) -> EthernetFrame:
+        """Build an IPv6 packet with hop_limit and flow_label."""
+        ipv6_hdr = bytearray(40)
+        ipv6_hdr[0] = 0x60 | ((flow_label >> 16) & 0x0F)
+        ipv6_hdr[1] = (flow_label >> 8) & 0xFF
+        ipv6_hdr[2] = flow_label & 0xFF
+        ipv6_hdr[6] = 59  # No next header
+        ipv6_hdr[7] = hop_limit
+        return EthernetFrame(
+            dst_mac=mac_to_bytes("00:11:22:33:44:55"),
+            src_mac=mac_to_bytes("66:77:88:99:aa:bb"),
+            ethertype=0x86DD,
+            payload=bytes(ipv6_hdr),
+        )
+
+    @staticmethod
+    def ipv4_tcp_conntrack(src_ip="10.0.0.1", dst_ip="10.0.0.2",
+                           src_port=12345, dst_port=80) -> EthernetFrame:
+        """Build an IPv4/TCP packet for conntrack state matching."""
+        return PacketFactory.tcp_with_flags(
+            flags=0x02, src_ip=src_ip, dst_ip=dst_ip,
+            src_port=src_port, dst_port=dst_port,
+        )
+
+    @staticmethod
     def runt_frame() -> EthernetFrame:
         """Frame shorter than minimum Ethernet size (corner case)."""
         return EthernetFrame(

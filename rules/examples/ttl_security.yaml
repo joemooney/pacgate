@@ -1,0 +1,47 @@
+# ttl_security.yaml — TTL-based security and runt frame detection
+# Matches IPv4 TTL values and frame length ranges for security enforcement
+#
+# Low TTL values (0-1) indicate packets that should not be forwarded (traceroute probes,
+# routing loops, or TTL-expiry attacks). Frame length checks detect runt frames and
+# oversized packets that may indicate fragmentation attacks or malformed traffic.
+#
+# 5 rules: drop TTL<=1, block runt frames, block jumbo, allow normal, allow ARP
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: drop_expired_ttl
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_ttl: 1
+      action: drop
+
+    - name: drop_zero_ttl
+      priority: 99
+      match:
+        ethertype: "0x0800"
+        ip_ttl: 0
+      action: drop
+
+    - name: block_runt_frames
+      priority: 90
+      match:
+        ethertype: "0x0800"
+        frame_len_max: 63
+      action: drop
+
+    - name: allow_normal_ipv4
+      priority: 50
+      match:
+        ethertype: "0x0800"
+        frame_len_min: 64
+        frame_len_max: 1518
+      action: pass
+
+    - name: allow_arp
+      priority: 40
+      match:
+        ethertype: "0x0806"
+      action: pass

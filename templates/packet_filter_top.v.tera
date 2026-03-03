@@ -37,6 +37,7 @@ module packet_filter_top (
     // Parsed fields for rewrite engine
     output wire        vlan_valid,
     output wire        outer_vlan_valid,
+    output wire        ipv6_valid,
     output wire [7:0]  ip_ttl,
     output wire [15:0] ip_checksum,
     output wire [31:0] src_ip,
@@ -92,7 +93,9 @@ module packet_filter_top (
     wire [127:0] src_ipv6;
     wire [127:0] dst_ipv6;
     wire [7:0]   ipv6_next_header;
+{% if not has_rewrite %}
     wire         ipv6_valid;
+{% endif %}
 
     // Frame parser outputs — L4 (TCP/UDP)
 {% if not has_rewrite %}
@@ -179,6 +182,12 @@ module packet_filter_top (
     wire        nsh_valid;
 {% endif %}
 
+{% if has_geneve %}
+    // Frame parser outputs — GENEVE tunnel
+    wire [23:0] geneve_vni;
+    wire        geneve_valid;
+{% endif %}
+
 {% if has_conntrack_state %}
     // Connection tracking state (driven by conntrack_table when --conntrack is used)
     wire        conntrack_established;
@@ -263,6 +272,10 @@ module packet_filter_top (
         .nsh_si          (nsh_si),
         .nsh_next_protocol (nsh_next_protocol),
         .nsh_valid       (nsh_valid),
+{% endif %}
+{% if has_geneve %}
+        .geneve_vni      (geneve_vni),
+        .geneve_valid    (geneve_valid),
 {% endif %}
         .fields_valid (fields_valid)
     );
@@ -377,6 +390,13 @@ module packet_filter_top (
         .nsh_si            (nsh_si),
         .nsh_next_protocol (nsh_next_protocol),
         .nsh_valid         (nsh_valid),
+{% endif %}
+{% if has_geneve %}
+        .geneve_vni        (geneve_vni),
+        .geneve_valid      (geneve_valid),
+{% endif %}
+{% if has_ip_ttl %}
+        .ip_ttl            (ip_ttl),
 {% endif %}
 {% if has_conntrack_state %}
         .conntrack_established (conntrack_established),

@@ -140,6 +140,13 @@ class Rule:
     nsh_spi: Optional[int] = None
     nsh_si: Optional[int] = None
     nsh_next_protocol: Optional[int] = None
+    # Geneve tunnel
+    geneve_vni: Optional[int] = None
+    # IP TTL exact match
+    ip_ttl: Optional[int] = None
+    # Frame length range
+    frame_len_min: Optional[int] = None
+    frame_len_max: Optional[int] = None
     # Egress port actions (informational — do not affect pass/drop matching)
     mirror_port: Optional[int] = None
     redirect_port: Optional[int] = None
@@ -397,6 +404,26 @@ class Rule:
         # Connection tracking state matching
         if self.conntrack_state is not None:
             if extracted.get('conntrack_state') != self.conntrack_state:
+                return False
+
+        # Geneve tunnel matching
+        if self.geneve_vni is not None:
+            if extracted.get('geneve_vni') != self.geneve_vni:
+                return False
+
+        # IP TTL exact match
+        if self.ip_ttl is not None:
+            if extracted.get('ip_ttl') != self.ip_ttl:
+                return False
+
+        # Frame length range matching
+        if self.frame_len_min is not None:
+            frame_len = extracted.get('frame_len', 0)
+            if frame_len < self.frame_len_min:
+                return False
+        if self.frame_len_max is not None:
+            frame_len = extracted.get('frame_len', 65535)
+            if frame_len > self.frame_len_max:
                 return False
 
         return True

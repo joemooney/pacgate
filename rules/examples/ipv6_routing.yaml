@@ -1,0 +1,55 @@
+# ipv6_routing.yaml — IPv6 routing with hop limit decrement and ECN marking
+# Demonstrates IPv6 rewrite actions: dec_hop_limit, set_hop_limit, set_ecn
+#
+# When routing IPv6 traffic, the hop limit must be decremented at each hop
+# (equivalent to IPv4 TTL). ECN (Explicit Congestion Notification) marking
+# signals congestion to endpoints without dropping packets.
+#
+# 5 rules: route with hop limit dec, set hop limit, ECN mark, drop expired, allow ARP
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: route_internal
+      priority: 100
+      match:
+        ethertype: "0x86DD"
+        dst_ipv6: "2001:db8:1::/48"
+      action: pass
+      rewrite:
+        dec_hop_limit: true
+
+    - name: route_external
+      priority: 90
+      match:
+        ethertype: "0x86DD"
+        dst_ipv6: "2001:db8:2::/48"
+      action: pass
+      rewrite:
+        dec_hop_limit: true
+        set_ecn: 1
+
+    - name: set_hop_limit_proxy
+      priority: 80
+      match:
+        ethertype: "0x86DD"
+        dst_ipv6: "2001:db8:ff::/48"
+      action: pass
+      rewrite:
+        set_hop_limit: 64
+
+    - name: ecn_congestion_mark
+      priority: 70
+      match:
+        ethertype: "0x86DD"
+        ipv6_dscp: 46
+      action: pass
+      rewrite:
+        set_ecn: 3
+
+    - name: allow_arp
+      priority: 40
+      match:
+        ethertype: "0x0806"
+      action: pass

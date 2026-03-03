@@ -226,6 +226,163 @@ if HYPOTHESIS_AVAILABLE:
         return frame, extracted
 
     @st.composite
+    def gre_frames(draw):
+        """Generate GRE frames: IPv4(proto=47) + GRE header with optional key."""
+        dst = draw(mac_addresses())
+        src = draw(mac_addresses())
+        gre_protocol = draw(st.sampled_from([0x0800, 0x86DD, 0x6558]) |
+                            st.integers(0, 0xFFFF))
+        has_key = draw(st.booleans())
+        src_ip = draw(ipv4_addresses())
+        dst_ip = draw(ipv4_addresses())
+        # IPv4 header with protocol=47
+        ip_hdr = Ipv4Header(src_addr=src_ip, dst_addr=dst_ip, protocol=47,
+                            total_length=20 + (8 if has_key else 4))
+        # GRE header (4 or 8 bytes)
+        if has_key:
+            key = draw(st.integers(0, 0xFFFFFFFF))
+            gre_hdr = struct.pack(">HH", 0x2000, gre_protocol) + struct.pack(">I", key)
+            extracted = {"ip_protocol": 47, "gre_protocol": gre_protocol, "gre_key": key}
+        else:
+            gre_hdr = struct.pack(">HH", 0x0000, gre_protocol)
+            extracted = {"ip_protocol": 47, "gre_protocol": gre_protocol}
+        payload = ip_hdr.to_bytes() + gre_hdr + bytes(20)
+        frame = EthernetFrame(dst_mac=dst, src_mac=src, ethertype=0x0800, payload=payload)
+        return frame, extracted
+
+    @st.composite
+    def oam_frames(draw):
+        """Generate IEEE 802.1ag CFM (OAM) frames."""
+        dst = draw(mac_addresses())
+        src = draw(mac_addresses())
+        oam_level = draw(st.integers(0, 7))
+        oam_opcode = draw(st.sampled_from([1, 3, 5, 35, 37, 39, 47, 48]) |
+                          st.integers(0, 255))
+        md_level_version = ((oam_level & 0x07) << 5)
+        cfm_hdr = struct.pack(">BBBB", md_level_version, oam_opcode, 0, 4)
+        payload = cfm_hdr + bytes(46)
+        frame = EthernetFrame(dst_mac=dst, src_mac=src, ethertype=0x8902, payload=payload)
+        extracted = {"oam_level": oam_level, "oam_opcode": oam_opcode}
+        return frame, extracted
+
+    @st.composite
+    def nsh_frames(draw):
+        """Generate NSH (RFC 8300) frames."""
+        dst = draw(mac_addresses())
+        src = draw(mac_addresses())
+        nsh_spi = draw(st.integers(0, 0xFFFFFF))
+        nsh_si = draw(st.integers(0, 255))
+        nsh_np = draw(st.sampled_from([1, 2, 3]) | st.integers(0, 255))
+        # NSH base header + service path header (8 bytes)
+        ver_oam_u_ttl = (63 << 6)
+        length_mdtype_np = (2 << 12) | (1 << 8) | (nsh_np & 0xFF)
+        base_hdr = struct.pack(">HH", ver_oam_u_ttl, length_mdtype_np)
+        sph = struct.pack(">I", ((nsh_spi & 0xFFFFFF) << 8) | (nsh_si & 0xFF))
+        payload = base_hdr + sph + bytes(46)
+        frame = EthernetFrame(dst_mac=dst, src_mac=src, ethertype=0x894F, payload=payload)
+        extracted = {"nsh_spi": nsh_spi, "nsh_si": nsh_si, "nsh_next_protocol": nsh_np}
+        return frame, extracted
+
+    @st.composite
+    def arp_frames(draw):
+        """Generate ARP frames with sampled opcode."""
+        dst = draw(mac_addresses())
+        src = draw(mac_addresses())
+        opcode = draw(st.sampled_from([1, 2]) | st.integers(1, 10))
+        spa = draw(ipv4_addresses())
+        tpa = draw(ipv4_addresses())
+        arp_hdr = bytearray(28)
+        arp_hdr[0:2] = (1).to_bytes(2, 'big')
+        arp_hdr[2:4] = (0x0800).to_bytes(2, 'big')
+        arp_hdr[4] = 6
+        arp_hdr[5] = 4
+        arp_hdr[6:8] = opcode.to_bytes(2, 'big')
+        for i, octet in enumerate(spa.split('.')):
+            arp_hdr[14 + i] = int(octet)
+        for i, octet in enumerate(tpa.split('.')):
+            arp_hdr[24 + i] = int(octet)
+        frame = EthernetFrame(dst_mac=dst, src_mac=src, ethertype=0x0806,
+                              payload=bytes(arp_hdr))
+        extracted = {"arp_opcode": opcode, "arp_spa": spa, "arp_tpa": tpa}
+        return frame, extracted
+
+    @st.composite
+    def icmp_frames(draw):
+        """Generate ICMP frames with random type/code."""
+        dst = draw(mac_addresses())
+        src = draw(mac_addresses())
+        icmp_type = draw(st.sampled_from([0, 3, 8, 11, 13]) | st.integers(0, 255))
+        icmp_code = draw(st.integers(0, 255))
+        src_ip = draw(ipv4_addresses())
+        dst_ip = draw(ipv4_addresses())
+        ip_hdr = Ipv4Header(src_addr=src_ip, dst_addr=dst_ip, protocol=1,
+                            total_length=20 + 8)
+        icmp_hdr = struct.pack(">BBH", icmp_type, icmp_code, 0) + bytes(4)
+        payload = ip_hdr.to_bytes() + icmp_hdr
+        frame = EthernetFrame(dst_mac=dst, src_mac=src, ethertype=0x0800, payload=payload)
+        extracted = {"ip_protocol": 1, "icmp_type": icmp_type, "icmp_code": icmp_code}
+        return frame, extracted
+
+    @st.composite
+    def icmpv6_frames(draw):
+        """Generate ICMPv6 frames with random type/code."""
+        dst = draw(mac_addresses())
+        src = draw(mac_addresses())
+        icmpv6_type = draw(st.sampled_from([1, 2, 3, 4, 128, 129, 133, 134, 135, 136]) |
+                           st.integers(0, 255))
+        icmpv6_code = draw(st.integers(0, 255))
+        src_ipv6 = draw(ipv6_addresses())
+        dst_ipv6 = draw(ipv6_addresses())
+        icmpv6_hdr = struct.pack(">BBH", icmpv6_type, icmpv6_code, 0) + bytes(4)
+        ip6_hdr = Ipv6Header(src_addr=src_ipv6, dst_addr=dst_ipv6,
+                             next_header=58, payload_length=len(icmpv6_hdr))
+        payload = ip6_hdr.to_bytes() + icmpv6_hdr
+        frame = EthernetFrame(dst_mac=dst, src_mac=src, ethertype=0x86DD, payload=payload)
+        extracted = {"ipv6_next_header": 58, "icmpv6_type": icmpv6_type, "icmpv6_code": icmpv6_code}
+        return frame, extracted
+
+    @st.composite
+    def qinq_frames(draw):
+        """Generate QinQ (802.1ad) double-tagged frames."""
+        dst = draw(mac_addresses())
+        src = draw(mac_addresses())
+        outer_vid = draw(st.integers(0, 4095))
+        outer_pcp = draw(st.integers(0, 7))
+        inner_vid = draw(st.integers(0, 4095))
+        inner_pcp = draw(st.integers(0, 7))
+        outer_tci = ((outer_pcp & 0x7) << 13) | (outer_vid & 0xFFF)
+        inner_tci = ((inner_pcp & 0x7) << 13) | (inner_vid & 0xFFF)
+        qinq_payload = struct.pack(">HH", outer_tci, 0x8100) + \
+                        struct.pack(">HH", inner_tci, 0x0800) + bytes(46)
+        frame = EthernetFrame(dst_mac=dst, src_mac=src, ethertype=0x88A8,
+                              payload=qinq_payload)
+        extracted = {"outer_vlan_id": outer_vid, "outer_vlan_pcp": outer_pcp}
+        return frame, extracted
+
+    @st.composite
+    def tcp_flags_frames(draw):
+        """Generate TCP frames with random flag combinations."""
+        dst = draw(mac_addresses())
+        src = draw(mac_addresses())
+        flags = draw(st.integers(0, 255))
+        src_ip = draw(ipv4_addresses())
+        dst_ip = draw(ipv4_addresses())
+        src_port = draw(port_numbers())
+        dst_port = draw(port_numbers())
+        ip_hdr = Ipv4Header(src_addr=src_ip, dst_addr=dst_ip, protocol=6,
+                            total_length=20 + 20)
+        tcp_hdr = struct.pack(">HHIIBBHHH",
+                              src_port, dst_port,
+                              0, 0,          # seq, ack
+                              0x50, flags,   # data offset=5, flags
+                              8192, 0, 0)    # window, checksum, urg_ptr
+        payload = ip_hdr.to_bytes() + tcp_hdr
+        frame = EthernetFrame(dst_mac=dst, src_mac=src, ethertype=0x0800, payload=payload)
+        extracted = {"ip_protocol": 6, "tcp_flags": flags,
+                     "src_port": src_port, "dst_port": dst_port}
+        return frame, extracted
+
+    @st.composite
     def ethernet_frames(draw):
         """Generate random Ethernet frames."""
         dst = draw(mac_addresses())

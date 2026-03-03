@@ -470,6 +470,75 @@ pub fn generate_mutations(config: &FilterConfig) -> Vec<(Mutation, FilterConfig)
         }
     }
 
+    // Mutation 30: Remove geneve_vni
+    for (i, rule) in config.pacgate.rules.iter().enumerate() {
+        if !rule.is_stateful() && rule.match_criteria.geneve_vni.is_some() {
+            let mut mutated = config.clone();
+            mutated.pacgate.rules[i].match_criteria.geneve_vni = None;
+            mutations.push((Mutation {
+                name: format!("remove_geneve_vni_{}", rule.name),
+                description: format!("Remove geneve_vni match from rule '{}'", rule.name),
+                mutant_index: index,
+            }, mutated));
+            index += 1;
+        }
+    }
+
+    // Mutation 31: Remove ip_ttl
+    for (i, rule) in config.pacgate.rules.iter().enumerate() {
+        if !rule.is_stateful() && rule.match_criteria.ip_ttl.is_some() {
+            let mut mutated = config.clone();
+            mutated.pacgate.rules[i].match_criteria.ip_ttl = None;
+            mutations.push((Mutation {
+                name: format!("remove_ip_ttl_{}", rule.name),
+                description: format!("Remove ip_ttl match from rule '{}'", rule.name),
+                mutant_index: index,
+            }, mutated));
+            index += 1;
+        }
+    }
+
+    // Mutation 32: Remove dec_hop_limit (clears dec_hop_limit and set_hop_limit)
+    for (i, rule) in config.pacgate.rules.iter().enumerate() {
+        if !rule.is_stateful() {
+            if let Some(ref rw) = rule.rewrite {
+                if rw.dec_hop_limit == Some(true) || rw.set_hop_limit.is_some() {
+                    let mut mutated = config.clone();
+                    if let Some(ref mut mrw) = mutated.pacgate.rules[i].rewrite {
+                        mrw.dec_hop_limit = None;
+                        mrw.set_hop_limit = None;
+                    }
+                    mutations.push((Mutation {
+                        name: format!("remove_dec_hop_limit_{}", rule.name),
+                        description: format!("Remove hop limit rewrite from rule '{}'", rule.name),
+                        mutant_index: index,
+                    }, mutated));
+                    index += 1;
+                }
+            }
+        }
+    }
+
+    // Mutation 33: Remove set_vlan_pcp from rewrite actions
+    for (i, rule) in config.pacgate.rules.iter().enumerate() {
+        if !rule.is_stateful() {
+            if let Some(ref rw) = rule.rewrite {
+                if rw.set_vlan_pcp.is_some() {
+                    let mut mutated = config.clone();
+                    if let Some(ref mut mrw) = mutated.pacgate.rules[i].rewrite {
+                        mrw.set_vlan_pcp = None;
+                    }
+                    mutations.push((Mutation {
+                        name: format!("remove_set_vlan_pcp_{}", rule.name),
+                        description: format!("Remove set_vlan_pcp rewrite from rule '{}'", rule.name),
+                        mutant_index: index,
+                    }, mutated));
+                    index += 1;
+                }
+            }
+        }
+    }
+
     mutations
 }
 
@@ -1206,6 +1275,11 @@ mod tests {
                             set_dst_ip: None,
                             set_dscp: None,
                             set_dst_port: None,
+                            dec_hop_limit: None,
+                            set_hop_limit: None,
+                            set_ecn: None,
+                            set_vlan_pcp: None,
+                            set_outer_vlan_id: None,
                         }),
                         mirror_port: None,
                         redirect_port: None,
@@ -1400,5 +1474,152 @@ mod tests {
         };
         let mutations = generate_mutations(&config);
         assert!(mutations.iter().find(|(m, _)| m.name == "remove_flow_counters").is_none());
+    }
+
+    #[test]
+    fn remove_geneve_vni_mutation() {
+        let config = FilterConfig {
+            pacgate: PacgateConfig {
+                version: "1.0".to_string(),
+                defaults: Defaults { action: Action::Drop },
+                rules: vec![
+                    StatelessRule {
+                        name: "geneve_rule".to_string(),
+                        priority: 100,
+                        match_criteria: MatchCriteria {
+                            geneve_vni: Some(5000),
+                            ..Default::default()
+                        },
+                        action: Some(Action::Pass),
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None,
+                    },
+                ],
+                conntrack: None,
+            },
+        };
+        let mutations = generate_mutations(&config);
+        let rm = mutations.iter().find(|(m, _)| m.name.starts_with("remove_geneve_vni_")).unwrap();
+        assert!(rm.1.pacgate.rules[0].match_criteria.geneve_vni.is_none());
+    }
+
+    #[test]
+    fn remove_ip_ttl_mutation() {
+        let config = FilterConfig {
+            pacgate: PacgateConfig {
+                version: "1.0".to_string(),
+                defaults: Defaults { action: Action::Drop },
+                rules: vec![
+                    StatelessRule {
+                        name: "ttl_rule".to_string(),
+                        priority: 100,
+                        match_criteria: MatchCriteria {
+                            ip_ttl: Some(64),
+                            ..Default::default()
+                        },
+                        action: Some(Action::Pass),
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None,
+                    },
+                ],
+                conntrack: None,
+            },
+        };
+        let mutations = generate_mutations(&config);
+        let rm = mutations.iter().find(|(m, _)| m.name.starts_with("remove_ip_ttl_")).unwrap();
+        assert!(rm.1.pacgate.rules[0].match_criteria.ip_ttl.is_none());
+    }
+
+    #[test]
+    fn remove_dec_hop_limit_mutation() {
+        let config = FilterConfig {
+            pacgate: PacgateConfig {
+                version: "1.0".to_string(),
+                defaults: Defaults { action: Action::Drop },
+                rules: vec![
+                    StatelessRule {
+                        name: "hop_rewrite_rule".to_string(),
+                        priority: 100,
+                        match_criteria: MatchCriteria {
+                            ..Default::default()
+                        },
+                        action: Some(Action::Pass),
+                        rule_type: None,
+                        fsm: None,
+                        ports: None,
+                        rate_limit: None,
+                        rewrite: Some(RewriteAction {
+                            dec_hop_limit: Some(true),
+                            set_hop_limit: None,
+                            set_dst_mac: None,
+                            set_src_mac: None,
+                            set_vlan_id: None,
+                            set_ttl: None,
+                            dec_ttl: None,
+                            set_src_ip: None,
+                            set_dst_ip: None,
+                            set_dscp: None,
+                            set_src_port: None,
+                            set_dst_port: None,
+                            set_ecn: None,
+                            set_vlan_pcp: None,
+                            set_outer_vlan_id: None,
+                        }),
+                        mirror_port: None,
+                        redirect_port: None,
+                    },
+                ],
+                conntrack: None,
+            },
+        };
+        let mutations = generate_mutations(&config);
+        let rm = mutations.iter().find(|(m, _)| m.name.starts_with("remove_dec_hop_limit_")).unwrap();
+        assert!(rm.1.pacgate.rules[0].rewrite.as_ref().unwrap().dec_hop_limit.is_none());
+        assert!(rm.1.pacgate.rules[0].rewrite.as_ref().unwrap().set_hop_limit.is_none());
+    }
+
+    #[test]
+    fn remove_set_vlan_pcp_mutation() {
+        let config = FilterConfig {
+            pacgate: PacgateConfig {
+                version: "1.0".to_string(),
+                defaults: Defaults { action: Action::Drop },
+                rules: vec![
+                    StatelessRule {
+                        name: "vlan_pcp_rule".to_string(),
+                        priority: 100,
+                        match_criteria: MatchCriteria {
+                            ..Default::default()
+                        },
+                        action: Some(Action::Pass),
+                        rule_type: None,
+                        fsm: None,
+                        ports: None,
+                        rate_limit: None,
+                        rewrite: Some(RewriteAction {
+                            set_vlan_pcp: Some(6),
+                            set_dst_mac: None,
+                            set_src_mac: None,
+                            set_vlan_id: None,
+                            set_ttl: None,
+                            dec_ttl: None,
+                            set_src_ip: None,
+                            set_dst_ip: None,
+                            set_dscp: None,
+                            set_src_port: None,
+                            set_dst_port: None,
+                            dec_hop_limit: None,
+                            set_hop_limit: None,
+                            set_ecn: None,
+                            set_outer_vlan_id: None,
+                        }),
+                        mirror_port: None,
+                        redirect_port: None,
+                    },
+                ],
+                conntrack: None,
+            },
+        };
+        let mutations = generate_mutations(&config);
+        let rm = mutations.iter().find(|(m, _)| m.name.starts_with("remove_set_vlan_pcp_")).unwrap();
+        assert!(rm.1.pacgate.rules[0].rewrite.as_ref().unwrap().set_vlan_pcp.is_none());
     }
 }

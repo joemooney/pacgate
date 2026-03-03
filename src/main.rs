@@ -997,6 +997,11 @@ fn main() -> Result<()> {
                     if let Some(v) = rw.set_dscp { rw_json.insert("set_dscp".into(), serde_json::json!(v)); }
                     if let Some(v) = rw.set_src_port { rw_json.insert("set_src_port".into(), serde_json::json!(v)); }
                     if let Some(v) = rw.set_dst_port { rw_json.insert("set_dst_port".into(), serde_json::json!(v)); }
+                    if rw.dec_hop_limit { rw_json.insert("dec_hop_limit".into(), serde_json::json!(true)); }
+                    if let Some(v) = rw.set_hop_limit { rw_json.insert("set_hop_limit".into(), serde_json::json!(v)); }
+                    if let Some(v) = rw.set_ecn { rw_json.insert("set_ecn".into(), serde_json::json!(v)); }
+                    if let Some(v) = rw.set_vlan_pcp { rw_json.insert("set_vlan_pcp".into(), serde_json::json!(v)); }
+                    if let Some(v) = rw.set_outer_vlan_id { rw_json.insert("set_outer_vlan_id".into(), serde_json::json!(v)); }
                     summary.as_object_mut().unwrap().insert("rewrite".to_string(), serde_json::Value::Object(rw_json));
                 }
                 if let Some(port) = result.mirror_port {
@@ -1058,6 +1063,11 @@ fn main() -> Result<()> {
                             if let Some(v) = rw.set_dscp { println!("    set_dscp: {}", v); }
                             if let Some(v) = rw.set_src_port { println!("    set_src_port: {}", v); }
                             if let Some(v) = rw.set_dst_port { println!("    set_dst_port: {}", v); }
+                            if rw.dec_hop_limit { println!("    dec_hop_limit: true"); }
+                            if let Some(v) = rw.set_hop_limit { println!("    set_hop_limit: {}", v); }
+                            if let Some(v) = rw.set_ecn { println!("    set_ecn: {}", v); }
+                            if let Some(v) = rw.set_vlan_pcp { println!("    set_vlan_pcp: {}", v); }
+                            if let Some(v) = rw.set_outer_vlan_id { println!("    set_outer_vlan_id: {}", v); }
                         }
                     }
                     if result.mirror_port.is_some() || result.redirect_port.is_some() {
@@ -1546,6 +1556,8 @@ fn generate_rule_documentation(
         if let Some(si) = rule.match_criteria.nsh_si { match_fields.push(format!("nsh_si: {}", si)); }
         if let Some(np) = rule.match_criteria.nsh_next_protocol { match_fields.push(format!("nsh_next_protocol: {}", np)); }
         if let Some(ref state) = rule.match_criteria.conntrack_state { match_fields.push(format!("conntrack_state: {}", state)); }
+        if let Some(vni) = rule.match_criteria.geneve_vni { match_fields.push(format!("geneve_vni: {}", vni)); }
+        if let Some(ttl) = rule.match_criteria.ip_ttl { match_fields.push(format!("ip_ttl: {}", ttl)); }
         if let Some(ref bms) = rule.match_criteria.byte_match {
             for bm in bms {
                 match_fields.push(format!("byte_match: offset={}, value={}, mask={}", bm.offset, bm.value, bm.mask.as_deref().unwrap_or("FF")));
@@ -1816,6 +1828,8 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
     let mut uses_nsh_si = 0;
     let mut uses_nsh_next_protocol = 0;
     let mut uses_conntrack_state = 0;
+    let mut uses_geneve_vni = 0;
+    let mut uses_ip_ttl = 0;
     let mut match_field_count = Vec::new();
 
     for rule in rules.iter().filter(|r| !r.is_stateful()) {
@@ -1865,6 +1879,8 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
         if mc.nsh_si.is_some() { uses_nsh_si += 1; count += 1; }
         if mc.nsh_next_protocol.is_some() { uses_nsh_next_protocol += 1; count += 1; }
         if mc.conntrack_state.is_some() { uses_conntrack_state += 1; count += 1; }
+        if mc.geneve_vni.is_some() { uses_geneve_vni += 1; count += 1; }
+        if mc.ip_ttl.is_some() { uses_ip_ttl += 1; count += 1; }
         match_field_count.push(count);
     }
 
@@ -1937,6 +1953,8 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
             "nsh_si": uses_nsh_si,
             "nsh_next_protocol": uses_nsh_next_protocol,
             "conntrack_state": uses_conntrack_state,
+            "geneve_vni": uses_geneve_vni,
+            "ip_ttl": uses_ip_ttl,
         },
         "egress_actions": {
             "mirror_port": uses_mirror,
@@ -2001,6 +2019,8 @@ fn print_stats(config: &model::FilterConfig) {
     let mut uses_nsh_si = 0usize;
     let mut uses_nsh_next_protocol = 0usize;
     let mut uses_conntrack_state = 0usize;
+    let mut uses_geneve_vni = 0usize;
+    let mut uses_ip_ttl = 0usize;
 
     for rule in rules.iter().filter(|r| !r.is_stateful()) {
         let mc = &rule.match_criteria;
@@ -2033,6 +2053,8 @@ fn print_stats(config: &model::FilterConfig) {
         if mc.nsh_si.is_some() { uses_nsh_si += 1; }
         if mc.nsh_next_protocol.is_some() { uses_nsh_next_protocol += 1; }
         if mc.conntrack_state.is_some() { uses_conntrack_state += 1; }
+        if mc.geneve_vni.is_some() { uses_geneve_vni += 1; }
+        if mc.ip_ttl.is_some() { uses_ip_ttl += 1; }
     }
 
     // Priority spacing
@@ -2127,6 +2149,12 @@ fn print_stats(config: &model::FilterConfig) {
         }
         if uses_conntrack_state > 0 {
             println!("  ct_state     [{:>2}/{}] |{}|", uses_conntrack_state, stateless, bar(uses_conntrack_state));
+        }
+        if uses_geneve_vni > 0 {
+            println!("  geneve_vni   [{:>2}/{}] |{}|", uses_geneve_vni, stateless, bar(uses_geneve_vni));
+        }
+        if uses_ip_ttl > 0 {
+            println!("  ip_ttl       [{:>2}/{}] |{}|", uses_ip_ttl, stateless, bar(uses_ip_ttl));
         }
     }
 
@@ -2243,6 +2271,8 @@ fn print_dot_graph(config: &model::FilterConfig) {
             if let Some(si) = mc.nsh_si { criteria.push(format!("nsh_si={}", si)); }
             if let Some(np) = mc.nsh_next_protocol { criteria.push(format!("nsh_next_proto={}", np)); }
             if let Some(ref state) = mc.conntrack_state { criteria.push(format!("ct_state={}", state)); }
+            if let Some(vni) = mc.geneve_vni { criteria.push(format!("geneve_vni={}", vni)); }
+            if let Some(ttl) = mc.ip_ttl { criteria.push(format!("ip_ttl={}", ttl)); }
         } else {
             criteria.push("(FSM states)".to_string());
         }
@@ -2504,6 +2534,14 @@ fn diff_rules(old: &model::FilterConfig, new: &model::FilterConfig, json: bool) 
                     changes.push(format!("conntrack_state: {:?} -> {:?}",
                         old_rule.match_criteria.conntrack_state, new_rule.match_criteria.conntrack_state));
                 }
+                if old_rule.match_criteria.geneve_vni != new_rule.match_criteria.geneve_vni {
+                    changes.push(format!("geneve_vni: {:?} -> {:?}",
+                        old_rule.match_criteria.geneve_vni, new_rule.match_criteria.geneve_vni));
+                }
+                if old_rule.match_criteria.ip_ttl != new_rule.match_criteria.ip_ttl {
+                    changes.push(format!("ip_ttl: {:?} -> {:?}",
+                        old_rule.match_criteria.ip_ttl, new_rule.match_criteria.ip_ttl));
+                }
                 if old_rule.is_stateful() != new_rule.is_stateful() {
                     changes.push(format!("type: {} -> {}",
                         if old_rule.is_stateful() { "stateful" } else { "stateless" },
@@ -2712,6 +2750,8 @@ fn generate_diff_html(
         if let Some(si) = mc.nsh_si { parts.push(format!("nsh_si={}", si)); }
         if let Some(np) = mc.nsh_next_protocol { parts.push(format!("nsh_next_proto={}", np)); }
         if let Some(ref state) = mc.conntrack_state { parts.push(format!("ct_state={}", state)); }
+        if let Some(vni) = mc.geneve_vni { parts.push(format!("geneve_vni={}", vni)); }
+        if let Some(ttl) = mc.ip_ttl { parts.push(format!("ip_ttl={}", ttl)); }
         if parts.is_empty() { "any".to_string() } else { parts.join(", ") }
     };
 
@@ -3079,6 +3119,20 @@ fn generate_diff_html(
                         "new_value": format!("{:?}", new_rule.match_criteria.conntrack_state),
                     }));
                 }
+                if old_rule.match_criteria.geneve_vni != new_rule.match_criteria.geneve_vni {
+                    changes.push(serde_json::json!({
+                        "field": "geneve_vni",
+                        "old_value": format!("{:?}", old_rule.match_criteria.geneve_vni),
+                        "new_value": format!("{:?}", new_rule.match_criteria.geneve_vni),
+                    }));
+                }
+                if old_rule.match_criteria.ip_ttl != new_rule.match_criteria.ip_ttl {
+                    changes.push(serde_json::json!({
+                        "field": "ip_ttl",
+                        "old_value": format!("{:?}", old_rule.match_criteria.ip_ttl),
+                        "new_value": format!("{:?}", new_rule.match_criteria.ip_ttl),
+                    }));
+                }
                 if old_rule.mirror_port != new_rule.mirror_port {
                     changes.push(serde_json::json!({
                         "field": "mirror_port",
@@ -3258,6 +3312,8 @@ fn compute_resource_estimate(config: &model::FilterConfig) -> serde_json::Value 
             if mc.nsh_si.is_some() { fields += 1; }           // 8-bit comparator
             if mc.nsh_next_protocol.is_some() { fields += 1; } // 8-bit comparator
             if mc.conntrack_state.is_some() { fields += 1; }  // 1-bit comparator
+            if mc.geneve_vni.is_some() { fields += 2; }       // 24-bit comparator
+            if mc.ip_ttl.is_some() { fields += 1; }           // 8-bit comparator
             rule_luts += 10 + fields * 12;
         }
     }
@@ -3423,6 +3479,8 @@ fn print_resource_estimate(config: &model::FilterConfig) {
             if mc.nsh_si.is_some() { fields += 1; }
             if mc.nsh_next_protocol.is_some() { fields += 1; }
             if mc.conntrack_state.is_some() { fields += 1; }
+            if mc.geneve_vni.is_some() { fields += 2; }       // 24-bit comparator
+            if mc.ip_ttl.is_some() { fields += 1; }           // 8-bit comparator
             rule_luts += 10 + fields * 12;
         }
     }
@@ -4250,6 +4308,121 @@ fn lint_rules(config: &model::FilterConfig, warnings: &[String], dynamic: bool, 
                     "message": format!("Rule '{}' uses nsh_spi/nsh_si/nsh_next_protocol without ethertype: 0x894F — NSH requires EtherType 0x894F", rule.name),
                     "suggestion": "Add 'ethertype: \"0x894F\"' to ensure NSH matching only applies to NSH (RFC 8300) frames"
                 }));
+            }
+        }
+    }
+
+    // LINT040: Geneve VNI without IPv4/UDP ethertype
+    for rule in &config.pacgate.rules {
+        if rule.match_criteria.uses_geneve() {
+            let has_ipv4 = rule.match_criteria.ethertype.as_deref() == Some("0x0800");
+            let has_udp = rule.match_criteria.ip_protocol == Some(17);
+            if !has_ipv4 || !has_udp {
+                findings.push(serde_json::json!({
+                    "level": "warning",
+                    "code": "LINT040",
+                    "message": format!("Rule '{}' uses geneve_vni without ethertype: 0x0800 + ip_protocol: 17 — Geneve requires IPv4/UDP", rule.name),
+                    "suggestion": "Add 'ethertype: \"0x0800\"' and 'ip_protocol: 17' to ensure Geneve matching only applies to Geneve (RFC 8926) frames"
+                }));
+            }
+        }
+    }
+
+    // LINT041: ip_ttl without IPv4 ethertype
+    for rule in &config.pacgate.rules {
+        if rule.match_criteria.uses_ip_ttl() {
+            let has_ipv4 = rule.match_criteria.ethertype.as_deref() == Some("0x0800");
+            if !has_ipv4 {
+                findings.push(serde_json::json!({
+                    "level": "warning",
+                    "code": "LINT041",
+                    "message": format!("Rule '{}' uses ip_ttl without ethertype: 0x0800 — ip_ttl requires IPv4", rule.name),
+                    "suggestion": "Add 'ethertype: \"0x0800\"' to ensure ip_ttl matching only applies to IPv4 packets"
+                }));
+            }
+        }
+    }
+
+    // LINT042: frame_len is simulation-only (info)
+    for rule in &config.pacgate.rules {
+        if rule.match_criteria.uses_frame_len() {
+            findings.push(serde_json::json!({
+                "level": "info",
+                "code": "LINT042",
+                "message": format!("Rule '{}' uses frame_len_min/frame_len_max — simulation-only, not synthesized to hardware", rule.name),
+                "suggestion": "frame_len matching is evaluated in software simulation only; no RTL is generated for this field"
+            }));
+        }
+    }
+
+    // LINT043: dec_hop_limit/set_hop_limit without IPv6 ethertype
+    for rule in &config.pacgate.rules {
+        if let Some(ref rw) = rule.rewrite {
+            if rw.dec_hop_limit == Some(true) || rw.set_hop_limit.is_some() {
+                let has_ipv6 = rule.match_criteria.ethertype.as_deref() == Some("0x86DD");
+                if !has_ipv6 {
+                    findings.push(serde_json::json!({
+                        "level": "warning",
+                        "code": "LINT043",
+                        "message": format!("Rule '{}' uses dec_hop_limit/set_hop_limit without ethertype: 0x86DD — requires IPv6", rule.name),
+                        "suggestion": "Add 'ethertype: \"0x86DD\"' to ensure hop limit rewrite only applies to IPv6 packets"
+                    }));
+                }
+            }
+        }
+    }
+
+    // LINT044: set_ecn without IPv4/IPv6 (info)
+    for rule in &config.pacgate.rules {
+        if let Some(ref rw) = rule.rewrite {
+            if rw.set_ecn.is_some() {
+                let has_ip = rule.match_criteria.ethertype.as_deref() == Some("0x0800")
+                    || rule.match_criteria.ethertype.as_deref() == Some("0x86DD");
+                if !has_ip {
+                    findings.push(serde_json::json!({
+                        "level": "info",
+                        "code": "LINT044",
+                        "message": format!("Rule '{}' uses set_ecn without ethertype 0x0800/0x86DD — ECN requires IP header", rule.name),
+                        "suggestion": "Add 'ethertype: \"0x0800\"' or 'ethertype: \"0x86DD\"' to ensure ECN rewrite only applies to IP packets"
+                    }));
+                }
+            }
+        }
+    }
+
+    // LINT045: set_vlan_pcp without VLAN
+    for rule in &config.pacgate.rules {
+        if let Some(ref rw) = rule.rewrite {
+            if rw.set_vlan_pcp.is_some() {
+                let has_vlan = rule.match_criteria.vlan_id.is_some()
+                    || rule.match_criteria.ethertype.as_deref() == Some("0x8100");
+                if !has_vlan {
+                    findings.push(serde_json::json!({
+                        "level": "warning",
+                        "code": "LINT045",
+                        "message": format!("Rule '{}' uses set_vlan_pcp without vlan_id or ethertype 0x8100 — requires VLAN-tagged frame", rule.name),
+                        "suggestion": "Add 'vlan_id' match or 'ethertype: \"0x8100\"' to ensure VLAN PCP rewrite only applies to 802.1Q frames"
+                    }));
+                }
+            }
+        }
+    }
+
+    // LINT046: set_outer_vlan_id without QinQ
+    for rule in &config.pacgate.rules {
+        if let Some(ref rw) = rule.rewrite {
+            if rw.set_outer_vlan_id.is_some() {
+                let has_qinq = rule.match_criteria.outer_vlan_id.is_some()
+                    || rule.match_criteria.ethertype.as_deref() == Some("0x88A8")
+                    || rule.match_criteria.ethertype.as_deref() == Some("0x9100");
+                if !has_qinq {
+                    findings.push(serde_json::json!({
+                        "level": "warning",
+                        "code": "LINT046",
+                        "message": format!("Rule '{}' uses set_outer_vlan_id without QinQ ethertype — requires 802.1ad double-tagged frame", rule.name),
+                        "suggestion": "Add 'outer_vlan_id' match or 'ethertype: \"0x88A8\"' to ensure outer VLAN rewrite only applies to QinQ frames"
+                    }));
+                }
             }
         }
     }

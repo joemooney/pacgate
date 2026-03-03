@@ -54,6 +54,9 @@ pub struct SimPacket {
     pub nsh_si: Option<u8>,
     pub nsh_next_protocol: Option<u8>,
     pub conntrack_state: Option<String>,
+    pub geneve_vni: Option<u32>,
+    pub ip_ttl: Option<u8>,
+    pub frame_len: Option<u16>,
 }
 
 /// Rewrite actions that would be applied to a passed packet
@@ -69,6 +72,11 @@ pub struct SimRewrite {
     pub set_dscp: Option<u8>,
     pub set_src_port: Option<u16>,
     pub set_dst_port: Option<u16>,
+    pub dec_hop_limit: bool,
+    pub set_hop_limit: Option<u8>,
+    pub set_ecn: Option<u8>,
+    pub set_vlan_pcp: Option<u8>,
+    pub set_outer_vlan_id: Option<u16>,
 }
 
 impl SimRewrite {
@@ -83,6 +91,11 @@ impl SimRewrite {
             && self.set_dscp.is_none()
             && self.set_src_port.is_none()
             && self.set_dst_port.is_none()
+            && !self.dec_hop_limit
+            && self.set_hop_limit.is_none()
+            && self.set_ecn.is_none()
+            && self.set_vlan_pcp.is_none()
+            && self.set_outer_vlan_id.is_none()
     }
 }
 
@@ -313,6 +326,15 @@ pub fn parse_packet_spec(spec: &str) -> Result<SimPacket> {
             "conntrack_state" => {
                 pkt.conntrack_state = Some(value.to_string());
             }
+            "geneve_vni" => {
+                pkt.geneve_vni = Some(value.parse().map_err(|e| anyhow::anyhow!("Bad geneve_vni '{}': {}", value, e))?);
+            }
+            "ip_ttl" => {
+                pkt.ip_ttl = Some(value.parse().map_err(|e| anyhow::anyhow!("Bad ip_ttl '{}': {}", value, e))?);
+            }
+            "frame_len" => {
+                pkt.frame_len = Some(value.parse().map_err(|e| anyhow::anyhow!("Bad frame_len '{}': {}", value, e))?);
+            }
             _ => bail!("Unknown packet field '{}'", key),
         }
     }
@@ -337,6 +359,11 @@ fn build_sim_rewrite(rule: &crate::model::StatelessRule) -> Option<SimRewrite> {
         set_dscp: rw.set_dscp,
         set_src_port: rw.set_src_port,
         set_dst_port: rw.set_dst_port,
+        dec_hop_limit: rw.dec_hop_limit == Some(true),
+        set_hop_limit: rw.set_hop_limit,
+        set_ecn: rw.set_ecn,
+        set_vlan_pcp: rw.set_vlan_pcp,
+        set_outer_vlan_id: rw.set_outer_vlan_id,
     })
 }
 
@@ -1351,6 +1378,58 @@ pub fn match_criteria_against_packet(mc: &MatchCriteria, pkt: &SimPacket) -> (bo
             field: "conntrack_state".to_string(),
             rule_value: rule_state.clone(),
             packet_value: pkt_val.to_string(),
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // geneve_vni
+    if let Some(rule_vni) = mc.geneve_vni {
+        let pkt_val = pkt.geneve_vni.map(|v| v.to_string()).unwrap_or_else(|| "none".to_string());
+        let matches = pkt.geneve_vni.map(|v| v == rule_vni).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "geneve_vni".to_string(),
+            rule_value: rule_vni.to_string(),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // ip_ttl
+    if let Some(rule_ttl) = mc.ip_ttl {
+        let pkt_val = pkt.ip_ttl.map(|v| v.to_string()).unwrap_or_else(|| "none".to_string());
+        let matches = pkt.ip_ttl.map(|v| v == rule_ttl).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "ip_ttl".to_string(),
+            rule_value: rule_ttl.to_string(),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // frame_len_min
+    if let Some(min) = mc.frame_len_min {
+        let pkt_val = pkt.frame_len.map(|v| v.to_string()).unwrap_or_else(|| "none".to_string());
+        let matches = pkt.frame_len.map(|l| l >= min).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "frame_len_min".to_string(),
+            rule_value: min.to_string(),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // frame_len_max
+    if let Some(max) = mc.frame_len_max {
+        let pkt_val = pkt.frame_len.map(|v| v.to_string()).unwrap_or_else(|| "none".to_string());
+        let matches = pkt.frame_len.map(|l| l <= max).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "frame_len_max".to_string(),
+            rule_value: max.to_string(),
+            packet_value: pkt_val,
             matches,
         });
         if !matches { all_match = false; }
@@ -3017,6 +3096,194 @@ pacgate:
         let config: crate::model::FilterConfig = serde_yaml::from_str(yaml).unwrap();
         let result = simulate(&config, &pkt);
         assert_eq!(result.action, Action::Pass);
+    }
+
+    // --- Geneve VNI tests ---
+
+    #[test]
+    fn parse_geneve_vni() {
+        let pkt = parse_packet_spec("ethertype=0x0800,ip_protocol=17,dst_port=6081,geneve_vni=1000").unwrap();
+        assert_eq!(pkt.ethertype, Some(0x0800));
+        assert_eq!(pkt.ip_protocol, Some(17));
+        assert_eq!(pkt.dst_port, Some(6081));
+        assert_eq!(pkt.geneve_vni, Some(1000));
+    }
+
+    #[test]
+    fn simulate_geneve_vni_match() {
+        let pkt = parse_packet_spec("ethertype=0x0800,ip_protocol=17,dst_port=6081,geneve_vni=1000").unwrap();
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_geneve_vni
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17
+        dst_port: 6081
+        geneve_vni: 1000
+      action: pass
+"#;
+        let config: crate::model::FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let result = simulate(&config, &pkt);
+        assert_eq!(result.action, Action::Pass);
+        assert_eq!(result.rule_name.as_deref(), Some("allow_geneve_vni"));
+    }
+
+    #[test]
+    fn simulate_geneve_vni_mismatch() {
+        let pkt = parse_packet_spec("ethertype=0x0800,ip_protocol=17,dst_port=6081,geneve_vni=2000").unwrap();
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_geneve_vni
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17
+        dst_port: 6081
+        geneve_vni: 1000
+      action: pass
+"#;
+        let config: crate::model::FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let result = simulate(&config, &pkt);
+        assert_eq!(result.action, Action::Drop);
+    }
+
+    // --- ip_ttl and frame_len tests ---
+
+    #[test]
+    fn parse_ip_ttl() {
+        let pkt = parse_packet_spec("ethertype=0x0800,ip_ttl=1").unwrap();
+        assert_eq!(pkt.ethertype, Some(0x0800));
+        assert_eq!(pkt.ip_ttl, Some(1));
+    }
+
+    #[test]
+    fn simulate_ip_ttl_match() {
+        let pkt = parse_packet_spec("ethertype=0x0800,ip_ttl=1").unwrap();
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: drop_ttl1
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_ttl: 1
+      action: pass
+"#;
+        let config: crate::model::FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let result = simulate(&config, &pkt);
+        assert_eq!(result.action, Action::Pass);
+        assert_eq!(result.rule_name.as_deref(), Some("drop_ttl1"));
+    }
+
+    #[test]
+    fn parse_frame_len() {
+        let pkt = parse_packet_spec("ethertype=0x0800,frame_len=128").unwrap();
+        assert_eq!(pkt.ethertype, Some(0x0800));
+        assert_eq!(pkt.frame_len, Some(128));
+    }
+
+    #[test]
+    fn simulate_frame_len_match() {
+        // frame_len=256 should match frame_len_min=64, frame_len_max=1500
+        let pkt = parse_packet_spec("ethertype=0x0800,frame_len=256").unwrap();
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: normal_size
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        frame_len_min: 64
+        frame_len_max: 1500
+      action: pass
+"#;
+        let config: crate::model::FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let result = simulate(&config, &pkt);
+        assert_eq!(result.action, Action::Pass);
+        assert_eq!(result.rule_name.as_deref(), Some("normal_size"));
+
+        // frame_len=40 is below min=64 → drop
+        let pkt2 = parse_packet_spec("ethertype=0x0800,frame_len=40").unwrap();
+        let result2 = simulate(&config, &pkt2);
+        assert_eq!(result2.action, Action::Drop);
+
+        // frame_len=9000 is above max=1500 → drop
+        let pkt3 = parse_packet_spec("ethertype=0x0800,frame_len=9000").unwrap();
+        let result3 = simulate(&config, &pkt3);
+        assert_eq!(result3.action, Action::Drop);
+    }
+
+    // --- Rewrite new fields tests ---
+
+    #[test]
+    fn simulate_rewrite_dec_hop_limit() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: ipv6_router
+      priority: 100
+      match:
+        ethertype: "0x86DD"
+      action: pass
+      rewrite:
+        dec_hop_limit: true
+"#;
+        let config: crate::model::FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let pkt = SimPacket {
+            ethertype: Some(0x86DD),
+            ..Default::default()
+        };
+        let result = simulate(&config, &pkt);
+        assert_eq!(result.action, Action::Pass);
+        let rw = result.rewrite.unwrap();
+        assert!(rw.dec_hop_limit);
+        assert!(rw.set_hop_limit.is_none());
+    }
+
+    #[test]
+    fn simulate_rewrite_set_vlan_pcp() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: qos_remark
+      priority: 100
+      match:
+        ethertype: "0x0800"
+      action: pass
+      rewrite:
+        set_vlan_pcp: 5
+"#;
+        let config: crate::model::FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let pkt = SimPacket {
+            ethertype: Some(0x0800),
+            ..Default::default()
+        };
+        let result = simulate(&config, &pkt);
+        assert_eq!(result.action, Action::Pass);
+        let rw = result.rewrite.unwrap();
+        assert_eq!(rw.set_vlan_pcp, Some(5));
+        assert!(rw.set_outer_vlan_id.is_none());
     }
 
     // --- Flow counter tests ---

@@ -342,6 +342,110 @@ class TestNshMatch:
         assert not rule.matches(frame, extracted={})
 
 
+class TestGeneveVniMatch:
+    def test_geneve_vni_match(self):
+        """Test Geneve VNI matching"""
+        rule = Rule(name="tenant", priority=100, action="pass",
+                    ethertype=0x0800, ip_protocol=17, geneve_vni=1000)
+        frame = _make_frame(ethertype=0x0800)
+        assert rule.matches(frame, extracted={"ethertype": 0x0800, "ip_protocol": 17, "geneve_vni": 1000})
+
+    def test_geneve_vni_mismatch(self):
+        rule = Rule(name="tenant", priority=100, action="pass",
+                    ethertype=0x0800, ip_protocol=17, geneve_vni=1000)
+        frame = _make_frame(ethertype=0x0800)
+        assert not rule.matches(frame, extracted={"ethertype": 0x0800, "ip_protocol": 17, "geneve_vni": 2000})
+
+    def test_geneve_vni_missing_extracted(self):
+        rule = Rule(name="tenant", priority=100, action="pass",
+                    ethertype=0x0800, ip_protocol=17, geneve_vni=1000)
+        frame = _make_frame(ethertype=0x0800)
+        assert not rule.matches(frame, extracted={"ethertype": 0x0800, "ip_protocol": 17})
+
+
+class TestIpTtlMatch:
+    def test_ip_ttl_match(self):
+        rule = Rule(name="low_ttl", priority=100, action="drop",
+                    ethertype=0x0800, ip_ttl=1)
+        frame = _make_frame(ethertype=0x0800)
+        assert rule.matches(frame, extracted={"ip_ttl": 1})
+
+    def test_ip_ttl_mismatch(self):
+        rule = Rule(name="low_ttl", priority=100, action="drop",
+                    ethertype=0x0800, ip_ttl=1)
+        frame = _make_frame(ethertype=0x0800)
+        assert not rule.matches(frame, extracted={"ip_ttl": 64})
+
+    def test_ip_ttl_missing_extracted(self):
+        rule = Rule(name="low_ttl", priority=100, action="drop",
+                    ethertype=0x0800, ip_ttl=1)
+        frame = _make_frame(ethertype=0x0800)
+        assert not rule.matches(frame, extracted={})
+
+
+class TestFrameLenMatch:
+    def test_frame_len_match(self):
+        rule = Rule(name="normal", priority=100, action="pass",
+                    ethertype=0x0800, frame_len_min=64, frame_len_max=1518)
+        frame = _make_frame(ethertype=0x0800)
+        assert rule.matches(frame, extracted={"frame_len": 512})
+
+    def test_frame_len_too_short(self):
+        rule = Rule(name="normal", priority=100, action="pass",
+                    ethertype=0x0800, frame_len_min=64, frame_len_max=1518)
+        frame = _make_frame(ethertype=0x0800)
+        assert not rule.matches(frame, extracted={"frame_len": 32})
+
+    def test_frame_len_too_long(self):
+        rule = Rule(name="normal", priority=100, action="pass",
+                    ethertype=0x0800, frame_len_min=64, frame_len_max=1518)
+        frame = _make_frame(ethertype=0x0800)
+        assert not rule.matches(frame, extracted={"frame_len": 9000})
+
+    def test_frame_len_boundary_min(self):
+        rule = Rule(name="normal", priority=100, action="pass",
+                    ethertype=0x0800, frame_len_min=64, frame_len_max=1518)
+        frame = _make_frame(ethertype=0x0800)
+        assert rule.matches(frame, extracted={"frame_len": 64})
+        assert not rule.matches(frame, extracted={"frame_len": 63})
+
+    def test_frame_len_boundary_max(self):
+        rule = Rule(name="normal", priority=100, action="pass",
+                    ethertype=0x0800, frame_len_min=64, frame_len_max=1518)
+        frame = _make_frame(ethertype=0x0800)
+        assert rule.matches(frame, extracted={"frame_len": 1518})
+        assert not rule.matches(frame, extracted={"frame_len": 1519})
+
+    def test_frame_len_min_only(self):
+        """frame_len_min without frame_len_max: only lower bound enforced."""
+        rule = Rule(name="jumbo", priority=100, action="pass",
+                    ethertype=0x0800, frame_len_min=1519)
+        frame = _make_frame(ethertype=0x0800)
+        assert rule.matches(frame, extracted={"frame_len": 9000})
+        assert not rule.matches(frame, extracted={"frame_len": 1518})
+
+    def test_frame_len_max_only(self):
+        """frame_len_max without frame_len_min: only upper bound enforced."""
+        rule = Rule(name="small", priority=100, action="pass",
+                    ethertype=0x0800, frame_len_max=128)
+        frame = _make_frame(ethertype=0x0800)
+        assert rule.matches(frame, extracted={"frame_len": 64})
+        assert not rule.matches(frame, extracted={"frame_len": 129})
+
+    def test_frame_len_no_extracted_uses_defaults(self):
+        """Missing frame_len in extracted uses safe defaults (0 / 65535)."""
+        rule_min = Rule(name="big_only", priority=100, action="pass",
+                        ethertype=0x0800, frame_len_min=100)
+        frame = _make_frame(ethertype=0x0800)
+        # Default for min check is 0 — fails the min=100 test
+        assert not rule_min.matches(frame, extracted={})
+
+        rule_max = Rule(name="small_only", priority=100, action="pass",
+                        ethertype=0x0800, frame_len_max=100)
+        # Default for max check is 65535 — fails the max=100 test
+        assert not rule_max.matches(frame, extracted={})
+
+
 class TestProtocolDeterminism:
     """Tests for protocol-specific determinism check functions."""
 

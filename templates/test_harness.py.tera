@@ -158,6 +158,62 @@ async def {{ tc.name }}(dut):
     # Construct MLD packet
     frame = PacketFactory.mld(mld_type={{ tc.mld_type }})
     extracted = {"mld_type": {{ tc.mld_type }}, "ipv6_next_header": 58}
+{% elif tc.has_geneve is defined and tc.has_geneve == "true" %}
+    # Construct Geneve packet with proper headers
+    frame = PacketFactory.geneve(vni={{ tc.geneve_vni }})
+    extracted = {"geneve_vni": {{ tc.geneve_vni }}, "ip_protocol": 17, "dst_port": 6081}
+{% elif tc.has_gre is defined and tc.has_gre == "true" %}
+    # Construct GRE packet
+    frame = PacketFactory.gre(protocol={{ tc.gre_protocol | default(value='0x0800') }}{% if tc.gre_key is defined %}, key={{ tc.gre_key }}{% endif %})
+    extracted = {"ip_protocol": 47, "gre_protocol": {{ tc.gre_protocol | default(value='0x0800') }}{% if tc.gre_key is defined %}, "gre_key": {{ tc.gre_key }}{% endif %}}
+{% elif tc.has_oam is defined and tc.has_oam == "true" %}
+    # Construct OAM/CFM packet
+    frame = PacketFactory.oam_cfm(oam_level={{ tc.oam_level | default(value='3') }}, oam_opcode={{ tc.oam_opcode | default(value='1') }})
+    extracted = {"oam_level": {{ tc.oam_level | default(value='3') }}, "oam_opcode": {{ tc.oam_opcode | default(value='1') }}}
+{% elif tc.has_nsh is defined and tc.has_nsh == "true" %}
+    # Construct NSH/SFC packet
+    frame = PacketFactory.nsh(nsh_spi={{ tc.nsh_spi | default(value='100') }}, nsh_si={{ tc.nsh_si | default(value='255') }}{% if tc.nsh_next_protocol is defined %}, nsh_next_protocol={{ tc.nsh_next_protocol }}{% endif %})
+    extracted = {"nsh_spi": {{ tc.nsh_spi | default(value='100') }}, "nsh_si": {{ tc.nsh_si | default(value='255') }}{% if tc.nsh_next_protocol is defined %}, "nsh_next_protocol": {{ tc.nsh_next_protocol }}{% endif %}}
+{% elif tc.has_arp is defined and tc.has_arp == "true" %}
+    # Construct ARP packet
+    frame = PacketFactory.arp_msg(opcode={{ tc.arp_opcode | default(value='1') }}{% if tc.arp_spa is defined %}, spa="{{ tc.arp_spa }}"{% endif %}{% if tc.arp_tpa is defined %}, tpa="{{ tc.arp_tpa }}"{% endif %})
+    extracted = {"arp_opcode": {{ tc.arp_opcode | default(value='1') }}{% if tc.arp_spa is defined %}, "arp_spa": "{{ tc.arp_spa }}"{% endif %}{% if tc.arp_tpa is defined %}, "arp_tpa": "{{ tc.arp_tpa }}"{% endif %}}
+{% elif tc.has_icmp is defined and tc.has_icmp == "true" %}
+    # Construct ICMP packet
+    frame = PacketFactory.icmp(icmp_type={{ tc.icmp_type | default(value='8') }}, icmp_code={{ tc.icmp_code | default(value='0') }})
+    extracted = {"ip_protocol": 1, "icmp_type": {{ tc.icmp_type | default(value='8') }}, "icmp_code": {{ tc.icmp_code | default(value='0') }}}
+{% elif tc.has_icmpv6 is defined and tc.has_icmpv6 == "true" %}
+    # Construct ICMPv6 packet
+    frame = PacketFactory.icmpv6_msg(icmpv6_type={{ tc.icmpv6_type | default(value='128') }}, icmpv6_code={{ tc.icmpv6_code | default(value='0') }})
+    extracted = {"ipv6_next_header": 58, "icmpv6_type": {{ tc.icmpv6_type | default(value='128') }}, "icmpv6_code": {{ tc.icmpv6_code | default(value='0') }}}
+{% elif tc.has_qinq is defined and tc.has_qinq == "true" %}
+    # Construct QinQ double-tagged packet
+    frame = PacketFactory.qinq(outer_vid={{ tc.outer_vlan_id | default(value='100') }}, outer_pcp={{ tc.outer_vlan_pcp | default(value='0') }}{% if tc.vlan_id is defined %}, inner_vid={{ tc.vlan_id }}{% endif %})
+    extracted = {"outer_vlan_id": {{ tc.outer_vlan_id | default(value='100') }}, "outer_vlan_pcp": {{ tc.outer_vlan_pcp | default(value='0') }}}
+{% elif tc.has_ip_frag is defined and tc.has_ip_frag == "true" %}
+    # Construct IPv4 fragment
+    frame = PacketFactory.ip_frag(df={{ tc.ip_dont_fragment | default(value='False') }}, mf={{ tc.ip_more_fragments | default(value='False') }}, frag_offset={{ tc.ip_frag_offset | default(value='0') }})
+    extracted = {"ip_dont_fragment": {{ tc.ip_dont_fragment | default(value='False') }}, "ip_more_fragments": {{ tc.ip_more_fragments | default(value='False') }}, "ip_frag_offset": {{ tc.ip_frag_offset | default(value='0') }}}
+{% elif tc.has_tcp_flags is defined and tc.has_tcp_flags == "true" %}
+    # Construct TCP packet with specific flags
+    frame = PacketFactory.tcp_with_flags(flags={{ tc.tcp_flags | default(value='0x02') }}{% if tc.src_port is defined %}, src_port={{ tc.src_port }}{% endif %}{% if tc.dst_port is defined %}, dst_port={{ tc.dst_port }}{% endif %})
+    extracted = {"ip_protocol": 6, "tcp_flags": {{ tc.tcp_flags | default(value='0x02') }}{% if tc.src_port is defined %}, "src_port": {{ tc.src_port }}{% endif %}{% if tc.dst_port is defined %}, "dst_port": {{ tc.dst_port }}{% endif %}}
+{% elif tc.has_dscp_ecn is defined and tc.has_dscp_ecn == "true" %}
+    # Construct IPv4 packet with DSCP/ECN
+    frame = PacketFactory.dscp_ecn(dscp={{ tc.ip_dscp | default(value='0') }}, ecn={{ tc.ip_ecn | default(value='0') }})
+    extracted = {"ip_dscp": {{ tc.ip_dscp | default(value='0') }}, "ip_ecn": {{ tc.ip_ecn | default(value='0') }}}
+{% elif tc.has_ipv6_tc is defined and tc.has_ipv6_tc == "true" %}
+    # Construct IPv6 packet with Traffic Class
+    frame = PacketFactory.ipv6_tc(dscp={{ tc.ipv6_dscp | default(value='0') }}, ecn={{ tc.ipv6_ecn | default(value='0') }})
+    extracted = {"ipv6_dscp": {{ tc.ipv6_dscp | default(value='0') }}, "ipv6_ecn": {{ tc.ipv6_ecn | default(value='0') }}}
+{% elif tc.has_ipv6_ext is defined and tc.has_ipv6_ext == "true" %}
+    # Construct IPv6 packet with hop_limit/flow_label
+    frame = PacketFactory.ipv6_ext(hop_limit={{ tc.ipv6_hop_limit | default(value='64') }}, flow_label={{ tc.ipv6_flow_label | default(value='0') }})
+    extracted = {"ipv6_hop_limit": {{ tc.ipv6_hop_limit | default(value='64') }}, "ipv6_flow_label": {{ tc.ipv6_flow_label | default(value='0') }}}
+{% elif tc.has_conntrack_state is defined and tc.has_conntrack_state == "true" %}
+    # Construct TCP packet for conntrack state matching
+    frame = PacketFactory.ipv4_tcp_conntrack({% if tc.src_port is defined %}src_port={{ tc.src_port }}, {% endif %}{% if tc.dst_port is defined %}dst_port={{ tc.dst_port }}{% endif %})
+    extracted = {"ip_protocol": 6{% if tc.conntrack_state is defined %}, "conntrack_state": "{{ tc.conntrack_state }}"{% endif %}{% if tc.src_port is defined %}, "src_port": {{ tc.src_port }}{% endif %}{% if tc.dst_port is defined %}, "dst_port": {{ tc.dst_port }}{% endif %}}
 {% elif tc.has_ipv6 is defined and tc.has_ipv6 == "true" %}
     # Construct IPv6 packet with proper headers
     _proto = {{ tc.ipv6_next_header | default(value='59') }}

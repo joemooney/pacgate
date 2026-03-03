@@ -82,6 +82,13 @@ module rule_match_{{ rule_index }} (
     input  wire [7:0]  nsh_next_protocol,
     input  wire        nsh_valid,
 {% endif %}
+{% if has_geneve %}
+    input  wire [23:0] geneve_vni,
+    input  wire        geneve_valid,
+{% endif %}
+{% if has_ip_ttl %}
+    input  wire [7:0]  ip_ttl,
+{% endif %}
 {% if has_conntrack_state %}
     input  wire        conntrack_established,
 {% endif %}

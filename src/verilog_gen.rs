@@ -55,6 +55,8 @@ struct GlobalProtocolFlags {
     has_oam: bool,
     has_nsh: bool,
     has_conntrack_state: bool,
+    has_geneve: bool,
+    has_ip_ttl: bool,
     has_flow_counters: bool,
     has_mirror: bool,
     has_redirect: bool,
@@ -303,6 +305,27 @@ fn build_condition_expr(mc: &crate::model::MatchCriteria) -> Result<String> {
         conditions.push(format!("(oam_valid && oam_opcode == 8'd{})", opcode));
     }
 
+    // NSH/SFC fields
+    if let Some(spi) = mc.nsh_spi {
+        conditions.push(format!("(nsh_valid && nsh_spi == 24'd{})", spi));
+    }
+    if let Some(si) = mc.nsh_si {
+        conditions.push(format!("(nsh_valid && nsh_si == 8'd{})", si));
+    }
+    if let Some(np) = mc.nsh_next_protocol {
+        conditions.push(format!("(nsh_valid && nsh_next_protocol == 8'd{})", np));
+    }
+
+    // Geneve tunnel
+    if let Some(vni) = mc.geneve_vni {
+        conditions.push(format!("(geneve_valid && geneve_vni == 24'd{})", vni));
+    }
+
+    // ip_ttl (already extracted by parser)
+    if let Some(ttl) = mc.ip_ttl {
+        conditions.push(format!("(ip_ttl == 8'd{})", ttl));
+    }
+
     // Connection tracking state
     if let Some(ref state) = mc.conntrack_state {
         match state.as_str() {
@@ -436,6 +459,8 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
     let has_oam = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_oam());
     let has_nsh = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_nsh());
     let has_conntrack_state = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_conntrack_state());
+    let has_geneve = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_geneve());
+    let has_ip_ttl = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_ip_ttl());
     let has_flow_counters = config.pacgate.conntrack.as_ref().and_then(|c| c.enable_flow_counters).unwrap_or(false);
     let has_mirror = config.pacgate.rules.iter().any(|r| r.has_mirror());
     let has_redirect = config.pacgate.rules.iter().any(|r| r.has_redirect());
@@ -459,6 +484,8 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         has_oam,
         has_nsh,
         has_conntrack_state,
+        has_geneve,
+        has_ip_ttl,
         has_flow_counters,
         has_mirror,
         has_redirect,
@@ -513,6 +540,8 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         ctx.insert("has_oam", &has_oam);
         ctx.insert("has_nsh", &has_nsh);
         ctx.insert("has_conntrack_state", &has_conntrack_state);
+        ctx.insert("has_geneve", &has_geneve);
+        ctx.insert("has_ip_ttl", &has_ip_ttl);
         ctx.insert("has_flow_counters", &has_flow_counters);
         ctx.insert("has_rewrite", &has_rewrite);
         ctx.insert("has_mirror", &has_mirror);
@@ -627,6 +656,38 @@ fn generate_rewrite_lut(tera: &Tera, rtl_dir: &Path, rules: &[crate::model::Stat
                 map.insert("dst_port".to_string(), serde_json::json!(port));
             } else {
                 map.insert("has_dst_port".to_string(), serde_json::json!(false));
+            }
+
+            // IPv6 hop limit rewrite
+            if let Some(hl) = rw.set_hop_limit {
+                map.insert("has_hop_limit".to_string(), serde_json::json!(true));
+                map.insert("hop_limit".to_string(), serde_json::json!(hl));
+            } else {
+                map.insert("has_hop_limit".to_string(), serde_json::json!(false));
+            }
+
+            // ECN rewrite
+            if let Some(ecn) = rw.set_ecn {
+                map.insert("has_ecn".to_string(), serde_json::json!(true));
+                map.insert("ecn".to_string(), serde_json::json!(ecn));
+            } else {
+                map.insert("has_ecn".to_string(), serde_json::json!(false));
+            }
+
+            // VLAN PCP rewrite
+            if let Some(pcp) = rw.set_vlan_pcp {
+                map.insert("has_vlan_pcp".to_string(), serde_json::json!(true));
+                map.insert("vlan_pcp".to_string(), serde_json::json!(pcp));
+            } else {
+                map.insert("has_vlan_pcp".to_string(), serde_json::json!(false));
+            }
+
+            // Outer VLAN ID rewrite (QinQ)
+            if let Some(vid) = rw.set_outer_vlan_id {
+                map.insert("has_outer_vlan_id".to_string(), serde_json::json!(true));
+                map.insert("outer_vlan_id".to_string(), serde_json::json!(vid));
+            } else {
+                map.insert("has_outer_vlan_id".to_string(), serde_json::json!(false));
             }
 
             map
@@ -1168,6 +1229,8 @@ fn generate_stateless_rule(
     ctx.insert("has_oam", &global_protos.has_oam);
     ctx.insert("has_nsh", &global_protos.has_nsh);
     ctx.insert("has_conntrack_state", &global_protos.has_conntrack_state);
+    ctx.insert("has_geneve", &global_protos.has_geneve);
+    ctx.insert("has_ip_ttl", &global_protos.has_ip_ttl);
     let byte_cap_info: Vec<std::collections::HashMap<String, serde_json::Value>> = byte_offsets.iter().map(|(offset, len)| {
         let mut map = std::collections::HashMap::new();
         map.insert("offset".to_string(), serde_json::json!(offset));
@@ -1507,6 +1570,8 @@ fn generate_fsm_rule(
     ctx.insert("has_oam", &global_protos.has_oam);
     ctx.insert("has_nsh", &global_protos.has_nsh);
     ctx.insert("has_conntrack_state", &global_protos.has_conntrack_state);
+    ctx.insert("has_geneve", &global_protos.has_geneve);
+    ctx.insert("has_ip_ttl", &global_protos.has_ip_ttl);
 
     let rendered = tera.render("rule_fsm.v.tera", &ctx)
         .with_context(|| format!("Failed to render rule_fsm for rule {}", rule.name))?;

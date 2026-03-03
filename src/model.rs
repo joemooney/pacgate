@@ -111,6 +111,17 @@ pub struct MatchCriteria {
     pub nsh_si: Option<u8>,              // Service Index (0-255, position in path)
     #[serde(default)]
     pub nsh_next_protocol: Option<u8>,   // Encapsulated protocol (1=IPv4, 2=IPv6, 3=Ethernet)
+    // Geneve tunnel (RFC 8926, UDP:6081)
+    #[serde(default)]
+    pub geneve_vni: Option<u32>,          // 24-bit Virtual Network Identifier (0-16777215)
+    // ip_ttl match (already extracted by parser)
+    #[serde(default)]
+    pub ip_ttl: Option<u8>,              // 0-255 (IPv4 TTL)
+    // Frame length matching (simulation-only)
+    #[serde(default)]
+    pub frame_len_min: Option<u16>,      // Minimum frame length
+    #[serde(default)]
+    pub frame_len_max: Option<u16>,      // Maximum frame length
     // Connection tracking state (requires --conntrack)
     #[serde(default)]
     pub conntrack_state: Option<String>,  // "new", "established" (TCP state-aware)
@@ -397,6 +408,21 @@ impl MatchCriteria {
     pub fn uses_conntrack_state(&self) -> bool {
         self.conntrack_state.is_some()
     }
+
+    /// Returns true if this criteria uses Geneve tunnel fields
+    pub fn uses_geneve(&self) -> bool {
+        self.geneve_vni.is_some()
+    }
+
+    /// Returns true if this criteria uses ip_ttl matching
+    pub fn uses_ip_ttl(&self) -> bool {
+        self.ip_ttl.is_some()
+    }
+
+    /// Returns true if this criteria uses frame length matching
+    pub fn uses_frame_len(&self) -> bool {
+        self.frame_len_min.is_some() || self.frame_len_max.is_some()
+    }
 }
 
 // --- Stateful FSM types ---
@@ -493,6 +519,21 @@ pub struct RewriteAction {
     /// Overwrite L4 destination port (1-65535) — requires IPv4 + TCP/UDP
     #[serde(default)]
     pub set_dst_port: Option<u16>,
+    /// Decrement IPv6 hop limit by 1 — mutually exclusive with set_hop_limit
+    #[serde(default)]
+    pub dec_hop_limit: Option<bool>,
+    /// Set IPv6 hop limit to a fixed value (0-255) — mutually exclusive with dec_hop_limit
+    #[serde(default)]
+    pub set_hop_limit: Option<u8>,
+    /// Set ECN bits (0-3) — applies to IPv4 TOS or IPv6 TC
+    #[serde(default)]
+    pub set_ecn: Option<u8>,
+    /// Overwrite VLAN PCP (0-7) — requires VLAN-tagged frame
+    #[serde(default)]
+    pub set_vlan_pcp: Option<u8>,
+    /// Overwrite outer VLAN ID (0-4095) — requires QinQ (802.1ad)
+    #[serde(default)]
+    pub set_outer_vlan_id: Option<u16>,
 }
 
 impl RewriteAction {
@@ -508,12 +549,18 @@ impl RewriteAction {
             && self.set_dscp.is_none()
             && self.set_src_port.is_none()
             && self.set_dst_port.is_none()
+            && (self.dec_hop_limit.is_none() || self.dec_hop_limit == Some(false))
+            && self.set_hop_limit.is_none()
+            && self.set_ecn.is_none()
+            && self.set_vlan_pcp.is_none()
+            && self.set_outer_vlan_id.is_none()
     }
 
     /// Returns the set of rewrite flags for Verilog generation
     /// [0]=set_dst_mac [1]=set_src_mac [2]=set_vlan_id
     /// [3]=set_ttl [4]=dec_ttl [5]=set_src_ip [6]=set_dst_ip [7]=set_dscp
-    /// [8]=set_src_port [9]=set_dst_port
+    /// [8]=set_src_port [9]=set_dst_port [10]=dec_hop_limit [11]=set_hop_limit
+    /// [12]=set_ecn [13]=set_vlan_pcp [14]=set_outer_vlan_id
     pub fn flags(&self) -> u16 {
         let mut f: u16 = 0;
         if self.set_dst_mac.is_some() { f |= 1 << 0; }
@@ -526,6 +573,11 @@ impl RewriteAction {
         if self.set_dscp.is_some() { f |= 1 << 7; }
         if self.set_src_port.is_some() { f |= 1 << 8; }
         if self.set_dst_port.is_some() { f |= 1 << 9; }
+        if self.dec_hop_limit == Some(true) { f |= 1 << 10; }
+        if self.set_hop_limit.is_some() { f |= 1 << 11; }
+        if self.set_ecn.is_some() { f |= 1 << 12; }
+        if self.set_vlan_pcp.is_some() { f |= 1 << 13; }
+        if self.set_outer_vlan_id.is_some() { f |= 1 << 14; }
         f
     }
 }
@@ -1440,6 +1492,11 @@ pacgate:
             set_dscp: None,
             set_src_port: None,
             set_dst_port: None,
+            dec_hop_limit: None,
+            set_hop_limit: None,
+            set_ecn: None,
+            set_vlan_pcp: None,
+            set_outer_vlan_id: None,
         };
         assert!(!rw.is_empty());
         // flags: dst_mac=1, src_mac=2, vlan=4, set_ttl=8, src_ip=32, dst_ip=64
@@ -2272,5 +2329,170 @@ pacgate:
         let rule = &config.pacgate.rules[0];
         assert_eq!(rule.mirror_port, Some(1));
         assert_eq!(rule.redirect_port, Some(3));
+    }
+
+    // --- Geneve tunnel (Phase 26.1) ---
+
+    #[test]
+    fn uses_geneve_true() {
+        let mc = MatchCriteria { geneve_vni: Some(1000), ..Default::default() };
+        assert!(mc.uses_geneve());
+    }
+
+    #[test]
+    fn uses_geneve_false() {
+        let mc = MatchCriteria::default();
+        assert!(!mc.uses_geneve());
+    }
+
+    #[test]
+    fn deserialize_geneve_rule() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: tenant_100
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17
+        geneve_vni: 1000
+      action: pass
+"#;
+        let config: FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let rule = &config.pacgate.rules[0];
+        assert_eq!(rule.match_criteria.geneve_vni, Some(1000));
+    }
+
+    // --- ip_ttl + frame_len (Phase 26.2) ---
+
+    #[test]
+    fn uses_ip_ttl_true() {
+        let mc = MatchCriteria { ip_ttl: Some(1), ..Default::default() };
+        assert!(mc.uses_ip_ttl());
+    }
+
+    #[test]
+    fn uses_ip_ttl_false() {
+        let mc = MatchCriteria::default();
+        assert!(!mc.uses_ip_ttl());
+    }
+
+    #[test]
+    fn uses_frame_len_true() {
+        let mc = MatchCriteria { frame_len_min: Some(64), ..Default::default() };
+        assert!(mc.uses_frame_len());
+    }
+
+    #[test]
+    fn uses_frame_len_false() {
+        let mc = MatchCriteria::default();
+        assert!(!mc.uses_frame_len());
+    }
+
+    #[test]
+    fn deserialize_ip_ttl_rule() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: pass
+  rules:
+    - name: drop_low_ttl
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_ttl: 1
+      action: drop
+"#;
+        let config: FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let rule = &config.pacgate.rules[0];
+        assert_eq!(rule.match_criteria.ip_ttl, Some(1));
+    }
+
+    // --- IPv6 rewrite (Phase 26.3) ---
+
+    #[test]
+    fn rewrite_flags_dec_hop_limit() {
+        let rw = RewriteAction { dec_hop_limit: Some(true), ..Default::default() };
+        assert!(!rw.is_empty());
+        assert_eq!(rw.flags() & (1 << 10), 1 << 10);
+    }
+
+    #[test]
+    fn rewrite_flags_set_hop_limit() {
+        let rw = RewriteAction { set_hop_limit: Some(64), ..Default::default() };
+        assert!(!rw.is_empty());
+        assert_eq!(rw.flags() & (1 << 11), 1 << 11);
+    }
+
+    #[test]
+    fn rewrite_flags_set_ecn() {
+        let rw = RewriteAction { set_ecn: Some(2), ..Default::default() };
+        assert!(!rw.is_empty());
+        assert_eq!(rw.flags() & (1 << 12), 1 << 12);
+    }
+
+    #[test]
+    fn deserialize_ipv6_rewrite() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: route_ipv6
+      priority: 100
+      match:
+        ethertype: "0x86DD"
+      action: pass
+      rewrite:
+        dec_hop_limit: true
+        set_ecn: 1
+"#;
+        let config: FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let rw = config.pacgate.rules[0].rewrite.as_ref().unwrap();
+        assert_eq!(rw.dec_hop_limit, Some(true));
+        assert_eq!(rw.set_ecn, Some(1));
+    }
+
+    // --- VLAN rewrite (Phase 26.6) ---
+
+    #[test]
+    fn rewrite_flags_set_vlan_pcp() {
+        let rw = RewriteAction { set_vlan_pcp: Some(5), ..Default::default() };
+        assert!(!rw.is_empty());
+        assert_eq!(rw.flags() & (1 << 13), 1 << 13);
+    }
+
+    #[test]
+    fn rewrite_flags_set_outer_vlan_id() {
+        let rw = RewriteAction { set_outer_vlan_id: Some(200), ..Default::default() };
+        assert!(!rw.is_empty());
+        assert_eq!(rw.flags() & (1 << 14), 1 << 14);
+    }
+
+    #[test]
+    fn rewrite_flags_all_new() {
+        let rw = RewriteAction {
+            dec_hop_limit: Some(true),
+            set_ecn: Some(1),
+            set_vlan_pcp: Some(3),
+            set_outer_vlan_id: Some(100),
+            ..Default::default()
+        };
+        let flags = rw.flags();
+        assert_eq!(flags & (1 << 10), 1 << 10);
+        assert_eq!(flags & (1 << 12), 1 << 12);
+        assert_eq!(flags & (1 << 13), 1 << 13);
+        assert_eq!(flags & (1 << 14), 1 << 14);
+    }
+
+    #[test]
+    fn rewrite_empty_with_false_dec_hop_limit() {
+        let rw = RewriteAction { dec_hop_limit: Some(false), ..Default::default() };
+        assert!(rw.is_empty());
     }
 }

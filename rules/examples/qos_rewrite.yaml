@@ -1,0 +1,56 @@
+# qos_rewrite.yaml — VLAN PCP remarking and QinQ outer tag rewrite
+# Demonstrates VLAN rewrite actions: set_vlan_pcp, set_outer_vlan_id
+#
+# In carrier/ISP networks, QoS policies remark VLAN PCP (Priority Code Point)
+# to enforce traffic class differentiation. QinQ (802.1ad) outer tag rewrite
+# enables service VLAN re-tagging at provider edge switches.
+#
+# 5 rules: remark voice PCP, remark video PCP, outer VLAN rewrite, default PCP, ARP
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: voice_pcp_remark
+      priority: 100
+      match:
+        vlan_id: 100
+        ethertype: "0x0800"
+        ip_dscp: 46
+      action: pass
+      rewrite:
+        set_vlan_pcp: 6
+
+    - name: video_pcp_remark
+      priority: 90
+      match:
+        vlan_id: 100
+        ethertype: "0x0800"
+        ip_dscp: 34
+      action: pass
+      rewrite:
+        set_vlan_pcp: 4
+
+    - name: outer_vlan_retag
+      priority: 80
+      match:
+        ethertype: "0x88A8"
+        outer_vlan_id: 200
+      action: pass
+      rewrite:
+        set_outer_vlan_id: 300
+
+    - name: default_best_effort
+      priority: 70
+      match:
+        vlan_id: 100
+        ethertype: "0x0800"
+      action: pass
+      rewrite:
+        set_vlan_pcp: 0
+
+    - name: allow_arp
+      priority: 40
+      match:
+        ethertype: "0x0806"
+      action: pass

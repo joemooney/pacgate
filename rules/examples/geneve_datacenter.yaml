@@ -1,0 +1,50 @@
+# geneve_datacenter.yaml — Geneve (RFC 8926) cloud overlay tenant isolation
+# Matches Geneve-encapsulated traffic by Virtual Network Identifier (VNI)
+#
+# Geneve (Generic Network Virtualization Encapsulation) is the standard cloud
+# overlay protocol replacing VXLAN, using UDP dst port 6081 with 24-bit VNI.
+# Used by AWS, Azure, and modern SDN controllers for multi-tenant isolation.
+#
+# 5 rules: tenant isolation by VNI, cross-tenant deny, management access
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: tenant_web
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17
+        geneve_vni: 1000
+      action: pass
+
+    - name: tenant_db
+      priority: 90
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17
+        geneve_vni: 2000
+      action: pass
+
+    - name: tenant_analytics
+      priority: 80
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17
+        geneve_vni: 3000
+      action: pass
+
+    - name: management_overlay
+      priority: 70
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17
+        geneve_vni: 100
+      action: pass
+
+    - name: allow_arp
+      priority: 50
+      match:
+        ethertype: "0x0806"
+      action: pass

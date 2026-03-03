@@ -596,6 +596,36 @@ module packet_filter_assertions (
 {% endfor %}
 {% endif %}
 
+{% if has_geneve %}
+    // ── GENEVE Tunnel (RFC 8926) Assertions ────────────────────────────
+    // GENEVE: UDP dst port 6081, VNI is 24-bit (0-16777215).
+
+    // GENEVE VNI bounds: geneve_vni must be <= 0xFFFFFF (24-bit)
+    assert_geneve_vni_bounds: assert property (@(posedge clk) disable iff (!rst_n)
+        (geneve_valid |-> geneve_vni <= 24'hFFFFFF))
+        else $error("ASSERT FAIL: geneve_vni exceeds 24-bit range (> 16777215)");
+
+    // GENEVE prerequisite: GENEVE rule match implies geneve_valid
+{% for idx in geneve_rule_indices %}
+    assert_geneve_prereq_rule_{{ idx }}: assert property (@(posedge clk) disable iff (!rst_n)
+        (match_hit_{{ idx }} |-> geneve_valid))
+        else $error("ASSERT FAIL: GENEVE rule {{ idx }} matched but geneve_valid not asserted");
+{% endfor %}
+
+    // Cover: GENEVE frame detected
+    cover_geneve_valid: cover property (@(posedge clk) disable iff (!rst_n) geneve_valid);
+
+    // Cover: GENEVE VNI nonzero
+    cover_geneve_vni_nonzero: cover property (@(posedge clk) disable iff (!rst_n)
+        geneve_valid && geneve_vni != 0);
+
+    // Cover: each GENEVE rule exercised
+{% for idx in geneve_rule_indices %}
+    cover_geneve_rule_{{ idx }}: cover property (@(posedge clk) disable iff (!rst_n)
+        match_hit_{{ idx }});
+{% endfor %}
+{% endif %}
+
 {% if has_conntrack_state %}
     // ── Connection Tracking State Cover Properties ──────────────────────
     // conntrack_established is a 1-bit signal from the conntrack table.

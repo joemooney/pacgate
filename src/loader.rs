@@ -212,6 +212,22 @@ fn validate_match_criteria(mc: &crate::model::MatchCriteria, rule_name: &str) ->
         }
     }
 
+    // Geneve VNI validation (24-bit)
+    if let Some(vni) = mc.geneve_vni {
+        if vni > 0xFFFFFF {
+            anyhow::bail!("geneve_vni must be 24-bit (0-16777215), got {} in rule '{}'", vni, rule_name);
+        }
+    }
+
+    // ip_ttl validation (0-255 covered by u8, no extra check needed)
+
+    // frame_len validation
+    if let (Some(min), Some(max)) = (mc.frame_len_min, mc.frame_len_max) {
+        if min > max {
+            anyhow::bail!("frame_len_min ({}) must be <= frame_len_max ({}) in rule '{}'", min, max, rule_name);
+        }
+    }
+
     Ok(())
 }
 
@@ -321,6 +337,58 @@ fn validate_rewrite(rw: &crate::model::RewriteAction, rule: &crate::model::State
     if let Some(port) = rw.set_dst_port {
         if port == 0 {
             anyhow::bail!("set_dst_port must be 1-65535 (0 is invalid), got 0 in rule '{}'", rule_name);
+        }
+    }
+
+    // dec_hop_limit and set_hop_limit are mutually exclusive
+    if rw.dec_hop_limit == Some(true) && rw.set_hop_limit.is_some() {
+        anyhow::bail!("dec_hop_limit and set_hop_limit are mutually exclusive in rule '{}'", rule_name);
+    }
+
+    // dec_hop_limit/set_hop_limit require IPv6 ethertype
+    let needs_ipv6_hop = rw.dec_hop_limit == Some(true) || rw.set_hop_limit.is_some();
+    if needs_ipv6_hop {
+        let has_ipv6_match = rule.match_criteria.ethertype.as_deref() == Some("0x86DD");
+        if !has_ipv6_match {
+            anyhow::bail!("dec_hop_limit/set_hop_limit requires ethertype 0x86DD match in rule '{}'", rule_name);
+        }
+    }
+
+    // set_ecn range validation (0-3)
+    if let Some(ecn) = rw.set_ecn {
+        if ecn > 3 {
+            anyhow::bail!("set_ecn must be 0-3, got {} in rule '{}'", ecn, rule_name);
+        }
+        // Requires IPv4 or IPv6 ethertype
+        let has_ip_match = rule.match_criteria.ethertype.as_deref() == Some("0x0800")
+            || rule.match_criteria.ethertype.as_deref() == Some("0x86DD");
+        if !has_ip_match {
+            anyhow::bail!("set_ecn requires ethertype 0x0800 or 0x86DD match in rule '{}'", rule_name);
+        }
+    }
+
+    // set_vlan_pcp range validation (0-7)
+    if let Some(pcp) = rw.set_vlan_pcp {
+        if pcp > 7 {
+            anyhow::bail!("set_vlan_pcp must be 0-7, got {} in rule '{}'", pcp, rule_name);
+        }
+        let matches_vlan = rule.match_criteria.vlan_id.is_some()
+            || rule.match_criteria.ethertype.as_deref() == Some("0x8100");
+        if !matches_vlan {
+            anyhow::bail!("set_vlan_pcp requires rule to match on vlan_id or ethertype 0x8100 in rule '{}'", rule_name);
+        }
+    }
+
+    // set_outer_vlan_id range validation (0-4095), requires QinQ
+    if let Some(vid) = rw.set_outer_vlan_id {
+        if vid > 4095 {
+            anyhow::bail!("set_outer_vlan_id must be 0-4095, got {} in rule '{}'", vid, rule_name);
+        }
+        let matches_qinq = rule.match_criteria.outer_vlan_id.is_some()
+            || rule.match_criteria.ethertype.as_deref() == Some("0x88A8")
+            || rule.match_criteria.ethertype.as_deref() == Some("0x9100");
+        if !matches_qinq {
+            anyhow::bail!("set_outer_vlan_id requires rule to match on outer_vlan_id or QinQ ethertype in rule '{}'", rule_name);
         }
     }
 
@@ -618,6 +686,9 @@ pub fn check_rule_overlaps(rules: &[crate::model::StatelessRule]) -> Vec<String>
             && !mc.uses_dscp_ecn() && !mc.uses_ipv6_tc() && !mc.uses_tcp_flags() && !mc.uses_icmp()
             && !mc.uses_gre()
             && !mc.uses_conntrack_state()
+            && !mc.uses_geneve()
+            && !mc.uses_ip_ttl()
+            && !mc.uses_frame_len()
         {
             warnings.push(format!(
                 "rule '{}' (priority {}) has no match criteria — matches ALL packets",
@@ -1050,6 +1121,22 @@ pub fn criteria_shadows(a: &crate::model::MatchCriteria, b: &crate::model::Match
         }
     }
 
+    // Geneve VNI shadow check
+    if let Some(a_vni) = a.geneve_vni {
+        match b.geneve_vni {
+            Some(b_vni) if a_vni == b_vni => {},
+            _ => return false,
+        }
+    }
+
+    // ip_ttl shadow check
+    if let Some(a_ttl) = a.ip_ttl {
+        match b.ip_ttl {
+            Some(b_ttl) if a_ttl == b_ttl => {},
+            _ => return false,
+        }
+    }
+
     true
 }
 
@@ -1255,6 +1342,16 @@ fn criteria_overlaps(a: &crate::model::MatchCriteria, b: &crate::model::MatchCri
     // Connection tracking state overlap checks
     if let (Some(ref a_state), Some(ref b_state)) = (&a.conntrack_state, &b.conntrack_state) {
         if a_state != b_state { return false; }
+    }
+
+    // Geneve VNI overlap checks
+    if let (Some(a_vni), Some(b_vni)) = (a.geneve_vni, b.geneve_vni) {
+        if a_vni != b_vni { return false; }
+    }
+
+    // ip_ttl overlap checks
+    if let (Some(a_ttl), Some(b_ttl)) = (a.ip_ttl, b.ip_ttl) {
+        if a_ttl != b_ttl { return false; }
     }
 
     true
@@ -2411,5 +2508,175 @@ pacgate:
         );
         let result = load_rules_from_str(&yaml);
         assert!(result.is_ok());
+    }
+
+    // --- Geneve validation (Phase 26.1) ---
+
+    #[test]
+    fn accept_geneve_vni() {
+        let yaml = valid_yaml(
+            "    - name: tenant\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n        ip_protocol: 17\n        geneve_vni: 1000\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn reject_geneve_vni_out_of_range() {
+        let yaml = valid_yaml(
+            "    - name: bad\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n        geneve_vni: 16777216\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("geneve_vni must be 24-bit"));
+    }
+
+    #[test]
+    fn accept_geneve_vni_max() {
+        let yaml = valid_yaml(
+            "    - name: max\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n        geneve_vni: 16777215\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_ok());
+    }
+
+    // --- ip_ttl / frame_len validation (Phase 26.2) ---
+
+    #[test]
+    fn accept_ip_ttl() {
+        let yaml = valid_yaml(
+            "    - name: low_ttl\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n        ip_ttl: 1\n      action: drop",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn accept_frame_len_range() {
+        let yaml = valid_yaml(
+            "    - name: normal\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n        frame_len_min: 64\n        frame_len_max: 1518\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn reject_frame_len_inverted() {
+        let yaml = valid_yaml(
+            "    - name: bad\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n        frame_len_min: 1518\n        frame_len_max: 64\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("frame_len_min"));
+    }
+
+    // --- IPv6 rewrite validation (Phase 26.3) ---
+
+    #[test]
+    fn reject_dec_hop_limit_and_set_hop_limit() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: bad
+      priority: 100
+      match:
+        ethertype: "0x86DD"
+      action: pass
+      rewrite:
+        dec_hop_limit: true
+        set_hop_limit: 64
+"#;
+        let result = load_rules_from_str(yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("mutually exclusive"));
+    }
+
+    #[test]
+    fn reject_dec_hop_limit_without_ipv6() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: bad
+      priority: 100
+      match:
+        ethertype: "0x0800"
+      action: pass
+      rewrite:
+        dec_hop_limit: true
+"#;
+        let result = load_rules_from_str(yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("dec_hop_limit/set_hop_limit requires ethertype 0x86DD"));
+    }
+
+    #[test]
+    fn reject_set_ecn_out_of_range() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: bad
+      priority: 100
+      match:
+        ethertype: "0x0800"
+      action: pass
+      rewrite:
+        set_ecn: 4
+"#;
+        let result = load_rules_from_str(yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("set_ecn must be 0-3"));
+    }
+
+    // --- VLAN rewrite validation (Phase 26.6) ---
+
+    #[test]
+    fn reject_set_vlan_pcp_out_of_range() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: bad
+      priority: 100
+      match:
+        vlan_id: 100
+      action: pass
+      rewrite:
+        set_vlan_pcp: 8
+"#;
+        let result = load_rules_from_str(yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("set_vlan_pcp must be 0-7"));
+    }
+
+    #[test]
+    fn reject_set_outer_vlan_id_without_qinq() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: bad
+      priority: 100
+      match:
+        ethertype: "0x0800"
+      action: pass
+      rewrite:
+        set_outer_vlan_id: 100
+"#;
+        let result = load_rules_from_str(yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("set_outer_vlan_id requires"));
     }
 }

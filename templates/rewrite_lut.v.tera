@@ -15,7 +15,11 @@ module rewrite_lut (
     output reg  [31:0] rewrite_dst_ip,
     output reg  [5:0]  rewrite_dscp,
     output reg  [15:0] rewrite_src_port,
-    output reg  [15:0] rewrite_dst_port
+    output reg  [15:0] rewrite_dst_port,
+    output reg  [7:0]  rewrite_hop_limit,
+    output reg  [1:0]  rewrite_ecn,
+    output reg  [2:0]  rewrite_vlan_pcp,
+    output reg  [11:0] rewrite_outer_vlan_id
 );
 
     always @(*) begin
@@ -31,6 +35,10 @@ module rewrite_lut (
         rewrite_dscp     = 6'd0;
         rewrite_src_port = 16'd0;
         rewrite_dst_port = 16'd0;
+        rewrite_hop_limit = 8'd0;
+        rewrite_ecn       = 2'd0;
+        rewrite_vlan_pcp  = 3'd0;
+        rewrite_outer_vlan_id = 12'd0;
 
         if (!decision_default) begin
             case (rule_idx)
@@ -64,6 +72,18 @@ module rewrite_lut (
 {% endif %}
 {% if entry.has_dst_port %}
                     rewrite_dst_port = 16'd{{ entry.dst_port }};
+{% endif %}
+{% if entry.has_hop_limit %}
+                    rewrite_hop_limit = 8'd{{ entry.hop_limit }};
+{% endif %}
+{% if entry.has_ecn %}
+                    rewrite_ecn = 2'd{{ entry.ecn }};
+{% endif %}
+{% if entry.has_vlan_pcp %}
+                    rewrite_vlan_pcp = 3'd{{ entry.vlan_pcp }};
+{% endif %}
+{% if entry.has_outer_vlan_id %}
+                    rewrite_outer_vlan_id = 12'd{{ entry.outer_vlan_id }};
 {% endif %}
                 end
 {% endfor %}

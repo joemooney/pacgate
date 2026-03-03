@@ -6,19 +6,24 @@
 // parameters from the rewrite_lut.
 //
 // Supported rewrites (all in-place, no frame length change):
-//   set_dst_mac  — bytes 0-5
-//   set_src_mac  — bytes 6-11
-//   set_vlan_id  — bytes 14-15 (TCI, VLAN-tagged frames only)
-//   set_ttl      — IP header byte 8 (offset 22 or 26 with VLAN, or 26 with QinQ)
-//   dec_ttl      — decrement TTL by 1
-//   set_src_ip   — IP header bytes 12-15 (offset 26-29 or 30-33 with VLAN)
-//   set_dst_ip   — IP header bytes 16-19 (offset 30-33 or 34-37 with VLAN)
-//   set_dscp     — IP header byte 1 TOS[7:2] (DSCP remarking, preserves ECN)
-//   set_src_port — L4 source port (2 bytes at l4_port_offset)
-//   set_dst_port — L4 destination port (2 bytes at l4_port_offset + 2)
+//   set_dst_mac       — bytes 0-5
+//   set_src_mac       — bytes 6-11
+//   set_vlan_id       — bytes 14-15 (TCI, VLAN-tagged frames only)
+//   set_ttl           — IP header byte 8 (offset 22 or 26 with VLAN, or 26 with QinQ)
+//   dec_ttl           — decrement TTL by 1
+//   set_src_ip        — IP header bytes 12-15 (offset 26-29 or 30-33 with VLAN)
+//   set_dst_ip        — IP header bytes 16-19 (offset 30-33 or 34-37 with VLAN)
+//   set_dscp          — IP header byte 1 TOS[7:2] (DSCP remarking, preserves ECN)
+//   set_src_port      — L4 source port (2 bytes at l4_port_offset)
+//   set_dst_port      — L4 destination port (2 bytes at l4_port_offset + 2)
+//   dec_hop_limit     — IPv6 header byte 7 (hop limit decrement, no checksum)
+//   set_hop_limit     — IPv6 header byte 7 (hop limit set, no checksum)
+//   set_ecn           — IPv4 TOS byte ECN[1:0] (with IP checksum update) or IPv6 TC ECN bits
+//   set_vlan_pcp      — VLAN TCI byte PCP[7:5] (inner tag at byte 14, or byte 18 with QinQ)
+//   set_outer_vlan_id — QinQ outer VLAN ID (bytes 14-15, only if has_outer_vlan)
 //
 // IP checksum is incrementally updated (RFC 1624) when TTL, IP
-// addresses, or DSCP are modified.
+// addresses, DSCP, or IPv4 ECN are modified.
 //
 // L4 (TCP/UDP) checksum is incrementally updated (RFC 1624) when
 // ports are modified. UDP checksum == 0x0000 is left as-is.
@@ -27,6 +32,8 @@
 //   [0]=set_dst_mac [1]=set_src_mac [2]=set_vlan_id
 //   [3]=set_ttl [4]=dec_ttl [5]=set_src_ip [6]=set_dst_ip [7]=set_dscp
 //   [8]=set_src_port [9]=set_dst_port
+//   [10]=dec_hop_limit [11]=set_hop_limit [12]=set_ecn
+//   [13]=set_vlan_pcp [14]=set_outer_vlan_id
 
 module packet_rewrite (
     input  wire        clk,
@@ -56,6 +63,11 @@ module packet_rewrite (
     input  wire [5:0]  rewrite_dscp,
     input  wire [15:0] rewrite_src_port,
     input  wire [15:0] rewrite_dst_port,
+    input  wire [7:0]  rewrite_hop_limit,     // hop limit value for set_hop_limit
+    input  wire [1:0]  rewrite_ecn,           // ECN value for set_ecn
+    input  wire        is_ipv6,               // 1 if packet is IPv6 (for hop limit/ECN)
+    input  wire [2:0]  rewrite_vlan_pcp,      // PCP value for set_vlan_pcp
+    input  wire [11:0] rewrite_outer_vlan_id, // outer VLAN ID for set_outer_vlan_id
 
     // Parsed fields from frame_parser (for incremental checksum)
     input  wire        has_vlan,
@@ -74,16 +86,21 @@ module packet_rewrite (
 );
 
     // Flag decode
-    wire flag_dst_mac  = rewrite_en & rewrite_flags[0];
-    wire flag_src_mac  = rewrite_en & rewrite_flags[1];
-    wire flag_vlan_id  = rewrite_en & rewrite_flags[2];
-    wire flag_set_ttl  = rewrite_en & rewrite_flags[3];
-    wire flag_dec_ttl  = rewrite_en & rewrite_flags[4];
-    wire flag_src_ip   = rewrite_en & rewrite_flags[5];
-    wire flag_dst_ip   = rewrite_en & rewrite_flags[6];
-    wire flag_dscp     = rewrite_en & rewrite_flags[7];
-    wire flag_src_port = rewrite_en & rewrite_flags[8];
-    wire flag_dst_port = rewrite_en & rewrite_flags[9];
+    wire flag_dst_mac         = rewrite_en & rewrite_flags[0];
+    wire flag_src_mac         = rewrite_en & rewrite_flags[1];
+    wire flag_vlan_id         = rewrite_en & rewrite_flags[2];
+    wire flag_set_ttl         = rewrite_en & rewrite_flags[3];
+    wire flag_dec_ttl         = rewrite_en & rewrite_flags[4];
+    wire flag_src_ip          = rewrite_en & rewrite_flags[5];
+    wire flag_dst_ip          = rewrite_en & rewrite_flags[6];
+    wire flag_dscp            = rewrite_en & rewrite_flags[7];
+    wire flag_src_port        = rewrite_en & rewrite_flags[8];
+    wire flag_dst_port        = rewrite_en & rewrite_flags[9];
+    wire flag_dec_hop_limit   = rewrite_en & rewrite_flags[10];
+    wire flag_set_hop_limit   = rewrite_en & rewrite_flags[11];
+    wire flag_set_ecn         = rewrite_en & rewrite_flags[12];
+    wire flag_set_vlan_pcp    = rewrite_en & rewrite_flags[13];
+    wire flag_set_outer_vlan_id = rewrite_en & rewrite_flags[14];
 
     // IP header base offset: 14 (no VLAN), 18 (with VLAN), 22 (with QinQ outer+inner)
     wire [10:0] ip_base = has_outer_vlan ? 11'd22 : (has_vlan ? 11'd18 : 11'd14);
@@ -132,6 +149,13 @@ module packet_rewrite (
             cksum_delta = cksum_delta
                 + {16'd0, ~{8'h00, {orig_ip_dscp, orig_ip_ecn}}}
                 + {16'd0,  {8'h00, {rewrite_dscp, orig_ip_ecn}}};
+        end
+
+        // ECN change (TOS byte bits [1:0]) — IPv4 only; DSCP is preserved from original
+        if (flag_set_ecn && !is_ipv6) begin
+            cksum_delta = cksum_delta
+                + {16'd0, ~{8'h00, {orig_ip_dscp, orig_ip_ecn}}}
+                + {16'd0,  {8'h00, {orig_ip_dscp, rewrite_ecn}}};
         end
     end
 
@@ -269,8 +293,9 @@ module packet_rewrite (
                     end
                 end
 
-                // IP checksum: IP header bytes 10-11
-                if (flag_set_ttl || flag_dec_ttl || flag_src_ip || flag_dst_ip || flag_dscp) begin
+                // IP checksum: IP header bytes 10-11 (IPv4 only)
+                if ((flag_set_ttl || flag_dec_ttl || flag_src_ip || flag_dst_ip || flag_dscp ||
+                     (flag_set_ecn && !is_ipv6)) && !is_ipv6) begin
                     if (byte_pos == ip_base + 11'd10) begin
                         m_axis_tdata <= new_checksum[15:8];
                     end
@@ -318,6 +343,63 @@ module packet_rewrite (
                 if (l4_port_rewrite_active && l4_cksum_update_ok) begin
                     if (byte_pos == l4_cksum_offset)        m_axis_tdata <= new_l4_checksum[15:8];
                     if (byte_pos == l4_cksum_offset + 11'd1) m_axis_tdata <= new_l4_checksum[7:0];
+                end
+
+                // IPv6 hop limit decrement (no checksum for IPv6)
+                if (flag_dec_hop_limit && is_ipv6) begin
+                    if (byte_pos == ip_base + 11'd7) begin
+                        m_axis_tdata <= s_axis_tdata - 8'd1;
+                    end
+                end
+
+                // IPv6 hop limit set (no checksum for IPv6)
+                if (flag_set_hop_limit && is_ipv6) begin
+                    if (byte_pos == ip_base + 11'd7) begin
+                        m_axis_tdata <= rewrite_hop_limit;
+                    end
+                end
+
+                // ECN rewrite
+                // IPv4: TOS byte at ip_base+1, bits [1:0]; needs IP checksum update (handled above)
+                // IPv6: Traffic Class byte at ip_base+1, bits [5:4] (within lower nibble); no checksum
+                if (flag_set_ecn) begin
+                    if (byte_pos == ip_base + 11'd1) begin
+                        if (!is_ipv6) begin
+                            // IPv4 TOS: {DSCP[7:2], ECN[1:0]} — preserve DSCP
+                            m_axis_tdata <= {s_axis_tdata[7:2], rewrite_ecn};
+                        end else begin
+                            // IPv6 TC byte 1 (ip_base+1): {version_nibble_low[7:6], ECN[5:4], flow_hi[3:0]}
+                            // TC bits are split: upper 4 bits share a byte with version nibble,
+                            // lower 4 bits share a byte with flow label. ECN sits in bits [5:4] of
+                            // the second TC byte (ip_base+1 = byte at offset ip_base+1):
+                            //   ip_base+0: {4'b0110, TC[7:4]}
+                            //   ip_base+1: {TC[3:2]=DSCP[1:0], TC[1:0]=ECN[1:0], flow_label[19:16]}
+                            // So bits [5:4] of this byte hold ECN; preserve bits [7:6] (DSCP low) and [3:0] (flow)
+                            m_axis_tdata <= {s_axis_tdata[7:6], rewrite_ecn, s_axis_tdata[3:0]};
+                        end
+                    end
+                end
+
+                // VLAN PCP rewrite (inner TCI first byte: {PCP[2:0], DEI, VID[11:8]})
+                // Position: byte 14 for simple VLAN, byte 18 for QinQ (after outer tag)
+                if (flag_set_vlan_pcp && has_vlan) begin
+                    if (byte_pos == (has_outer_vlan ? 11'd18 : 11'd14)) begin
+                        // Preserve DEI (bit 4) and upper VID nibble (bits [3:0]), replace PCP bits [7:5]
+                        m_axis_tdata <= {rewrite_vlan_pcp, s_axis_tdata[4:0]};
+                    end
+                end
+
+                // Outer VLAN ID rewrite (QinQ outer TCI at bytes 14-15)
+                // TCI = {PCP[2:0], DEI, VID[11:0]}
+                // Byte 14: {PCP[2:0], DEI, VID[11:8]} — preserve PCP/DEI, replace upper VID nibble
+                // Byte 15: VID[7:0]
+                if (flag_set_outer_vlan_id && has_outer_vlan) begin
+                    if (byte_pos == 11'd14) begin
+                        m_axis_tdata <= {s_axis_tdata[7:4], rewrite_outer_vlan_id[11:8]};
+                    end
+                    if (byte_pos == 11'd15) begin
+                        m_axis_tdata <= rewrite_outer_vlan_id[7:0];
+                    end
                 end
 
                 // Update byte position

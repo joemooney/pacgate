@@ -227,6 +227,16 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
             tc.insert("nsh_next_protocol".to_string(), np.to_string());
             tc.insert("has_nsh".to_string(), "true".to_string());
         }
+        // Geneve tunnel fields
+        if let Some(vni) = rule.match_criteria.geneve_vni {
+            tc.insert("geneve_vni".to_string(), vni.to_string());
+            tc.insert("has_geneve".to_string(), "true".to_string());
+        }
+        // IPv4 TTL field
+        if let Some(ttl) = rule.match_criteria.ip_ttl {
+            tc.insert("ip_ttl".to_string(), ttl.to_string());
+            tc.insert("has_ip_ttl".to_string(), "true".to_string());
+        }
         // Mirror/redirect port (informational)
         if let Some(mp) = rule.mirror_port {
             tc.insert("mirror_port".to_string(), mp.to_string());
@@ -499,6 +509,14 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         if let Some(np) = rule.match_criteria.nsh_next_protocol {
             sr.insert("nsh_next_protocol".to_string(), np.to_string());
         }
+        // Geneve tunnel scoreboard field
+        if let Some(vni) = rule.match_criteria.geneve_vni {
+            sr.insert("geneve_vni".to_string(), vni.to_string());
+        }
+        // IPv4 TTL scoreboard field
+        if let Some(ttl) = rule.match_criteria.ip_ttl {
+            sr.insert("ip_ttl".to_string(), ttl.to_string());
+        }
         scoreboard_rules.push(sr);
     }
 
@@ -537,6 +555,8 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         ctx.insert("has_conntrack_state_rules", &rules.iter().any(|r| r.match_criteria.uses_conntrack_state()));
         ctx.insert("has_oam_rules", &rules.iter().any(|r| r.match_criteria.uses_oam()));
         ctx.insert("has_nsh_rules", &rules.iter().any(|r| r.match_criteria.uses_nsh()));
+        ctx.insert("has_geneve_rules", &config.pacgate.rules.iter().any(|r| r.match_criteria.uses_geneve()));
+        ctx.insert("has_ip_ttl_rules", &config.pacgate.rules.iter().any(|r| r.match_criteria.uses_ip_ttl()));
         ctx.insert("has_mirror_rules", &rules.iter().any(|r| r.has_mirror()));
         ctx.insert("has_redirect_rules", &rules.iter().any(|r| r.has_redirect()));
         ctx.insert("has_flow_counters", &config.pacgate.conntrack.as_ref()

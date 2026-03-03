@@ -23,6 +23,9 @@
 - **Per-flow counters**: enable_flow_counters in conntrack config for per-flow packet/byte counting and flow export
 - **OAM (IEEE 802.1ag CFM)**: oam_level (3-bit MD level, 0-7), oam_opcode (8-bit CFM OpCode: 1=CCM, 3=LBR, 47=DMM, 48=DMR) for carrier Ethernet OAM monitoring
 - **NSH/SFC (RFC 8300)**: nsh_spi (24-bit Service Path Identifier), nsh_si (8-bit Service Index), nsh_next_protocol (inner protocol type) for Service Function Chaining
+- **Geneve tunnel (RFC 8926)**: geneve_vni (24-bit VNI, 0-16777215) matching after UDP:6081 detection
+- **IP TTL matching**: ip_ttl (0-255) match field for TTL-based security and traceroute detection
+- **Frame length matching**: frame_len_min/frame_len_max (simulation-only, no RTL) for size-based filtering
 - **L4 port rewrite**: set_src_port, set_dst_port with RFC 1624 incremental L4 checksum update (TCP/UDP, UDP cksum=0 preserved)
 - **Byte-offset matching**: raw byte inspection at any packet offset with value/mask (`byte_match`)
 - **Hierarchical State Machines**: nested states, variables (1-32 bit), guards, entry/exit/transition actions
@@ -31,7 +34,7 @@
 - **Connection tracking**: CRC-based hash table with timeout (`--conntrack`)
 - **Runtime flow tables**: register-based AXI-Lite-writable match entries with staging+commit atomicity (`--dynamic`)
 - **Mirror/redirect egress**: mirror_port (copy packet to egress port), redirect_port (override egress port) per-rule egress actions
-- **Packet rewrite actions**: set_dst_mac, set_src_mac, set_vlan_id, set_ttl, dec_ttl, set_src_ip, set_dst_ip, set_dscp, set_src_port, set_dst_port (NAT, PAT, TTL management, MAC rewrite, VLAN modification, QoS remarking, port forwarding)
+- **Packet rewrite actions**: set_dst_mac, set_src_mac, set_vlan_id, set_vlan_pcp, set_outer_vlan_id, set_ttl, dec_ttl, set_src_ip, set_dst_ip, set_dscp, set_ecn, set_src_port, set_dst_port, dec_hop_limit, set_hop_limit (NAT, PAT, TTL management, MAC rewrite, VLAN modification, QoS remarking, port forwarding, IPv6 hop limit, ECN marking)
 - **Platform integration**: `--target opennic` and `--target corundum` generate drop-in NIC wrappers with 512↔8-bit width converters (~2 Gbps at 250MHz)
 - **cocotb 2.0 runner**: `run_sim.py` generated alongside Makefiles using `cocotb_tools.runner` API for programmatic, cross-platform simulation
 - **IPv6 matching**: src_ipv6, dst_ipv6 (CIDR prefix), ipv6_next_header
@@ -50,8 +53,9 @@
 - **HTML diff visualization**: color-coded side-by-side HTML diff report (`diff --html`)
 - **Performance benchmarking**: compile time, simulation throughput (pkts/sec), LUT/FF scaling curves (`bench` subcommand)
 - Rule overlap and shadow detection with warnings
-- **Full-stack scoreboard**: Python reference model matches L2/L3/L4/IPv6/VXLAN/GTP-U/MPLS/IGMP/MLD/DSCP/ECN/IPv6-TC/TCP-flags/ICMP/ICMPv6/ARP/IPv6-ext/QinQ/IP-frag/GRE/conntrack-state/OAM/NSH/byte-match fields
+- **Full-stack scoreboard**: Python reference model matches L2/L3/L4/IPv6/VXLAN/GTP-U/MPLS/IGMP/MLD/DSCP/ECN/IPv6-TC/TCP-flags/ICMP/ICMPv6/ARP/IPv6-ext/QinQ/IP-frag/GRE/conntrack-state/OAM/NSH/Geneve/ip_ttl/frame_len/byte-match fields
 - **Directed L3/L4 tests**: generated tests construct proper IPv4/IPv6/TCP/UDP headers
+- **Protocol-specific cocotb packets**: 14 PacketFactory methods (geneve, gre, icmp, icmpv6_msg, arp_msg, qinq, ip_frag, tcp_with_flags, dscp_ecn, ipv6_tc, ipv6_ext, ipv4_tcp_conntrack) with 13 protocol branches in test_harness.py.tera
 - **Byte-match simulation**: software simulator evaluates byte_match rules with raw_bytes
 - **Enhanced formal**: SVA assertions for IPv6 CIDR, port range, rate limiter enforcement, byte-match, GTP-U/MPLS/IGMP/MLD/GRE prerequisite + bounds assertions with protocol cover statements
 - **Conntrack cocotb tests**: 5 tests (new flow, return traffic, timeout, collision, overflow)
@@ -59,12 +63,12 @@
 - **Mutation kill-rate runner**: compile + lint each mutant, report kill/survived/error rates (`mutate --run`)
 - **Coverage-directed closure**: CoverageDirector wired into test loop with XML export
 - **Boundary test generation**: auto-derived CIDR/port boundary tests + formally-derived negative tests
-- **Enhanced property tests**: 9 Hypothesis-based tests including CIDR/port/IPv6 boundary checks
+- **Enhanced property tests**: 17 Hypothesis-based tests including CIDR/port/IPv6 boundary checks + 8 protocol strategies (GRE/OAM/NSH/ARP/ICMP/ICMPv6/QinQ/TCP-flags frames)
 - **Scenario validation**: validate scenario JSON files (v1 basic + v2 topology-aware) with strict key checking
 - **Packet regression**: high-volume regression testing against scenarios using direct `simulate()` calls (~600K pps)
 - **Topology simulation**: 2-port RMAC/L3 switch topology simulation with subnet gating, ingress validation, egress routing
 - **Scenario store**: import/export scenario files to/from JSON store (merge or replace modes)
-- `lint` subcommand for best-practice analysis and security checks (39 lint rules)
+- `lint` subcommand for best-practice analysis and security checks (46 lint rules)
 - FPGA resource estimation (LUTs/FFs for Artix-7) + timing/pipeline analysis
 - `--json` flag on compile/validate/estimate/diff/formal/lint for CI/scripting integration
 - `diff` subcommand for rule set change management
@@ -78,8 +82,8 @@
 - Coverage XML export with merge support across runs
 - Coverage-directed test generation (verification/coverage_driven.py)
 - Enhanced overlap detection with CIDR containment and port range analysis
-- 38 real-world YAML examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite, OpenNIC, Corundum, TCP flags/ICMP, ARP security, ICMPv6 firewall, QinQ provider, fragment security, port rewrite, GRE tunnel, conntrack firewall, mirror/redirect, flow counters, OAM monitoring, NSH/SFC)
-- 439 Rust unit tests + 327 integration tests = 766 total, 53 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
+- 42 real-world YAML examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite, OpenNIC, Corundum, TCP flags/ICMP, ARP security, ICMPv6 firewall, QinQ provider, fragment security, port rewrite, GRE tunnel, conntrack firewall, mirror/redirect, flow counters, OAM monitoring, NSH/SFC, Geneve datacenter, TTL security, IPv6 routing, QoS rewrite)
+- 479 Rust unit tests + 327 integration tests = 806 total, 67 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
 
 ## Architecture
 ```
@@ -99,7 +103,7 @@ Mermaid .md --> pacgate from-mermaid --> YAML rules
 - `packet_filter_multiport_top` — multi-port wrapper (generated, `--ports N`)
   - N x `packet_filter_top` — per-port filter instance
 - `packet_filter_top` — generated top-level
-  - `frame_parser` — hand-written parser: L2/L3/L4/IPv6/VXLAN/GTP-U/MPLS/IGMP/MLD/OAM extraction (rtl/frame_parser.v)
+  - `frame_parser` — hand-written parser: L2/L3/L4/IPv6/VXLAN/GTP-U/MPLS/IGMP/MLD/OAM/NSH/Geneve extraction (rtl/frame_parser.v)
   - `byte_capture` — generated byte-offset capture module (if byte_match used)
   - `rule_match_N` — generated per-rule combinational matchers (stateless)
   - `rule_fsm_N` — generated per-rule FSM modules (stateful, supports HSM)
@@ -174,6 +178,8 @@ pacgate simulate rules.yaml --packet "ethertype=0x88A8,outer_vlan_id=100,outer_v
 pacgate simulate rules.yaml --packet "ethertype=0x0800,ip_dont_fragment=true"                  # IPv4 DF flag
 pacgate simulate rules.yaml --packet "ethertype=0x8902,oam_level=3,oam_opcode=1"              # OAM/CFM CCM level 3
 pacgate simulate rules.yaml --packet "ethertype=0x894F,nsh_spi=100,nsh_si=254"               # NSH/SFC path matching
+pacgate simulate rules.yaml --packet "ethertype=0x0800,ip_protocol=17,dst_port=6081,geneve_vni=5000"  # Geneve tunnel matching
+pacgate simulate rules.yaml --packet "ethertype=0x0800,ip_ttl=1"                              # TTL-based security matching
 pacgate simulate rules.yaml --packet "ethertype=0x0800,ip_protocol=47,gre_protocol=0x0800"     # GRE tunnel matching
 pacgate simulate rules.yaml --packet "ethertype=0x0800,conntrack_state=established"            # Conntrack state matching
 pacgate simulate rules.yaml --packet "ethertype=0x0800,ip_protocol=6,dst_port=80,conntrack_state=new"  # New TCP connection
@@ -205,12 +211,12 @@ pacgate regress --scenario scenario.json --count 1000       # Run packet regress
 pacgate regress --scenario scenario.json --count 1000 --json # JSON regression output
 pacgate topology --scenario scenario.json                   # Run topology simulation
 pacgate topology --scenario scenario.json --json            # JSON topology output
-cargo test                             # 464 tests (260 unit + 204 integration)
-pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
+cargo test                             # 806 tests (479 unit + 327 integration)
+pytest verification/test_scoreboard.py # 67 Python scoreboard unit tests
 ```
 
 ## Key Files
-- `src/model.rs` — Data model (Action, MatchCriteria, ByteMatch, Ipv6Prefix, RateLimit, FsmVariable, HSM types, ConntrackConfig, GtpTeid, MplsLabel, IgmpType, MldType, IpDscp, IpEcn, Ipv6Dscp, Ipv6Ecn, TcpFlags, IcmpType, IcmpCode, ICMPv6Type, ICMPv6Code, ArpOpcode, ArpSpa, ArpTpa, Ipv6HopLimit, Ipv6FlowLabel, OuterVlanId, OuterVlanPcp, IpDontFragment, IpMoreFragments, IpFragOffset, GreProtocol, GreKey, ConntrackState, OamLevel, OamOpcode, NshSpi, NshSi, NshNextProtocol, RewriteAction with set_src_port/set_dst_port)
+- `src/model.rs` — Data model (Action, MatchCriteria, ByteMatch, Ipv6Prefix, RateLimit, FsmVariable, HSM types, ConntrackConfig, GtpTeid, MplsLabel, IgmpType, MldType, IpDscp, IpEcn, Ipv6Dscp, Ipv6Ecn, TcpFlags, IcmpType, IcmpCode, ICMPv6Type, ICMPv6Code, ArpOpcode, ArpSpa, ArpTpa, Ipv6HopLimit, Ipv6FlowLabel, OuterVlanId, OuterVlanPcp, IpDontFragment, IpMoreFragments, IpFragOffset, GreProtocol, GreKey, ConntrackState, OamLevel, OamOpcode, NshSpi, NshSi, NshNextProtocol, GeneveVni, IpTtl, FrameLenMin, FrameLenMax, RewriteAction with set_src_port/set_dst_port/dec_hop_limit/set_hop_limit/set_ecn/set_vlan_pcp/set_outer_vlan_id)
 - `src/loader.rs` — YAML loading + validation + CIDR/port overlap detection + HSM/byte_match/conntrack validation
 - `src/verilog_gen.rs` — Tera-based Verilog generation (L2/L3/L4/IPv6/VXLAN/GTP-U/MPLS/IGMP/MLD/byte-match, HSM flattening, multiport)
 - `src/cocotb_gen.rs` — cocotb test harness + AXI tests + property test generation
@@ -227,7 +233,7 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 - `src/mcy_gen.rs` — MCY (Mutation Cover with Yosys) config generation
 - `src/scenario.rs` — Scenario validation, regression testing, topology simulation (migrated from pacilab)
 - `src/main.rs` — clap CLI (32 subcommands)
-- `rtl/frame_parser.v` — Hand-written Ethernet/IPv4/IPv6/TCP/UDP/VXLAN/GTP-U/MPLS/IGMP/MLD/ICMP/ICMPv6/ARP/QinQ/OAM/NSH parser FSM with TCP flags + IPv6 TC + hop_limit + flow_label + fragmentation + L4 port offset + OAM/CFM + NSH/SFC extraction
+- `rtl/frame_parser.v` — Hand-written Ethernet/IPv4/IPv6/TCP/UDP/VXLAN/GTP-U/MPLS/IGMP/MLD/ICMP/ICMPv6/ARP/QinQ/OAM/NSH/Geneve parser FSM (22 states) with TCP flags + IPv6 TC + hop_limit + flow_label + fragmentation + L4 port offset + OAM/CFM + NSH/SFC + Geneve VNI + ip_ttl extraction
 - `rtl/rule_counters.v` — Per-rule 64-bit packet/byte counters
 - `rtl/axi_lite_csr.v` — AXI4-Lite register interface for counters
 - `rtl/axi_stream_adapter.v` — AXI-Stream to pkt_* interface bridge
@@ -246,14 +252,14 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 - `templates/pacgate_opennic_250.v.tera` — OpenNIC Shell 250MHz user box wrapper template
 - `templates/pacgate_corundum_app.v.tera` — Corundum mqnic_app_block wrapper template
 - `verification/` — Python verification framework (packet, scoreboard, coverage, driver, properties, coverage_driven, test_scoreboard)
-- `rules/examples/` — 36 YAML examples
+- `rules/examples/` — 42 YAML examples
 - `rules/templates/` — 7 rule template YAML snippets
 - `.github/workflows/ci.yml` — GitHub Actions CI pipeline
 
 ## Design Decisions
 - Decision output is **latched** (stays valid until next pkt_sof)
 - Rules sorted by priority (highest first); priority encoder is if/else chain
-- Frame parser handles 802.1Q VLAN, IPv4, IPv6, TCP/UDP, VXLAN, GTP-U, MPLS, IGMP, MLD, DSCP/ECN, IPv6 TC, TCP flags, ICMP, ICMPv6, ARP, IPv6 hop_limit/flow_label, OAM/CFM
+- Frame parser handles 802.1Q VLAN, IPv4, IPv6, TCP/UDP, VXLAN, GTP-U, MPLS, IGMP, MLD, DSCP/ECN, IPv6 TC, TCP flags, ICMP, ICMPv6, ARP, IPv6 hop_limit/flow_label, OAM/CFM, NSH/SFC, Geneve (22 parser states)
 - Stateless evaluation is combinational (O(1) clock cycles)
 - Stateful rules use registered FSM with 32-bit timeout counters
 - HSM flattening: composite states converted to flat "parent_child" Verilog states (max 4 levels)
@@ -266,6 +272,13 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 - GRE detection: IP protocol 47, S_GRE_HDR state extracts 16-bit protocol type + optional 32-bit key (K flag in GRE header)
 - OAM/CFM detection: EtherType 0x8902, S_OAM_HDR state extracts 3-bit MEL (MD level) from byte 0 bits[7:5] and 8-bit OpCode from byte 1
 - NSH detection: EtherType 0x894F, S_NSH_HDR state extracts 8-byte header — byte 2 next_protocol, bytes 4-6 SPI (24-bit), byte 7 SI (8-bit)
+- Geneve detection: UDP dst port == 6081, S_GENEVE_HDR state (5'd21) extracts 24-bit VNI from 8-byte Geneve base header
+- ip_ttl exposure: already extracted by frame parser (ip_ttl register), now exposed as match field for TTL-based security rules
+- frame_len: simulation-only match field (frame_len_min/frame_len_max), no RTL generation — evaluated in software simulator only
+- IPv6 hop limit rewrite: dec_hop_limit/set_hop_limit (flag bits 10-11), no checksum update needed (IPv6 has no header checksum)
+- ECN rewrite: set_ecn (flag bit 12) modifies 2-bit ECN in IPv4 TOS byte or IPv6 Traffic Class, with RFC 1624 checksum for IPv4
+- VLAN PCP rewrite: set_vlan_pcp (flag bit 13) modifies 3-bit PCP in 802.1Q VLAN tag
+- Outer VLAN rewrite: set_outer_vlan_id (flag bit 14) modifies 12-bit VID in outer 802.1ad QinQ tag
 - MPLS detection: EtherType 0x8847 (unicast) or 0x8848 (multicast), extract 20-bit label, 3-bit TC, 1-bit BOS
 - IGMP detection: IPv4 protocol == 2, extract type byte from IGMP header
 - MLD detection: ICMPv6 (next_header 58), types 130-132 (query, report v1, done)
@@ -280,10 +293,10 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 - QinQ (802.1ad) detection: EtherType 0x88A8 (IEEE) or 0x9100 (legacy), outer tag → outer_vlan_id/pcp, inner tag → vlan_id/pcp
 - IPv4 fragmentation: DF/MF flags at IP header byte 6, 13-bit fragment offset at bytes 6-7, ip_frag_valid set
 - L4 port offset: 11-bit frame_byte_cnt tracks absolute position, l4_port_offset latched at L4 header start for rewrite engine
-- Rewrite flags: 16-bit (bits 0-7 original, bit 8=set_src_port, bit 9=set_dst_port, room for 6 future)
+- Rewrite flags: 16-bit (bits 0-7 original, bit 8=set_src_port, bit 9=set_dst_port, bit 10=dec_hop_limit, bit 11=set_hop_limit, bit 12=set_ecn, bit 13=set_vlan_pcp, bit 14=set_outer_vlan_id, 1 remaining)
 - ip_base 3-way: has_outer_vlan ? 22 : (has_vlan ? 18 : 14) — QinQ adds 4 bytes for outer TCI
 - L4 port rewrite: RFC 1624 incremental checksum; UDP checksum=0 preserved (means "no checksum" per RFC 768)
-- Packet rewrite is in-place only (no frame length changes); supports MAC/VLAN/TTL/IP/DSCP/port substitution with RFC 1624 incremental checksum
+- Packet rewrite is in-place only (no frame length changes); supports MAC/VLAN/VLAN-PCP/outer-VLAN/TTL/hop-limit/IP/DSCP/ECN/port substitution with RFC 1624 incremental checksum (IPv4 only; IPv6 rewrite needs no checksum)
 - AXI-Stream modules are hand-written (not generated) since they are infrastructure
 - Platform targets (OpenNIC/Corundum): 512↔8-bit width converters limit V1 to ~2 Gbps; suitable for 1GbE/dev/prototyping
 - OpenNIC wrapper preserves tuser_size/tuser_src/tuser_dst metadata; Corundum wrapper inverts active-high reset and passes PTP timestamp
@@ -325,3 +338,11 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 - **Phase 25.4**: Complete — Per-flow counters + flow export: enable_flow_counters on ConntrackConfig, FlowEntry struct with pkt_count/byte_count in SimConntrackTable, increment_counters()/flow_stats() methods, conntrack_table.v per-entry 64-bit pkt/byte counters + flow read-back interface (flow_read_idx/en/key/valid/pkt_count/byte_count/tcp_state/done), has_flow_counters in verilog_gen/templates (AXI/OpenNIC/Corundum), LINT037 (flow counters require --conntrack), estimate +128 LUT/FF per entry, SVA cover properties (flow_read_done, pkt_count), mutation type 27 (remove_flow_counters), diff_rules() conntrack config diffing, flow_counters.yaml example, 414 unit + 305 integration = 719 tests
 - **Phase 25.5**: Complete — OAM/CFM (IEEE 802.1ag) support: oam_level (3-bit MD level, 0-7) + oam_opcode (8-bit CFM OpCode) matching on EtherType 0x8902, frame parser S_OAM_HDR state, LINT038 (OAM without ethertype 0x8902), mutation type 28 (remove_oam_level), oam_monitoring.yaml example (5 rules), 53 Python scoreboard tests, 426 unit + 317 integration = 743 tests
 - **Phase 25.6**: Complete — NSH/SFC (RFC 8300) support: nsh_spi (24-bit Service Path Identifier) + nsh_si (8-bit Service Index) + nsh_next_protocol (inner protocol type) matching on EtherType 0x894F, frame parser S_NSH_HDR state (8-byte header), LINT039 (NSH without ethertype 0x894F), mutation type 29 (remove_nsh_spi), nsh_sfc.yaml example (5 rules), 53 Python scoreboard tests, 439 unit + 327 integration = 766 tests
+- **Phase 26**: Complete — Geneve tunnel + IP TTL/frame length + IPv6 rewrite + cocotb/Hypothesis completeness + VLAN rewrite:
+  - **26.1 Geneve (RFC 8926)**: geneve_vni (24-bit VNI, 0-16777215) matching on UDP:6081, frame parser S_GENEVE_HDR state (5'd21), LINT040 (Geneve without UDP:6081), mutation type 30 (remove_geneve_vni), geneve_datacenter.yaml example
+  - **26.2 ip_ttl/frame_len**: ip_ttl (0-255) match field (already extracted by parser, now exposed), frame_len_min/frame_len_max (simulation-only, no RTL), LINT041-042, mutation types 31-32, ttl_security.yaml example
+  - **26.3 IPv6 rewrite**: dec_hop_limit, set_hop_limit, set_ecn rewrite actions (flag bits 10-12), no checksum needed for IPv6, ECN in IPv4 TOS or IPv6 TC, LINT043, ipv6_routing.yaml example
+  - **26.4 Cocotb test completeness**: 14 new PacketFactory methods (geneve, gre, icmp, icmpv6_msg, arp_msg, qinq, ip_frag, tcp_with_flags, dscp_ecn, ipv6_tc, ipv6_ext, ipv4_tcp_conntrack), test_harness.py.tera updated with 13 protocol branches
+  - **26.5 Hypothesis completeness**: 8 new strategies (gre_frames, oam_frames, nsh_frames, arp_frames, icmp_frames, icmpv6_frames, qinq_frames, tcp_flags_frames), test_properties.py.tera updated with 9 conditional blocks
+  - **26.6 VLAN rewrite**: set_vlan_pcp (0-7, flag bit 13), set_outer_vlan_id (0-4095, flag bit 14), LINT044-046, mutation type 33, qos_rewrite.yaml example
+  - 22 parser states, 15 rewrite flag bits (0-14, 1 remaining), 46 lint rules, 33 mutation types, 42 examples, 67 Python scoreboard tests, 479 unit + 327 integration = 806 tests
