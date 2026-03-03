@@ -133,6 +133,9 @@ class Rule:
     gre_key: Optional[int] = None
     # Connection tracking state
     conntrack_state: Optional[str] = None
+    # OAM (Connectivity Fault Management) fields
+    oam_level: Optional[int] = None
+    oam_opcode: Optional[int] = None
     # Egress port actions (informational — do not affect pass/drop matching)
     mirror_port: Optional[int] = None
     redirect_port: Optional[int] = None
@@ -361,6 +364,16 @@ class Rule:
         if self.gre_key is not None:
             pkt_gre_key = extracted.get("gre_key")
             if pkt_gre_key is None or pkt_gre_key != self.gre_key:
+                return False
+
+        # OAM (CFM) matching
+        if self.oam_level is not None:
+            pkt_oam_level = extracted.get("oam_level")
+            if pkt_oam_level is None or pkt_oam_level != self.oam_level:
+                return False
+        if self.oam_opcode is not None:
+            pkt_oam_opcode = extracted.get("oam_opcode")
+            if pkt_oam_opcode is None or pkt_oam_opcode != self.oam_opcode:
                 return False
 
         # Connection tracking state matching

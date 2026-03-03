@@ -532,6 +532,36 @@ module packet_filter_assertions (
 {% endfor %}
 {% endif %}
 
+{% if has_oam %}
+    // ── OAM (IEEE 802.1ag CFM) Assertions ─────────────────────────────
+    // OAM level is 3-bit (0-7), opcode is 8-bit. EtherType 0x8902.
+
+    // OAM level bounds: oam_level must be <= 7 (3-bit, auto-satisfied but good practice)
+    assert_oam_level_bounds: assert property (@(posedge clk) disable iff (!rst_n)
+        (oam_valid |-> oam_level <= 3'd7))
+        else $error("ASSERT FAIL: oam_level exceeds 3-bit range (> 7)");
+
+    // OAM prerequisite: OAM rule match implies ethertype == 0x8902
+{% for idx in oam_rule_indices %}
+    assert_oam_prereq_rule_{{ idx }}: assert property (@(posedge clk) disable iff (!rst_n)
+        (match_hit_{{ idx }} |-> (ethertype == 16'h8902)))
+        else $error("ASSERT FAIL: OAM rule {{ idx }} matched but ethertype != 0x8902");
+{% endfor %}
+
+    // Cover: OAM frame detected
+    cover_oam_valid: cover property (@(posedge clk) disable iff (!rst_n) oam_valid);
+
+    // Cover: CCM opcode (opcode=1) — Continuity Check Message
+    cover_oam_ccm: cover property (@(posedge clk) disable iff (!rst_n)
+        oam_valid && oam_opcode == 8'd1);
+
+    // Cover: each OAM rule exercised
+{% for idx in oam_rule_indices %}
+    cover_oam_rule_{{ idx }}: cover property (@(posedge clk) disable iff (!rst_n)
+        match_hit_{{ idx }});
+{% endfor %}
+{% endif %}
+
 {% if has_conntrack_state %}
     // ── Connection Tracking State Cover Properties ──────────────────────
     // conntrack_established is a 1-bit signal from the conntrack table.

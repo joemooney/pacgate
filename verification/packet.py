@@ -495,6 +495,37 @@ class PacketFactory:
         )
 
     @staticmethod
+    def oam_cfm(
+        oam_level: int = 3,
+        oam_opcode: int = 1,
+        dst_mac="01:80:c2:00:00:30", src_mac="02:00:00:00:00:01",
+    ) -> EthernetFrame:
+        """IEEE 802.1ag CFM (OAM) frame: EtherType 0x8902.
+
+        CFM header (4 bytes minimum):
+          - MD Level (3 bits, top of byte 0) + Version (5 bits, bottom of byte 0)
+          - OpCode (byte 1)
+          - Flags (byte 2)
+          - First TLV Offset (byte 3)
+        """
+        # CFM common header
+        md_level_version = ((oam_level & 0x07) << 5) | 0  # version=0
+        cfm_hdr = struct.pack(">BBBB",
+            md_level_version,
+            oam_opcode,
+            0,      # flags
+            4,      # first TLV offset (minimal: point past header)
+        )
+        # Minimal TLV (End TLV = 0x00)
+        cfm_payload = cfm_hdr + bytes([0x00]) + bytes(45)
+        return EthernetFrame(
+            dst_mac=mac_to_bytes(dst_mac),
+            src_mac=mac_to_bytes(src_mac),
+            ethertype=0x8902,
+            payload=cfm_payload,
+        )
+
+    @staticmethod
     def runt_frame() -> EthernetFrame:
         """Frame shorter than minimum Ethernet size (corner case)."""
         return EthernetFrame(

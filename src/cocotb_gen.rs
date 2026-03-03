@@ -205,6 +205,15 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
             tc.insert("conntrack_state".to_string(), state.clone());
             tc.insert("has_conntrack_state".to_string(), "true".to_string());
         }
+        // OAM (CFM) fields
+        if let Some(level) = rule.match_criteria.oam_level {
+            tc.insert("oam_level".to_string(), level.to_string());
+            tc.insert("has_oam".to_string(), "true".to_string());
+        }
+        if let Some(opcode) = rule.match_criteria.oam_opcode {
+            tc.insert("oam_opcode".to_string(), opcode.to_string());
+            tc.insert("has_oam".to_string(), "true".to_string());
+        }
         // Mirror/redirect port (informational)
         if let Some(mp) = rule.mirror_port {
             tc.insert("mirror_port".to_string(), mp.to_string());
@@ -460,6 +469,13 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         if let Some(ref state) = rule.match_criteria.conntrack_state {
             sr.insert("conntrack_state".to_string(), state.clone());
         }
+        // OAM (CFM) scoreboard fields
+        if let Some(level) = rule.match_criteria.oam_level {
+            sr.insert("oam_level".to_string(), level.to_string());
+        }
+        if let Some(opcode) = rule.match_criteria.oam_opcode {
+            sr.insert("oam_opcode".to_string(), opcode.to_string());
+        }
         scoreboard_rules.push(sr);
     }
 
@@ -496,6 +512,7 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         ctx.insert("has_ip_frag_rules", &rules.iter().any(|r| r.match_criteria.uses_ip_frag()));
         ctx.insert("has_gre_rules", &rules.iter().any(|r| r.match_criteria.uses_gre()));
         ctx.insert("has_conntrack_state_rules", &rules.iter().any(|r| r.match_criteria.uses_conntrack_state()));
+        ctx.insert("has_oam_rules", &rules.iter().any(|r| r.match_criteria.uses_oam()));
         ctx.insert("has_mirror_rules", &rules.iter().any(|r| r.has_mirror()));
         ctx.insert("has_redirect_rules", &rules.iter().any(|r| r.has_redirect()));
         ctx.insert("has_flow_counters", &config.pacgate.conntrack.as_ref()

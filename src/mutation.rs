@@ -419,6 +419,21 @@ pub fn generate_mutations(config: &FilterConfig) -> Vec<(Mutation, FilterConfig)
         }
     }
 
+    // Mutation 28: Remove oam_level (clears both oam_level and oam_opcode)
+    for (i, rule) in config.pacgate.rules.iter().enumerate() {
+        if !rule.is_stateful() && rule.match_criteria.oam_level.is_some() {
+            let mut mutated = config.clone();
+            mutated.pacgate.rules[i].match_criteria.oam_level = None;
+            mutated.pacgate.rules[i].match_criteria.oam_opcode = None;
+            mutations.push((Mutation {
+                name: format!("remove_oam_level_{}", rule.name),
+                description: format!("Remove oam_level match from rule '{}'", rule.name),
+                mutant_index: index,
+            }, mutated));
+            index += 1;
+        }
+    }
+
     // Mutation 22: Remove set_src_port from rewrite actions
     for (i, rule) in config.pacgate.rules.iter().enumerate() {
         if !rule.is_stateful() {
@@ -1277,6 +1292,34 @@ mod tests {
         let mutations = generate_mutations(&config);
         let rm = mutations.iter().find(|(m, _)| m.name == "remove_flow_counters").unwrap();
         assert!(rm.1.pacgate.conntrack.as_ref().unwrap().enable_flow_counters.is_none());
+    }
+
+    #[test]
+    fn remove_oam_level_mutation() {
+        let config = FilterConfig {
+            pacgate: PacgateConfig {
+                version: "1.0".to_string(),
+                defaults: Defaults { action: Action::Drop },
+                rules: vec![
+                    StatelessRule {
+                        name: "oam_rule".to_string(),
+                        priority: 100,
+                        match_criteria: MatchCriteria {
+                            oam_level: Some(3),
+                            oam_opcode: Some(1),
+                            ..Default::default()
+                        },
+                        action: Some(Action::Pass),
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None,
+                    },
+                ],
+                conntrack: None,
+            },
+        };
+        let mutations = generate_mutations(&config);
+        let rm = mutations.iter().find(|(m, _)| m.name.starts_with("remove_oam_level_")).unwrap();
+        assert!(rm.1.pacgate.rules[0].match_criteria.oam_level.is_none());
+        assert!(rm.1.pacgate.rules[0].match_criteria.oam_opcode.is_none());
     }
 
     #[test]
