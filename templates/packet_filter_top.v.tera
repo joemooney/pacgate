@@ -171,6 +171,14 @@ module packet_filter_top (
     wire [7:0]  oam_opcode;
     wire        oam_valid;
 
+{% if has_nsh %}
+    // Frame parser outputs — NSH (RFC 8300)
+    wire [23:0] nsh_spi;
+    wire [7:0]  nsh_si;
+    wire [7:0]  nsh_next_protocol;
+    wire        nsh_valid;
+{% endif %}
+
 {% if has_conntrack_state %}
     // Connection tracking state (driven by conntrack_table when --conntrack is used)
     wire        conntrack_established;
@@ -250,6 +258,12 @@ module packet_filter_top (
         .oam_level       (oam_level),
         .oam_opcode      (oam_opcode),
         .oam_valid       (oam_valid),
+{% if has_nsh %}
+        .nsh_spi         (nsh_spi),
+        .nsh_si          (nsh_si),
+        .nsh_next_protocol (nsh_next_protocol),
+        .nsh_valid       (nsh_valid),
+{% endif %}
         .fields_valid (fields_valid)
     );
 
@@ -357,6 +371,12 @@ module packet_filter_top (
         .oam_level         (oam_level),
         .oam_opcode        (oam_opcode),
         .oam_valid         (oam_valid),
+{% endif %}
+{% if has_nsh %}
+        .nsh_spi           (nsh_spi),
+        .nsh_si            (nsh_si),
+        .nsh_next_protocol (nsh_next_protocol),
+        .nsh_valid         (nsh_valid),
 {% endif %}
 {% if has_conntrack_state %}
         .conntrack_established (conntrack_established),

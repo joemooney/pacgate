@@ -76,6 +76,12 @@ module rule_match_{{ rule_index }} (
     input  wire [7:0]  oam_opcode,
     input  wire        oam_valid,
 {% endif %}
+{% if has_nsh %}
+    input  wire [23:0] nsh_spi,
+    input  wire [7:0]  nsh_si,
+    input  wire [7:0]  nsh_next_protocol,
+    input  wire        nsh_valid,
+{% endif %}
 {% if has_conntrack_state %}
     input  wire        conntrack_established,
 {% endif %}

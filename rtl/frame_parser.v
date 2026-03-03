@@ -15,6 +15,7 @@
 //           igmp_type (IGMP message type), mld_type (MLD message type)
 //           arp_opcode, arp_spa, arp_tpa (ARP header fields)
 //           oam_level, oam_opcode (IEEE 802.1ag CFM OAM fields)
+//           nsh_spi, nsh_si, nsh_next_protocol (NSH RFC 8300)
 //           l4_port_offset (absolute byte position of L4 src_port MSB)
 // Handles 802.1Q VLAN-tagged frames (EtherType 0x8100)
 // Handles 802.1ad QinQ double-tagged frames (EtherType 0x88A8 / 0x9100)
@@ -30,6 +31,7 @@
 // Handles IGMP (IPv4 protocol 2) and MLD (ICMPv6 type 130-132)
 // Handles ARP header parsing (EtherType 0x0806)
 // Handles OAM/CFM parsing (EtherType 0x8902, IEEE 802.1ag)
+// Handles NSH parsing (EtherType 0x894F, RFC 8300)
 // Handles GRE tunnel detection (IP protocol 47) with optional key
 //
 // Interface: simple byte-stream (not AXI-Stream)
@@ -150,6 +152,12 @@ module frame_parser (
     output reg  [31:0] gre_key,         // GRE Key (bytes 4-7, if K flag set)
     output reg         gre_valid,       // frame has GRE header
 
+    // NSH fields (RFC 8300, EtherType 0x894F)
+    output reg  [23:0] nsh_spi,          // Service Path Identifier (bytes 4-6)
+    output reg  [7:0]  nsh_si,           // Service Index (byte 7)
+    output reg  [7:0]  nsh_next_protocol, // Next Protocol (byte 2: 1=IPv4, 2=IPv6, 3=Ethernet)
+    output reg         nsh_valid,        // NSH fields extracted
+
     output reg         fields_valid // pulse: all header fields extracted
 );
 
@@ -174,6 +182,7 @@ module frame_parser (
     localparam S_OUTER_VLAN = 5'd17; // QinQ outer VLAN (802.1ad)
     localparam S_GRE_HDR    = 5'd18; // GRE header (4-8 bytes)
     localparam S_OAM_HDR    = 5'd19; // OAM/CFM header (EtherType 0x8902)
+    localparam S_NSH_HDR    = 5'd20; // NSH header (EtherType 0x894F, RFC 8300)
 
     reg [4:0] state;
     reg [5:0] byte_cnt;  // counts bytes within current state (up to 39 for IPv6)
@@ -225,6 +234,10 @@ module frame_parser (
             gre_key      <= 32'd0;
             gre_valid    <= 1'b0;
             gre_key_present <= 1'b0;
+            nsh_spi          <= 24'd0;
+            nsh_si           <= 8'd0;
+            nsh_next_protocol <= 8'd0;
+            nsh_valid        <= 1'b0;
             mpls_label   <= 20'd0;
             mpls_tc      <= 3'd0;
             mpls_bos     <= 1'b0;
@@ -327,6 +340,10 @@ module frame_parser (
                 gre_key         <= 32'd0;
                 gre_valid       <= 1'b0;
                 gre_key_present <= 1'b0;
+                nsh_spi          <= 24'd0;
+                nsh_si           <= 8'd0;
+                nsh_next_protocol <= 8'd0;
+                nsh_valid        <= 1'b0;
             end else if (pkt_valid) begin
                 // Increment absolute byte counter
                 frame_byte_cnt <= frame_byte_cnt + 11'd1;
@@ -395,6 +412,11 @@ module frame_parser (
                             else if (ethertype[15:8] == 8'h89 && pkt_data == 8'h02) begin
                                 state    <= S_OAM_HDR;
                                 byte_cnt <= 6'd0;
+                            end
+                            // Check for NSH (0x894F, RFC 8300)
+                            else if (ethertype[15:8] == 8'h89 && pkt_data == 8'h4F) begin
+                                state    <= S_NSH_HDR;
+                                byte_cnt <= 6'd0;
                             end else begin
                                 state        <= S_PAYLOAD;
                                 fields_valid <= 1'b1;
@@ -451,6 +473,11 @@ module frame_parser (
                                 else if (ethertype[15:8] == 8'h89 && pkt_data == 8'h02) begin
                                     state    <= S_OAM_HDR;
                                     byte_cnt <= 6'd0;
+                                end
+                                // Inner is NSH (0x894F, RFC 8300)
+                                else if (ethertype[15:8] == 8'h89 && pkt_data == 8'h4F) begin
+                                    state    <= S_NSH_HDR;
+                                    byte_cnt <= 6'd0;
                                 end else begin
                                     state        <= S_PAYLOAD;
                                     fields_valid <= 1'b1;
@@ -502,6 +529,11 @@ module frame_parser (
                             // Check for OAM/CFM after VLAN (0x8902)
                             else if (ethertype[15:8] == 8'h89 && pkt_data == 8'h02) begin
                                 state    <= S_OAM_HDR;
+                                byte_cnt <= 6'd0;
+                            end
+                            // Check for NSH after VLAN (0x894F)
+                            else if (ethertype[15:8] == 8'h89 && pkt_data == 8'h4F) begin
+                                state    <= S_NSH_HDR;
                                 byte_cnt <= 6'd0;
                             end else begin
                                 state        <= S_PAYLOAD;
@@ -956,6 +988,57 @@ module frame_parser (
                             6'd1: begin
                                 oam_opcode   <= pkt_data;
                                 oam_valid    <= 1'b1;
+                                state        <= S_PAYLOAD;
+                                fields_valid <= 1'b1;
+                            end
+                            default: ;
+                        endcase
+                    end
+
+                    S_NSH_HDR: begin
+                        // NSH header (RFC 8300, EtherType 0x894F):
+                        // Base header (4 bytes):
+                        //   Byte 0: Version[7:6] + OAM[5] + unused[4:0]
+                        //   Byte 1: Reserved
+                        //   Byte 2: Next Protocol (1=IPv4, 2=IPv6, 3=Ethernet)
+                        //   Byte 3: Reserved
+                        // Service Path Header (4 bytes):
+                        //   Byte 4: SPI[23:16]
+                        //   Byte 5: SPI[15:8]
+                        //   Byte 6: SPI[7:0]
+                        //   Byte 7: SI
+                        case (byte_cnt)
+                            6'd0: begin
+                                // Skip version/flags byte
+                                byte_cnt <= 6'd1;
+                            end
+                            6'd1: begin
+                                // Skip reserved byte
+                                byte_cnt <= 6'd2;
+                            end
+                            6'd2: begin
+                                nsh_next_protocol <= pkt_data;
+                                byte_cnt <= 6'd3;
+                            end
+                            6'd3: begin
+                                // Skip reserved byte
+                                byte_cnt <= 6'd4;
+                            end
+                            6'd4: begin
+                                nsh_spi[23:16] <= pkt_data;
+                                byte_cnt <= 6'd5;
+                            end
+                            6'd5: begin
+                                nsh_spi[15:8] <= pkt_data;
+                                byte_cnt <= 6'd6;
+                            end
+                            6'd6: begin
+                                nsh_spi[7:0] <= pkt_data;
+                                byte_cnt <= 6'd7;
+                            end
+                            6'd7: begin
+                                nsh_si       <= pkt_data;
+                                nsh_valid    <= 1'b1;
                                 state        <= S_PAYLOAD;
                                 fields_valid <= 1'b1;
                             end

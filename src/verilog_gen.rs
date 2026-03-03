@@ -53,6 +53,7 @@ struct GlobalProtocolFlags {
     has_ip_frag: bool,
     has_gre: bool,
     has_oam: bool,
+    has_nsh: bool,
     has_conntrack_state: bool,
     has_flow_counters: bool,
     has_mirror: bool,
@@ -433,6 +434,7 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
     let has_ip_frag = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_ip_frag());
     let has_gre = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_gre());
     let has_oam = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_oam());
+    let has_nsh = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_nsh());
     let has_conntrack_state = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_conntrack_state());
     let has_flow_counters = config.pacgate.conntrack.as_ref().and_then(|c| c.enable_flow_counters).unwrap_or(false);
     let has_mirror = config.pacgate.rules.iter().any(|r| r.has_mirror());
@@ -455,6 +457,7 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         has_ip_frag,
         has_gre,
         has_oam,
+        has_nsh,
         has_conntrack_state,
         has_flow_counters,
         has_mirror,
@@ -508,6 +511,7 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         ctx.insert("has_ip_frag", &has_ip_frag);
         ctx.insert("has_gre", &has_gre);
         ctx.insert("has_oam", &has_oam);
+        ctx.insert("has_nsh", &has_nsh);
         ctx.insert("has_conntrack_state", &has_conntrack_state);
         ctx.insert("has_flow_counters", &has_flow_counters);
         ctx.insert("has_rewrite", &has_rewrite);
@@ -1162,6 +1166,7 @@ fn generate_stateless_rule(
     ctx.insert("has_ip_frag", &global_protos.has_ip_frag);
     ctx.insert("has_gre", &global_protos.has_gre);
     ctx.insert("has_oam", &global_protos.has_oam);
+    ctx.insert("has_nsh", &global_protos.has_nsh);
     ctx.insert("has_conntrack_state", &global_protos.has_conntrack_state);
     let byte_cap_info: Vec<std::collections::HashMap<String, serde_json::Value>> = byte_offsets.iter().map(|(offset, len)| {
         let mut map = std::collections::HashMap::new();
@@ -1500,6 +1505,7 @@ fn generate_fsm_rule(
     ctx.insert("has_ip_frag", &global_protos.has_ip_frag);
     ctx.insert("has_gre", &global_protos.has_gre);
     ctx.insert("has_oam", &global_protos.has_oam);
+    ctx.insert("has_nsh", &global_protos.has_nsh);
     ctx.insert("has_conntrack_state", &global_protos.has_conntrack_state);
 
     let rendered = tera.render("rule_fsm.v.tera", &ctx)

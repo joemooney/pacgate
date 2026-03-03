@@ -214,6 +214,19 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
             tc.insert("oam_opcode".to_string(), opcode.to_string());
             tc.insert("has_oam".to_string(), "true".to_string());
         }
+        // NSH (RFC 8300) fields
+        if let Some(spi) = rule.match_criteria.nsh_spi {
+            tc.insert("nsh_spi".to_string(), spi.to_string());
+            tc.insert("has_nsh".to_string(), "true".to_string());
+        }
+        if let Some(si) = rule.match_criteria.nsh_si {
+            tc.insert("nsh_si".to_string(), si.to_string());
+            tc.insert("has_nsh".to_string(), "true".to_string());
+        }
+        if let Some(np) = rule.match_criteria.nsh_next_protocol {
+            tc.insert("nsh_next_protocol".to_string(), np.to_string());
+            tc.insert("has_nsh".to_string(), "true".to_string());
+        }
         // Mirror/redirect port (informational)
         if let Some(mp) = rule.mirror_port {
             tc.insert("mirror_port".to_string(), mp.to_string());
@@ -476,6 +489,16 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         if let Some(opcode) = rule.match_criteria.oam_opcode {
             sr.insert("oam_opcode".to_string(), opcode.to_string());
         }
+        // NSH (RFC 8300) scoreboard fields
+        if let Some(spi) = rule.match_criteria.nsh_spi {
+            sr.insert("nsh_spi".to_string(), spi.to_string());
+        }
+        if let Some(si) = rule.match_criteria.nsh_si {
+            sr.insert("nsh_si".to_string(), si.to_string());
+        }
+        if let Some(np) = rule.match_criteria.nsh_next_protocol {
+            sr.insert("nsh_next_protocol".to_string(), np.to_string());
+        }
         scoreboard_rules.push(sr);
     }
 
@@ -513,6 +536,7 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         ctx.insert("has_gre_rules", &rules.iter().any(|r| r.match_criteria.uses_gre()));
         ctx.insert("has_conntrack_state_rules", &rules.iter().any(|r| r.match_criteria.uses_conntrack_state()));
         ctx.insert("has_oam_rules", &rules.iter().any(|r| r.match_criteria.uses_oam()));
+        ctx.insert("has_nsh_rules", &rules.iter().any(|r| r.match_criteria.uses_nsh()));
         ctx.insert("has_mirror_rules", &rules.iter().any(|r| r.has_mirror()));
         ctx.insert("has_redirect_rules", &rules.iter().any(|r| r.has_redirect()));
         ctx.insert("has_flow_counters", &config.pacgate.conntrack.as_ref()
