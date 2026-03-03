@@ -76,7 +76,7 @@
 - Coverage XML export with merge support across runs
 - Coverage-directed test generation (verification/coverage_driven.py)
 - Enhanced overlap detection with CIDR containment and port range analysis
-- 35 real-world YAML examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite, OpenNIC, Corundum, TCP flags/ICMP, ARP security, ICMPv6 firewall, QinQ provider, fragment security, port rewrite, GRE tunnel, conntrack firewall, mirror/redirect, flow counters)
+- 36 real-world YAML examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite, OpenNIC, Corundum, TCP flags/ICMP, ARP security, ICMPv6 firewall, QinQ provider, fragment security, port rewrite, GRE tunnel, conntrack firewall, mirror/redirect, flow counters)
 - 414 Rust unit tests + 305 integration tests = 719 total, 47 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
 
 ## Architecture
@@ -242,7 +242,7 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 - `templates/pacgate_opennic_250.v.tera` — OpenNIC Shell 250MHz user box wrapper template
 - `templates/pacgate_corundum_app.v.tera` — Corundum mqnic_app_block wrapper template
 - `verification/` — Python verification framework (packet, scoreboard, coverage, driver, properties, coverage_driven, test_scoreboard)
-- `rules/examples/` — 34 YAML examples
+- `rules/examples/` — 36 YAML examples
 - `rules/templates/` — 7 rule template YAML snippets
 - `.github/workflows/ci.yml` — GitHub Actions CI pipeline
 
@@ -316,4 +316,4 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 - **Phase 25.1**: Complete — GRE tunnel support: gre_protocol (16-bit) + gre_key (32-bit) matching for IP protocol 47, frame parser S_GRE_HDR state, full verification (scoreboard, SVA assertions, mutation type 23, cocotb generation), gre_tunnel.yaml example, 366 unit + 274 integration = 640 tests
 - **Phase 25.2**: Complete — Connection tracking state matching: conntrack_state ("new"/"established") match field, TCP state machine in conntrack_table.v (NEW→ESTABLISHED→FIN_WAIT→CLOSED with SYN/ACK/FIN/RST tracking), enhanced SimConntrackTable with per-flow TcpState, LINT034 (conntrack_state requires --conntrack), mutation type 24, conntrack_firewall.yaml example, 383 unit + 283 integration = 666 tests
 - **Phase 25.3**: Complete — Mirror/redirect port egress actions: mirror_port (copy packet to egress port) and redirect_port (override egress port) on StatelessRule, egress_lut.v (generated combinational ROM), packet_filter_top/axi_top egress output ports, verification (scoreboard, SVA cover properties, mutation types 25-26, cocotb generation), LINT035-036, simulator mirror/redirect in results, stats/graph/diff/doc egress support, mirror_redirect.yaml example (5 rules), 399 unit + 295 integration = 694 tests
-- **Phase 25.4**: Complete — Per-flow counters + flow export: enable_flow_counters on ConntrackConfig, SVA cover properties (flow_read_done, pkt_count), mutation type 27 (remove_flow_counters), cocotb has_flow_counters flag, diff_rules() conntrack config change detection, flow_counters.yaml example, 414 unit + 305 integration = 719 tests
+- **Phase 25.4**: Complete — Per-flow counters + flow export: enable_flow_counters on ConntrackConfig, FlowEntry struct with pkt_count/byte_count in SimConntrackTable, increment_counters()/flow_stats() methods, conntrack_table.v per-entry 64-bit pkt/byte counters + flow read-back interface (flow_read_idx/en/key/valid/pkt_count/byte_count/tcp_state/done), has_flow_counters in verilog_gen/templates (AXI/OpenNIC/Corundum), LINT037 (flow counters require --conntrack), estimate +128 LUT/FF per entry, SVA cover properties (flow_read_done, pkt_count), mutation type 27 (remove_flow_counters), diff_rules() conntrack config diffing, flow_counters.yaml example, 414 unit + 305 integration = 719 tests
