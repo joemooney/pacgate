@@ -526,6 +526,33 @@ class PacketFactory:
         )
 
     @staticmethod
+    def nsh(
+        nsh_spi: int = 100,
+        nsh_si: int = 255,
+        nsh_next_protocol: int = 1,
+        dst_mac="de:ad:be:ef:00:01", src_mac="02:00:00:00:00:01",
+    ) -> EthernetFrame:
+        """NSH (RFC 8300) frame: EtherType 0x894F.
+
+        NSH header (8 bytes):
+          - Base Header (4 bytes): Ver(2) + OAM(1) + U(1) + TTL(6) + Length(6) + Rsvd(4) + MD-Type(4) + Next-Protocol(8)
+          - Service Path Header (4 bytes): SPI(24) + SI(8)
+        """
+        # Base header: version=0, OAM=0, U=0, TTL=63, length=2 (in 4-byte words), MD-type=1, next-protocol
+        ver_oam_u_ttl = (0 << 14) | (0 << 13) | (0 << 12) | (63 << 6)
+        length_mdtype_np = (2 << 12) | (1 << 8) | (nsh_next_protocol & 0xFF)
+        base_hdr = struct.pack(">HH", ver_oam_u_ttl, length_mdtype_np)
+        # Service Path Header: SPI (24-bit) + SI (8-bit)
+        sph = struct.pack(">I", ((nsh_spi & 0xFFFFFF) << 8) | (nsh_si & 0xFF))
+        nsh_payload = base_hdr + sph + bytes(46)
+        return EthernetFrame(
+            dst_mac=mac_to_bytes(dst_mac),
+            src_mac=mac_to_bytes(src_mac),
+            ethertype=0x894F,
+            payload=nsh_payload,
+        )
+
+    @staticmethod
     def runt_frame() -> EthernetFrame:
         """Frame shorter than minimum Ethernet size (corner case)."""
         return EthernetFrame(

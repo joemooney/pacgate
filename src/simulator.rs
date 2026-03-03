@@ -50,6 +50,9 @@ pub struct SimPacket {
     pub gre_key: Option<u32>,
     pub oam_level: Option<u8>,
     pub oam_opcode: Option<u8>,
+    pub nsh_spi: Option<u32>,
+    pub nsh_si: Option<u8>,
+    pub nsh_next_protocol: Option<u8>,
     pub conntrack_state: Option<String>,
 }
 
@@ -294,6 +297,18 @@ pub fn parse_packet_spec(spec: &str) -> Result<SimPacket> {
             "oam_opcode" => {
                 let v: u8 = value.parse().map_err(|e| anyhow::anyhow!("Bad oam_opcode '{}': {}", value, e))?;
                 pkt.oam_opcode = Some(v);
+            }
+            "nsh_spi" => {
+                let v: u32 = value.parse().map_err(|e| anyhow::anyhow!("Bad nsh_spi '{}': {}", value, e))?;
+                pkt.nsh_spi = Some(v);
+            }
+            "nsh_si" => {
+                let v: u8 = value.parse().map_err(|e| anyhow::anyhow!("Bad nsh_si '{}': {}", value, e))?;
+                pkt.nsh_si = Some(v);
+            }
+            "nsh_next_protocol" => {
+                let v: u8 = value.parse().map_err(|e| anyhow::anyhow!("Bad nsh_next_protocol '{}': {}", value, e))?;
+                pkt.nsh_next_protocol = Some(v);
             }
             "conntrack_state" => {
                 pkt.conntrack_state = Some(value.to_string());
@@ -1283,6 +1298,45 @@ pub fn match_criteria_against_packet(mc: &MatchCriteria, pkt: &SimPacket) -> (bo
         fields.push(FieldMatch {
             field: "oam_opcode".to_string(),
             rule_value: rule_opcode.to_string(),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // nsh_spi
+    if let Some(rule_spi) = mc.nsh_spi {
+        let pkt_val = pkt.nsh_spi.map(|v| v.to_string()).unwrap_or_else(|| "none".to_string());
+        let matches = pkt.nsh_spi.map(|v| v == rule_spi).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "nsh_spi".to_string(),
+            rule_value: rule_spi.to_string(),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // nsh_si
+    if let Some(rule_si) = mc.nsh_si {
+        let pkt_val = pkt.nsh_si.map(|v| v.to_string()).unwrap_or_else(|| "none".to_string());
+        let matches = pkt.nsh_si.map(|v| v == rule_si).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "nsh_si".to_string(),
+            rule_value: rule_si.to_string(),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // nsh_next_protocol
+    if let Some(rule_np) = mc.nsh_next_protocol {
+        let pkt_val = pkt.nsh_next_protocol.map(|v| v.to_string()).unwrap_or_else(|| "none".to_string());
+        let matches = pkt.nsh_next_protocol.map(|v| v == rule_np).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "nsh_next_protocol".to_string(),
+            rule_value: rule_np.to_string(),
             packet_value: pkt_val,
             matches,
         });
@@ -2889,6 +2943,80 @@ pacgate:
         let result = simulate(&config, &pkt);
         assert_eq!(result.action, Action::Pass);
         assert_eq!(result.rule_name.as_deref(), Some("allow_dmm"));
+    }
+
+    // --- NSH/SFC tests ---
+
+    #[test]
+    fn parse_nsh_fields() {
+        let pkt = parse_packet_spec("ethertype=0x894F,nsh_spi=100,nsh_si=254,nsh_next_protocol=1").unwrap();
+        assert_eq!(pkt.nsh_spi, Some(100));
+        assert_eq!(pkt.nsh_si, Some(254));
+        assert_eq!(pkt.nsh_next_protocol, Some(1));
+    }
+
+    #[test]
+    fn simulate_nsh_spi_match() {
+        let pkt = parse_packet_spec("ethertype=0x894F,nsh_spi=100,nsh_si=254").unwrap();
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: sfc_proxy
+      priority: 100
+      match:
+        ethertype: "0x894F"
+        nsh_spi: 100
+      action: pass
+"#;
+        let config: crate::model::FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let result = simulate(&config, &pkt);
+        assert_eq!(result.action, Action::Pass);
+        assert_eq!(result.rule_name.as_deref(), Some("sfc_proxy"));
+    }
+
+    #[test]
+    fn simulate_nsh_spi_mismatch() {
+        let pkt = parse_packet_spec("ethertype=0x894F,nsh_spi=200,nsh_si=254").unwrap();
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: sfc_proxy
+      priority: 100
+      match:
+        ethertype: "0x894F"
+        nsh_spi: 100
+      action: pass
+"#;
+        let config: crate::model::FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let result = simulate(&config, &pkt);
+        assert_eq!(result.action, Action::Drop);
+    }
+
+    #[test]
+    fn simulate_nsh_next_protocol_match() {
+        let pkt = parse_packet_spec("ethertype=0x894F,nsh_spi=101,nsh_next_protocol=1").unwrap();
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: sfc_ipv4
+      priority: 100
+      match:
+        ethertype: "0x894F"
+        nsh_next_protocol: 1
+      action: pass
+"#;
+        let config: crate::model::FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let result = simulate(&config, &pkt);
+        assert_eq!(result.action, Action::Pass);
     }
 
     // --- Flow counter tests ---

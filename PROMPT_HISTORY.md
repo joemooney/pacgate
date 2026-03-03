@@ -2264,3 +2264,71 @@ Update main.rs tools (lint, estimate, stats, diff, doc, graph), create OAM examp
 - 426 unit tests — all PASS
 - 317 integration tests — all PASS
 - Total: 743 tests passing
+
+---
+
+## Prompt 48 — Phase 25.6: NSH/SFC (Network Service Header — RFC 8300)
+
+**Request**: Continue implementing Phase 25 candidates — Phase 25.6: NSH/SFC
+
+**Date**: 2026-03-02
+
+### Actions Taken
+
+**Model (src/model.rs)**:
+- Added 3 match fields to MatchCriteria: nsh_spi (u32, 24-bit SPI), nsh_si (u8, Service Index), nsh_next_protocol (u8, inner protocol)
+- Added `uses_nsh()` helper method
+- 5 unit tests: uses_nsh_true_spi/si/next_protocol, uses_nsh_false, deserialize_nsh_rule
+
+**Simulator (src/simulator.rs)**:
+- Added nsh_spi/nsh_si/nsh_next_protocol to SimPacket, parse_packet_spec, and match_criteria_against_packet
+- 4 unit tests: parse_nsh_fields, simulate_nsh_spi_match, simulate_nsh_spi_mismatch, simulate_nsh_next_protocol_match
+
+**Loader (src/loader.rs)**:
+- nsh_spi validation (0-16777215 range check)
+- Shadow/overlap detection for nsh_spi, nsh_si, nsh_next_protocol
+- 3 tests: accept_nsh_rule, reject_nsh_spi_out_of_range, accept_nsh_next_protocol_only
+
+**RTL (rtl/frame_parser.v)**:
+- New state S_NSH_HDR (5'd20) for EtherType 0x894F
+- New output ports: nsh_spi[23:0], nsh_si[7:0], nsh_next_protocol[7:0], nsh_valid
+- 8-byte parser: byte 2 → next_protocol, bytes 4-6 → SPI (24-bit MSB first), byte 7 → SI
+- EtherType 0x894F dispatch in S_ETYPE, S_ETYPE2, S_OUTER_VLAN
+
+**Verilog Generation (src/verilog_gen.rs)**:
+- Added has_nsh to GlobalProtocolFlags
+- NSH condition expressions: nsh_spi (24'd), nsh_si (8'd), nsh_next_protocol (8'd)
+
+**Templates**:
+- packet_filter_top.v.tera: NSH wire declarations + parser/matcher connections
+- rule_match.v.tera: Conditional NSH input ports
+- rule_fsm.v.tera: Conditional NSH input ports
+
+**Main.rs CLI tools**:
+- LINT039: NSH fields without ethertype 0x894F (warning)
+- Estimate: +8 LUTs per rule with NSH
+- Stats: nsh_spi/nsh_si/nsh_next_protocol field counters
+- Diff: NSH field change detection
+- Doc: NSH fields in rule_info
+- Graph: NSH labels on nodes
+
+**Verification**:
+- scoreboard.py: nsh_spi/nsh_si/nsh_next_protocol on Rule + matches()
+- packet.py: PacketFactory.nsh() for NSH frame construction
+- test_scoreboard.py: 6 NSH test cases (TestNshMatch class)
+- formal_gen.rs: has_nsh + nsh_rule_indices in template context
+- assertions.sv.tera: NSH SPI range assertion, prereq assertions, cover properties
+- mutation.rs: Mutation 29 (remove_nsh_spi — clears spi+si+next_protocol)
+- cocotb_gen.rs: has_nsh_rules flag, NSH fields in test cases
+
+**Example**: rules/examples/nsh_sfc.yaml — 5 rules (proxy chain, firewall chain, IPv4 cache, drop expired SI=0, non-NSH bypass)
+
+**Integration tests**: 10 new tests (validate, compile, simulate x4, validate range, estimate, stats, diff)
+
+**CI**: Added nsh_sfc to simulate matrix
+
+### Test Results
+- 439 unit tests — all PASS
+- 327 integration tests — all PASS
+- 53 Python scoreboard tests — all PASS
+- Total: 766 Rust tests + 53 Python tests

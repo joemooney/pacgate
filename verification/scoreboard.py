@@ -136,6 +136,10 @@ class Rule:
     # OAM (Connectivity Fault Management) fields
     oam_level: Optional[int] = None
     oam_opcode: Optional[int] = None
+    # NSH (Network Service Header, RFC 8300) fields
+    nsh_spi: Optional[int] = None
+    nsh_si: Optional[int] = None
+    nsh_next_protocol: Optional[int] = None
     # Egress port actions (informational — do not affect pass/drop matching)
     mirror_port: Optional[int] = None
     redirect_port: Optional[int] = None
@@ -374,6 +378,20 @@ class Rule:
         if self.oam_opcode is not None:
             pkt_oam_opcode = extracted.get("oam_opcode")
             if pkt_oam_opcode is None or pkt_oam_opcode != self.oam_opcode:
+                return False
+
+        # NSH (RFC 8300) matching
+        if self.nsh_spi is not None:
+            pkt_nsh_spi = extracted.get("nsh_spi")
+            if pkt_nsh_spi is None or pkt_nsh_spi != self.nsh_spi:
+                return False
+        if self.nsh_si is not None:
+            pkt_nsh_si = extracted.get("nsh_si")
+            if pkt_nsh_si is None or pkt_nsh_si != self.nsh_si:
+                return False
+        if self.nsh_next_protocol is not None:
+            pkt_nsh_np = extracted.get("nsh_next_protocol")
+            if pkt_nsh_np is None or pkt_nsh_np != self.nsh_next_protocol:
                 return False
 
         # Connection tracking state matching

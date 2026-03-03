@@ -22,6 +22,7 @@
 - **Connection tracking state**: conntrack_state ("new"/"established") for stateful firewall rules; TCP state machine tracking (SYN→ESTABLISHED→FIN→CLOSED) in RTL conntrack table
 - **Per-flow counters**: enable_flow_counters in conntrack config for per-flow packet/byte counting and flow export
 - **OAM (IEEE 802.1ag CFM)**: oam_level (3-bit MD level, 0-7), oam_opcode (8-bit CFM OpCode: 1=CCM, 3=LBR, 47=DMM, 48=DMR) for carrier Ethernet OAM monitoring
+- **NSH/SFC (RFC 8300)**: nsh_spi (24-bit Service Path Identifier), nsh_si (8-bit Service Index), nsh_next_protocol (inner protocol type) for Service Function Chaining
 - **L4 port rewrite**: set_src_port, set_dst_port with RFC 1624 incremental L4 checksum update (TCP/UDP, UDP cksum=0 preserved)
 - **Byte-offset matching**: raw byte inspection at any packet offset with value/mask (`byte_match`)
 - **Hierarchical State Machines**: nested states, variables (1-32 bit), guards, entry/exit/transition actions
@@ -49,7 +50,7 @@
 - **HTML diff visualization**: color-coded side-by-side HTML diff report (`diff --html`)
 - **Performance benchmarking**: compile time, simulation throughput (pkts/sec), LUT/FF scaling curves (`bench` subcommand)
 - Rule overlap and shadow detection with warnings
-- **Full-stack scoreboard**: Python reference model matches L2/L3/L4/IPv6/VXLAN/GTP-U/MPLS/IGMP/MLD/DSCP/ECN/IPv6-TC/TCP-flags/ICMP/ICMPv6/ARP/IPv6-ext/QinQ/IP-frag/GRE/conntrack-state/OAM/byte-match fields
+- **Full-stack scoreboard**: Python reference model matches L2/L3/L4/IPv6/VXLAN/GTP-U/MPLS/IGMP/MLD/DSCP/ECN/IPv6-TC/TCP-flags/ICMP/ICMPv6/ARP/IPv6-ext/QinQ/IP-frag/GRE/conntrack-state/OAM/NSH/byte-match fields
 - **Directed L3/L4 tests**: generated tests construct proper IPv4/IPv6/TCP/UDP headers
 - **Byte-match simulation**: software simulator evaluates byte_match rules with raw_bytes
 - **Enhanced formal**: SVA assertions for IPv6 CIDR, port range, rate limiter enforcement, byte-match, GTP-U/MPLS/IGMP/MLD/GRE prerequisite + bounds assertions with protocol cover statements
@@ -63,7 +64,7 @@
 - **Packet regression**: high-volume regression testing against scenarios using direct `simulate()` calls (~600K pps)
 - **Topology simulation**: 2-port RMAC/L3 switch topology simulation with subnet gating, ingress validation, egress routing
 - **Scenario store**: import/export scenario files to/from JSON store (merge or replace modes)
-- `lint` subcommand for best-practice analysis and security checks (38 lint rules)
+- `lint` subcommand for best-practice analysis and security checks (39 lint rules)
 - FPGA resource estimation (LUTs/FFs for Artix-7) + timing/pipeline analysis
 - `--json` flag on compile/validate/estimate/diff/formal/lint for CI/scripting integration
 - `diff` subcommand for rule set change management
@@ -77,8 +78,8 @@
 - Coverage XML export with merge support across runs
 - Coverage-directed test generation (verification/coverage_driven.py)
 - Enhanced overlap detection with CIDR containment and port range analysis
-- 37 real-world YAML examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite, OpenNIC, Corundum, TCP flags/ICMP, ARP security, ICMPv6 firewall, QinQ provider, fragment security, port rewrite, GRE tunnel, conntrack firewall, mirror/redirect, flow counters, OAM monitoring)
-- 426 Rust unit tests + 317 integration tests = 743 total, 47 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
+- 38 real-world YAML examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite, OpenNIC, Corundum, TCP flags/ICMP, ARP security, ICMPv6 firewall, QinQ provider, fragment security, port rewrite, GRE tunnel, conntrack firewall, mirror/redirect, flow counters, OAM monitoring, NSH/SFC)
+- 439 Rust unit tests + 327 integration tests = 766 total, 53 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
 
 ## Architecture
 ```
@@ -172,6 +173,7 @@ pacgate simulate rules.yaml --packet "ethertype=0x86DD,ipv6_hop_limit=64,ipv6_fl
 pacgate simulate rules.yaml --packet "ethertype=0x88A8,outer_vlan_id=100,outer_vlan_pcp=5"     # QinQ double VLAN
 pacgate simulate rules.yaml --packet "ethertype=0x0800,ip_dont_fragment=true"                  # IPv4 DF flag
 pacgate simulate rules.yaml --packet "ethertype=0x8902,oam_level=3,oam_opcode=1"              # OAM/CFM CCM level 3
+pacgate simulate rules.yaml --packet "ethertype=0x894F,nsh_spi=100,nsh_si=254"               # NSH/SFC path matching
 pacgate simulate rules.yaml --packet "ethertype=0x0800,ip_protocol=47,gre_protocol=0x0800"     # GRE tunnel matching
 pacgate simulate rules.yaml --packet "ethertype=0x0800,conntrack_state=established"            # Conntrack state matching
 pacgate simulate rules.yaml --packet "ethertype=0x0800,ip_protocol=6,dst_port=80,conntrack_state=new"  # New TCP connection
@@ -208,7 +210,7 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 ```
 
 ## Key Files
-- `src/model.rs` — Data model (Action, MatchCriteria, ByteMatch, Ipv6Prefix, RateLimit, FsmVariable, HSM types, ConntrackConfig, GtpTeid, MplsLabel, IgmpType, MldType, IpDscp, IpEcn, Ipv6Dscp, Ipv6Ecn, TcpFlags, IcmpType, IcmpCode, ICMPv6Type, ICMPv6Code, ArpOpcode, ArpSpa, ArpTpa, Ipv6HopLimit, Ipv6FlowLabel, OuterVlanId, OuterVlanPcp, IpDontFragment, IpMoreFragments, IpFragOffset, GreProtocol, GreKey, ConntrackState, OamLevel, OamOpcode, RewriteAction with set_src_port/set_dst_port)
+- `src/model.rs` — Data model (Action, MatchCriteria, ByteMatch, Ipv6Prefix, RateLimit, FsmVariable, HSM types, ConntrackConfig, GtpTeid, MplsLabel, IgmpType, MldType, IpDscp, IpEcn, Ipv6Dscp, Ipv6Ecn, TcpFlags, IcmpType, IcmpCode, ICMPv6Type, ICMPv6Code, ArpOpcode, ArpSpa, ArpTpa, Ipv6HopLimit, Ipv6FlowLabel, OuterVlanId, OuterVlanPcp, IpDontFragment, IpMoreFragments, IpFragOffset, GreProtocol, GreKey, ConntrackState, OamLevel, OamOpcode, NshSpi, NshSi, NshNextProtocol, RewriteAction with set_src_port/set_dst_port)
 - `src/loader.rs` — YAML loading + validation + CIDR/port overlap detection + HSM/byte_match/conntrack validation
 - `src/verilog_gen.rs` — Tera-based Verilog generation (L2/L3/L4/IPv6/VXLAN/GTP-U/MPLS/IGMP/MLD/byte-match, HSM flattening, multiport)
 - `src/cocotb_gen.rs` — cocotb test harness + AXI tests + property test generation
@@ -225,7 +227,7 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 - `src/mcy_gen.rs` — MCY (Mutation Cover with Yosys) config generation
 - `src/scenario.rs` — Scenario validation, regression testing, topology simulation (migrated from pacilab)
 - `src/main.rs` — clap CLI (32 subcommands)
-- `rtl/frame_parser.v` — Hand-written Ethernet/IPv4/IPv6/TCP/UDP/VXLAN/GTP-U/MPLS/IGMP/MLD/ICMP/ICMPv6/ARP/QinQ/OAM parser FSM with TCP flags + IPv6 TC + hop_limit + flow_label + fragmentation + L4 port offset + OAM/CFM extraction
+- `rtl/frame_parser.v` — Hand-written Ethernet/IPv4/IPv6/TCP/UDP/VXLAN/GTP-U/MPLS/IGMP/MLD/ICMP/ICMPv6/ARP/QinQ/OAM/NSH parser FSM with TCP flags + IPv6 TC + hop_limit + flow_label + fragmentation + L4 port offset + OAM/CFM + NSH/SFC extraction
 - `rtl/rule_counters.v` — Per-rule 64-bit packet/byte counters
 - `rtl/axi_lite_csr.v` — AXI4-Lite register interface for counters
 - `rtl/axi_stream_adapter.v` — AXI-Stream to pkt_* interface bridge
@@ -263,6 +265,7 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 - GTP-U detection: UDP dst port == 2152, then 8-byte GTP header, extract 32-bit TEID
 - GRE detection: IP protocol 47, S_GRE_HDR state extracts 16-bit protocol type + optional 32-bit key (K flag in GRE header)
 - OAM/CFM detection: EtherType 0x8902, S_OAM_HDR state extracts 3-bit MEL (MD level) from byte 0 bits[7:5] and 8-bit OpCode from byte 1
+- NSH detection: EtherType 0x894F, S_NSH_HDR state extracts 8-byte header — byte 2 next_protocol, bytes 4-6 SPI (24-bit), byte 7 SI (8-bit)
 - MPLS detection: EtherType 0x8847 (unicast) or 0x8848 (multicast), extract 20-bit label, 3-bit TC, 1-bit BOS
 - IGMP detection: IPv4 protocol == 2, extract type byte from IGMP header
 - MLD detection: ICMPv6 (next_header 58), types 130-132 (query, report v1, done)
@@ -320,3 +323,5 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 - **Phase 25.2**: Complete — Connection tracking state matching: conntrack_state ("new"/"established") match field, TCP state machine in conntrack_table.v (NEW→ESTABLISHED→FIN_WAIT→CLOSED with SYN/ACK/FIN/RST tracking), enhanced SimConntrackTable with per-flow TcpState, LINT034 (conntrack_state requires --conntrack), mutation type 24, conntrack_firewall.yaml example, 383 unit + 283 integration = 666 tests
 - **Phase 25.3**: Complete — Mirror/redirect port egress actions: mirror_port (copy packet to egress port) and redirect_port (override egress port) on StatelessRule, egress_lut.v (generated combinational ROM), packet_filter_top/axi_top egress output ports, verification (scoreboard, SVA cover properties, mutation types 25-26, cocotb generation), LINT035-036, simulator mirror/redirect in results, stats/graph/diff/doc egress support, mirror_redirect.yaml example (5 rules), 399 unit + 295 integration = 694 tests
 - **Phase 25.4**: Complete — Per-flow counters + flow export: enable_flow_counters on ConntrackConfig, FlowEntry struct with pkt_count/byte_count in SimConntrackTable, increment_counters()/flow_stats() methods, conntrack_table.v per-entry 64-bit pkt/byte counters + flow read-back interface (flow_read_idx/en/key/valid/pkt_count/byte_count/tcp_state/done), has_flow_counters in verilog_gen/templates (AXI/OpenNIC/Corundum), LINT037 (flow counters require --conntrack), estimate +128 LUT/FF per entry, SVA cover properties (flow_read_done, pkt_count), mutation type 27 (remove_flow_counters), diff_rules() conntrack config diffing, flow_counters.yaml example, 414 unit + 305 integration = 719 tests
+- **Phase 25.5**: Complete — OAM/CFM (IEEE 802.1ag) support: oam_level (3-bit MD level, 0-7) + oam_opcode (8-bit CFM OpCode) matching on EtherType 0x8902, frame parser S_OAM_HDR state, LINT038 (OAM without ethertype 0x8902), mutation type 28 (remove_oam_level), oam_monitoring.yaml example (5 rules), 53 Python scoreboard tests, 426 unit + 317 integration = 743 tests
+- **Phase 25.6**: Complete — NSH/SFC (RFC 8300) support: nsh_spi (24-bit Service Path Identifier) + nsh_si (8-bit Service Index) + nsh_next_protocol (inner protocol type) matching on EtherType 0x894F, frame parser S_NSH_HDR state (8-byte header), LINT039 (NSH without ethertype 0x894F), mutation type 29 (remove_nsh_spi), nsh_sfc.yaml example (5 rules), 53 Python scoreboard tests, 439 unit + 327 integration = 766 tests

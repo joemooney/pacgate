@@ -107,6 +107,7 @@ pub fn generate_with_dynamic(config: &FilterConfig, templates_dir: &Path, output
     let has_gre = rules.iter().any(|r| r.match_criteria.uses_gre());
     let has_conntrack_state = rules.iter().any(|r| r.match_criteria.uses_conntrack_state());
     let has_oam = rules.iter().any(|r| r.match_criteria.uses_oam());
+    let has_nsh = rules.iter().any(|r| r.match_criteria.uses_nsh());
     let has_mirror = rules.iter().any(|r| r.has_mirror());
     let has_redirect = rules.iter().any(|r| r.has_redirect());
     let has_flow_counters = config.pacgate.conntrack.as_ref()
@@ -132,6 +133,9 @@ pub fn generate_with_dynamic(config: &FilterConfig, templates_dir: &Path, output
         .map(|(i, _)| i).collect();
     let oam_rule_indices: Vec<usize> = rules.iter().enumerate()
         .filter(|(_, r)| r.match_criteria.uses_oam())
+        .map(|(i, _)| i).collect();
+    let nsh_rule_indices: Vec<usize> = rules.iter().enumerate()
+        .filter(|(_, r)| r.match_criteria.uses_nsh())
         .map(|(i, _)| i).collect();
 
     // Render SVA assertions
@@ -177,6 +181,8 @@ pub fn generate_with_dynamic(config: &FilterConfig, templates_dir: &Path, output
         ctx.insert("has_conntrack_state", &has_conntrack_state);
         ctx.insert("has_oam", &has_oam);
         ctx.insert("oam_rule_indices", &oam_rule_indices);
+        ctx.insert("has_nsh", &has_nsh);
+        ctx.insert("nsh_rule_indices", &nsh_rule_indices);
         ctx.insert("has_mirror", &has_mirror);
         ctx.insert("has_redirect", &has_redirect);
         ctx.insert("has_flow_counters", &has_flow_counters);

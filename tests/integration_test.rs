@@ -6052,3 +6052,120 @@ fn doc_oam_monitoring_rules() {
     let html = std::fs::read_to_string(&out).unwrap();
     assert!(html.contains("allow_ccm_level3"), "Doc should contain rule name");
 }
+
+// ==================== Phase 25.6: NSH/SFC ====================
+
+#[test]
+fn validate_nsh_sfc_rules() {
+    let output = pacgate_bin()
+        .args(["validate", "rules/examples/nsh_sfc.yaml"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "validate failed: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn compile_nsh_sfc_rules() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/nsh_sfc.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(tmp.path().join("rtl").exists());
+}
+
+#[test]
+fn simulate_nsh_spi_match() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/nsh_sfc.yaml", "--packet", "ethertype=0x894F,nsh_spi=100,nsh_si=254"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "simulate failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("sfc_proxy_chain"), "Should match sfc_proxy_chain: {}", stdout);
+}
+
+#[test]
+fn simulate_nsh_si_zero_drop() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/nsh_sfc.yaml", "--packet", "ethertype=0x894F,nsh_spi=999,nsh_si=0"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "simulate failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("sfc_drop_expired"), "Should match sfc_drop_expired: {}", stdout);
+}
+
+#[test]
+fn simulate_nsh_next_protocol_match() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/nsh_sfc.yaml", "--packet", "ethertype=0x894F,nsh_spi=102,nsh_next_protocol=1"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "simulate failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("sfc_ipv4_cache"), "Should match sfc_ipv4_cache: {}", stdout);
+}
+
+#[test]
+fn simulate_nsh_no_match() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/nsh_sfc.yaml", "--packet", "ethertype=0x894F,nsh_spi=999,nsh_si=128"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "simulate failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("DROP") || stdout.contains("drop") || stdout.contains("Drop"), "Should default drop: {}", stdout);
+}
+
+#[test]
+fn validate_nsh_spi_range() {
+    let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: bad_nsh
+      priority: 100
+      match:
+        ethertype: "0x894F"
+        nsh_spi: 16777216
+      action: pass
+"#;
+    let tmp = std::env::temp_dir().join("test_nsh_range.yaml");
+    std::fs::write(&tmp, yaml).unwrap();
+    let output = pacgate_bin()
+        .args(["validate", &tmp.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "Should reject out-of-range nsh_spi");
+}
+
+#[test]
+fn estimate_nsh_sfc_rules() {
+    let output = pacgate_bin()
+        .args(["estimate", "rules/examples/nsh_sfc.yaml"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "estimate failed: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn stats_nsh_sfc_rules() {
+    let output = pacgate_bin()
+        .args(["stats", "rules/examples/nsh_sfc.yaml"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "stats failed: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn diff_nsh_sfc_rules() {
+    let output = pacgate_bin()
+        .args(["diff", "rules/examples/nsh_sfc.yaml", "rules/examples/nsh_sfc.yaml"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "diff failed: {}", String::from_utf8_lossy(&output.stderr));
+}

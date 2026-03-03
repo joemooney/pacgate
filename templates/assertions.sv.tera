@@ -562,6 +562,40 @@ module packet_filter_assertions (
 {% endfor %}
 {% endif %}
 
+{% if has_nsh %}
+    // ── NSH (RFC 8300) Assertions ─────────────────────────────────────
+    // NSH: EtherType 0x894F, SPI is 24-bit (0-16777215), SI is 8-bit (0-255).
+
+    // NSH SPI bounds: nsh_spi must be <= 0xFFFFFF (24-bit)
+    assert_nsh_spi_range: assert property (
+        @(posedge clk) disable iff (!rst_n)
+        (nsh_valid) |-> (nsh_spi <= 24'hFFFFFF)
+    ) else $error("NSH SPI exceeds 24-bit range");
+
+    // NSH prerequisite: NSH rule match implies ethertype == 0x894F
+{% for idx in nsh_rule_indices %}
+    assert_nsh_prereq_rule_{{ idx }}: assert property (@(posedge clk) disable iff (!rst_n)
+        (match_hit_{{ idx }} |-> (ethertype == 16'h894F)))
+        else $error("ASSERT FAIL: NSH rule {{ idx }} matched but ethertype != 0x894F");
+{% endfor %}
+
+    // Cover: NSH frame detected
+    cover_nsh_valid: cover property (
+        @(posedge clk) nsh_valid
+    );
+
+    // Cover: NSH SPI nonzero
+    cover_nsh_spi_nonzero: cover property (
+        @(posedge clk) nsh_valid && nsh_spi != 0
+    );
+
+    // Cover: each NSH rule exercised
+{% for idx in nsh_rule_indices %}
+    cover_nsh_rule_{{ idx }}: cover property (@(posedge clk) disable iff (!rst_n)
+        match_hit_{{ idx }});
+{% endfor %}
+{% endif %}
+
 {% if has_conntrack_state %}
     // ── Connection Tracking State Cover Properties ──────────────────────
     // conntrack_established is a 1-bit signal from the conntrack table.

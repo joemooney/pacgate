@@ -1,0 +1,48 @@
+# nsh_sfc.yaml — NSH/RFC 8300 Service Function Chaining
+# Matches NSH-encapsulated traffic by Service Path, hop position, and inner protocol
+#
+# NSH (Network Service Header, EtherType 0x894F) enables transparent service function chaining
+# Service Path Identifier (SPI) identifies the chain, Service Index (SI) identifies position
+# Next Protocol specifies encapsulated payload type (1=IPv4, 2=IPv6, 3=Ethernet)
+#
+# 5 rules: forward by SFP, filter by inner protocol, drop expired, bypass non-NSH
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: sfc_proxy_chain
+      priority: 100
+      match:
+        ethertype: "0x894F"
+        nsh_spi: 100
+        nsh_si: 254
+      action: pass
+
+    - name: sfc_firewall_chain
+      priority: 90
+      match:
+        ethertype: "0x894F"
+        nsh_spi: 101
+      action: pass
+
+    - name: sfc_ipv4_cache
+      priority: 80
+      match:
+        ethertype: "0x894F"
+        nsh_spi: 102
+        nsh_next_protocol: 1
+      action: pass
+
+    - name: sfc_drop_expired
+      priority: 70
+      match:
+        ethertype: "0x894F"
+        nsh_si: 0
+      action: drop
+
+    - name: allow_non_nsh
+      priority: 50
+      match:
+        ethertype: "0x0800"
+      action: pass

@@ -104,6 +104,13 @@ pub struct MatchCriteria {
     pub oam_level: Option<u8>,            // 0-7 (Maintenance Domain Level)
     #[serde(default)]
     pub oam_opcode: Option<u8>,           // CFM OpCode (1=CCM, 3=LBR, 47=DMM, 48=DMR)
+    // NSH fields (EtherType 0x894F — RFC 8300 Service Function Chaining)
+    #[serde(default)]
+    pub nsh_spi: Option<u32>,             // 24-bit Service Path Identifier (0-16777215)
+    #[serde(default)]
+    pub nsh_si: Option<u8>,              // Service Index (0-255, position in path)
+    #[serde(default)]
+    pub nsh_next_protocol: Option<u8>,   // Encapsulated protocol (1=IPv4, 2=IPv6, 3=Ethernet)
     // Connection tracking state (requires --conntrack)
     #[serde(default)]
     pub conntrack_state: Option<String>,  // "new", "established" (TCP state-aware)
@@ -379,6 +386,11 @@ impl MatchCriteria {
     /// Returns true if this criteria uses OAM/CFM fields
     pub fn uses_oam(&self) -> bool {
         self.oam_level.is_some() || self.oam_opcode.is_some()
+    }
+
+    /// Returns true if this criteria uses NSH/SFC fields
+    pub fn uses_nsh(&self) -> bool {
+        self.nsh_spi.is_some() || self.nsh_si.is_some() || self.nsh_next_protocol.is_some()
     }
 
     /// Returns true if this criteria uses connection tracking state matching
@@ -2119,6 +2131,56 @@ pacgate:
         let rule = &config.pacgate.rules[0];
         assert_eq!(rule.match_criteria.oam_level, Some(3));
         assert_eq!(rule.match_criteria.oam_opcode, Some(1));
+    }
+
+    // --- NSH/SFC ---
+
+    #[test]
+    fn uses_nsh_true_spi() {
+        let mc = MatchCriteria { nsh_spi: Some(100), ..Default::default() };
+        assert!(mc.uses_nsh());
+    }
+
+    #[test]
+    fn uses_nsh_true_si() {
+        let mc = MatchCriteria { nsh_si: Some(254), ..Default::default() };
+        assert!(mc.uses_nsh());
+    }
+
+    #[test]
+    fn uses_nsh_true_next_protocol() {
+        let mc = MatchCriteria { nsh_next_protocol: Some(1), ..Default::default() };
+        assert!(mc.uses_nsh());
+    }
+
+    #[test]
+    fn uses_nsh_false() {
+        let mc = MatchCriteria::default();
+        assert!(!mc.uses_nsh());
+    }
+
+    #[test]
+    fn deserialize_nsh_rule() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: sfc_proxy
+      priority: 100
+      match:
+        ethertype: "0x894F"
+        nsh_spi: 100
+        nsh_si: 254
+        nsh_next_protocol: 1
+      action: pass
+"#;
+        let config: FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let rule = &config.pacgate.rules[0];
+        assert_eq!(rule.match_criteria.nsh_spi, Some(100));
+        assert_eq!(rule.match_criteria.nsh_si, Some(254));
+        assert_eq!(rule.match_criteria.nsh_next_protocol, Some(1));
     }
 
     // --- Flow counters ---

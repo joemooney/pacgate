@@ -1207,4 +1207,57 @@
 ### Test Counts
 - REQ-2395: 426 Rust unit tests (through Phase 25.5) [IMPLEMENTED]
 - REQ-2396: 317 Rust integration tests (through Phase 25.5) [IMPLEMENTED]
-- REQ-2397: 47 Python scoreboard unit tests unchanged [IMPLEMENTED]
+- REQ-2397: 47 Python scoreboard unit tests → 53 (added 6 NSH tests) [IMPLEMENTED]
+
+## Phase 25.6 Requirements — NSH/SFC (RFC 8300 Network Service Header) [IMPLEMENTED]
+
+### Match Fields
+- REQ-2400: nsh_spi match field — 24-bit Service Path Identifier (0-16777215) [IMPLEMENTED]
+- REQ-2401: nsh_si match field — 8-bit Service Index (0-255, position in SFP) [IMPLEMENTED]
+- REQ-2402: nsh_next_protocol match field — 8-bit encapsulated protocol (1=IPv4, 2=IPv6, 3=Ethernet) [IMPLEMENTED]
+- REQ-2403: uses_nsh() helper on MatchCriteria [IMPLEMENTED]
+- REQ-2404: nsh_spi range validation (0-16777215) in loader [IMPLEMENTED]
+- REQ-2405: Shadow/overlap detection for nsh_spi, nsh_si, nsh_next_protocol [IMPLEMENTED]
+
+### RTL
+- REQ-2410: Detect NSH frames via EtherType 0x894F in S_ETYPE, S_ETYPE2, S_OUTER_VLAN [IMPLEMENTED]
+- REQ-2411: S_NSH_HDR parser state (5'd20): 8-byte parse — next_protocol at byte 2, SPI[23:0] at bytes 4-6, SI at byte 7 [IMPLEMENTED]
+- REQ-2412: NSH output ports: nsh_spi[23:0], nsh_si[7:0], nsh_next_protocol[7:0], nsh_valid [IMPLEMENTED]
+
+### Verilog Generation
+- REQ-2420: has_nsh flag in GlobalProtocolFlags [IMPLEMENTED]
+- REQ-2421: NSH condition expressions: nsh_spi (24'd), nsh_si (8'd), nsh_next_protocol (8'd) with nsh_valid guard [IMPLEMENTED]
+- REQ-2422: Template wiring: packet_filter_top, rule_match, rule_fsm [IMPLEMENTED]
+
+### Simulation
+- REQ-2430: nsh_spi, nsh_si, nsh_next_protocol in SimPacket + parse_packet_spec [IMPLEMENTED]
+- REQ-2431: NSH field matching in match_criteria_against_packet [IMPLEMENTED]
+
+### Verification
+- REQ-2440: SVA assertions: nsh_spi range, NSH prerequisite (ethertype==0x894F) [IMPLEMENTED]
+- REQ-2441: SVA cover properties: nsh_valid, nsh_spi_nonzero, per-rule NSH covers [IMPLEMENTED]
+- REQ-2442: Python scoreboard NSH matching (nsh_spi, nsh_si, nsh_next_protocol) [IMPLEMENTED]
+- REQ-2443: cocotb test generation includes NSH fields [IMPLEMENTED]
+- REQ-2444: PacketFactory.nsh() for NSH frame construction in verification [IMPLEMENTED]
+
+### Mutation Testing
+- REQ-2450: Mutation type 29: remove_nsh_spi (clears nsh_spi + nsh_si + nsh_next_protocol) [IMPLEMENTED]
+
+### Lint
+- REQ-2460: LINT039: NSH fields without ethertype 0x894F (warning) [IMPLEMENTED]
+
+### Tools (main.rs)
+- REQ-2461: Estimate: +8 LUTs per rule with NSH (24-bit SPI + 8-bit SI + 8-bit next_protocol) [IMPLEMENTED]
+- REQ-2462: Stats: nsh_spi, nsh_si, nsh_next_protocol field counters (JSON + text) [IMPLEMENTED]
+- REQ-2463: Diff: nsh_spi, nsh_si, nsh_next_protocol field change detection [IMPLEMENTED]
+- REQ-2464: Doc: NSH fields in rule_info match_fields [IMPLEMENTED]
+- REQ-2465: Graph: NSH labels on rule nodes [IMPLEMENTED]
+- REQ-2466: CI: nsh_sfc added to simulate matrix [IMPLEMENTED]
+
+### Example
+- REQ-2470: nsh_sfc.yaml example (5 rules: proxy chain, firewall chain, IPv4 cache, drop expired, non-NSH bypass) [IMPLEMENTED]
+
+### Test Counts
+- REQ-2475: 439 Rust unit tests (through Phase 25.6) [IMPLEMENTED]
+- REQ-2476: 327 Rust integration tests (through Phase 25.6) [IMPLEMENTED]
+- REQ-2477: 53 Python scoreboard unit tests (through Phase 25.6) [IMPLEMENTED]

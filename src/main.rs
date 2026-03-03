@@ -1542,6 +1542,9 @@ fn generate_rule_documentation(
         if let Some(gk) = rule.match_criteria.gre_key { match_fields.push(format!("gre_key: {}", gk)); }
         if let Some(ol) = rule.match_criteria.oam_level { match_fields.push(format!("oam_level: {}", ol)); }
         if let Some(oo) = rule.match_criteria.oam_opcode { match_fields.push(format!("oam_opcode: {}", oo)); }
+        if let Some(spi) = rule.match_criteria.nsh_spi { match_fields.push(format!("nsh_spi: {}", spi)); }
+        if let Some(si) = rule.match_criteria.nsh_si { match_fields.push(format!("nsh_si: {}", si)); }
+        if let Some(np) = rule.match_criteria.nsh_next_protocol { match_fields.push(format!("nsh_next_protocol: {}", np)); }
         if let Some(ref state) = rule.match_criteria.conntrack_state { match_fields.push(format!("conntrack_state: {}", state)); }
         if let Some(ref bms) = rule.match_criteria.byte_match {
             for bm in bms {
@@ -1809,6 +1812,9 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
     let mut uses_gre_key = 0;
     let mut uses_oam_level = 0;
     let mut uses_oam_opcode = 0;
+    let mut uses_nsh_spi = 0;
+    let mut uses_nsh_si = 0;
+    let mut uses_nsh_next_protocol = 0;
     let mut uses_conntrack_state = 0;
     let mut match_field_count = Vec::new();
 
@@ -1855,6 +1861,9 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
         if mc.gre_key.is_some() { uses_gre_key += 1; count += 1; }
         if mc.oam_level.is_some() { uses_oam_level += 1; count += 1; }
         if mc.oam_opcode.is_some() { uses_oam_opcode += 1; count += 1; }
+        if mc.nsh_spi.is_some() { uses_nsh_spi += 1; count += 1; }
+        if mc.nsh_si.is_some() { uses_nsh_si += 1; count += 1; }
+        if mc.nsh_next_protocol.is_some() { uses_nsh_next_protocol += 1; count += 1; }
         if mc.conntrack_state.is_some() { uses_conntrack_state += 1; count += 1; }
         match_field_count.push(count);
     }
@@ -1924,6 +1933,9 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
             "gre_key": uses_gre_key,
             "oam_level": uses_oam_level,
             "oam_opcode": uses_oam_opcode,
+            "nsh_spi": uses_nsh_spi,
+            "nsh_si": uses_nsh_si,
+            "nsh_next_protocol": uses_nsh_next_protocol,
             "conntrack_state": uses_conntrack_state,
         },
         "egress_actions": {
@@ -1985,6 +1997,9 @@ fn print_stats(config: &model::FilterConfig) {
     let mut uses_gre_key = 0usize;
     let mut uses_oam_level = 0usize;
     let mut uses_oam_opcode = 0usize;
+    let mut uses_nsh_spi = 0usize;
+    let mut uses_nsh_si = 0usize;
+    let mut uses_nsh_next_protocol = 0usize;
     let mut uses_conntrack_state = 0usize;
 
     for rule in rules.iter().filter(|r| !r.is_stateful()) {
@@ -2014,6 +2029,9 @@ fn print_stats(config: &model::FilterConfig) {
         if mc.gre_key.is_some() { uses_gre_key += 1; }
         if mc.oam_level.is_some() { uses_oam_level += 1; }
         if mc.oam_opcode.is_some() { uses_oam_opcode += 1; }
+        if mc.nsh_spi.is_some() { uses_nsh_spi += 1; }
+        if mc.nsh_si.is_some() { uses_nsh_si += 1; }
+        if mc.nsh_next_protocol.is_some() { uses_nsh_next_protocol += 1; }
         if mc.conntrack_state.is_some() { uses_conntrack_state += 1; }
     }
 
@@ -2097,6 +2115,15 @@ fn print_stats(config: &model::FilterConfig) {
         }
         if uses_oam_opcode > 0 {
             println!("  oam_opcode   [{:>2}/{}] |{}|", uses_oam_opcode, stateless, bar(uses_oam_opcode));
+        }
+        if uses_nsh_spi > 0 {
+            println!("  nsh_spi      [{:>2}/{}] |{}|", uses_nsh_spi, stateless, bar(uses_nsh_spi));
+        }
+        if uses_nsh_si > 0 {
+            println!("  nsh_si       [{:>2}/{}] |{}|", uses_nsh_si, stateless, bar(uses_nsh_si));
+        }
+        if uses_nsh_next_protocol > 0 {
+            println!("  nsh_next_proto [{:>2}/{}] |{}|", uses_nsh_next_protocol, stateless, bar(uses_nsh_next_protocol));
         }
         if uses_conntrack_state > 0 {
             println!("  ct_state     [{:>2}/{}] |{}|", uses_conntrack_state, stateless, bar(uses_conntrack_state));
@@ -2212,6 +2239,9 @@ fn print_dot_graph(config: &model::FilterConfig) {
             if let Some(gk) = mc.gre_key { criteria.push(format!("gre_key={}", gk)); }
             if let Some(ol) = mc.oam_level { criteria.push(format!("oam_level={}", ol)); }
             if let Some(oo) = mc.oam_opcode { criteria.push(format!("oam_opcode={}", oo)); }
+            if let Some(spi) = mc.nsh_spi { criteria.push(format!("nsh_spi={}", spi)); }
+            if let Some(si) = mc.nsh_si { criteria.push(format!("nsh_si={}", si)); }
+            if let Some(np) = mc.nsh_next_protocol { criteria.push(format!("nsh_next_proto={}", np)); }
             if let Some(ref state) = mc.conntrack_state { criteria.push(format!("ct_state={}", state)); }
         } else {
             criteria.push("(FSM states)".to_string());
@@ -2458,6 +2488,18 @@ fn diff_rules(old: &model::FilterConfig, new: &model::FilterConfig, json: bool) 
                     changes.push(format!("oam_opcode: {:?} -> {:?}",
                         old_rule.match_criteria.oam_opcode, new_rule.match_criteria.oam_opcode));
                 }
+                if old_rule.match_criteria.nsh_spi != new_rule.match_criteria.nsh_spi {
+                    changes.push(format!("nsh_spi: {:?} -> {:?}",
+                        old_rule.match_criteria.nsh_spi, new_rule.match_criteria.nsh_spi));
+                }
+                if old_rule.match_criteria.nsh_si != new_rule.match_criteria.nsh_si {
+                    changes.push(format!("nsh_si: {:?} -> {:?}",
+                        old_rule.match_criteria.nsh_si, new_rule.match_criteria.nsh_si));
+                }
+                if old_rule.match_criteria.nsh_next_protocol != new_rule.match_criteria.nsh_next_protocol {
+                    changes.push(format!("nsh_next_protocol: {:?} -> {:?}",
+                        old_rule.match_criteria.nsh_next_protocol, new_rule.match_criteria.nsh_next_protocol));
+                }
                 if old_rule.match_criteria.conntrack_state != new_rule.match_criteria.conntrack_state {
                     changes.push(format!("conntrack_state: {:?} -> {:?}",
                         old_rule.match_criteria.conntrack_state, new_rule.match_criteria.conntrack_state));
@@ -2666,6 +2708,9 @@ fn generate_diff_html(
         if let Some(gk) = mc.gre_key { parts.push(format!("gre_key={}", gk)); }
         if let Some(ol) = mc.oam_level { parts.push(format!("oam_level={}", ol)); }
         if let Some(oo) = mc.oam_opcode { parts.push(format!("oam_opcode={}", oo)); }
+        if let Some(spi) = mc.nsh_spi { parts.push(format!("nsh_spi={}", spi)); }
+        if let Some(si) = mc.nsh_si { parts.push(format!("nsh_si={}", si)); }
+        if let Some(np) = mc.nsh_next_protocol { parts.push(format!("nsh_next_proto={}", np)); }
         if let Some(ref state) = mc.conntrack_state { parts.push(format!("ct_state={}", state)); }
         if parts.is_empty() { "any".to_string() } else { parts.join(", ") }
     };
@@ -3006,6 +3051,27 @@ fn generate_diff_html(
                         "new_value": format!("{:?}", new_rule.match_criteria.oam_opcode),
                     }));
                 }
+                if old_rule.match_criteria.nsh_spi != new_rule.match_criteria.nsh_spi {
+                    changes.push(serde_json::json!({
+                        "field": "nsh_spi",
+                        "old_value": format!("{:?}", old_rule.match_criteria.nsh_spi),
+                        "new_value": format!("{:?}", new_rule.match_criteria.nsh_spi),
+                    }));
+                }
+                if old_rule.match_criteria.nsh_si != new_rule.match_criteria.nsh_si {
+                    changes.push(serde_json::json!({
+                        "field": "nsh_si",
+                        "old_value": format!("{:?}", old_rule.match_criteria.nsh_si),
+                        "new_value": format!("{:?}", new_rule.match_criteria.nsh_si),
+                    }));
+                }
+                if old_rule.match_criteria.nsh_next_protocol != new_rule.match_criteria.nsh_next_protocol {
+                    changes.push(serde_json::json!({
+                        "field": "nsh_next_protocol",
+                        "old_value": format!("{:?}", old_rule.match_criteria.nsh_next_protocol),
+                        "new_value": format!("{:?}", new_rule.match_criteria.nsh_next_protocol),
+                    }));
+                }
                 if old_rule.match_criteria.conntrack_state != new_rule.match_criteria.conntrack_state {
                     changes.push(serde_json::json!({
                         "field": "conntrack_state",
@@ -3188,6 +3254,9 @@ fn compute_resource_estimate(config: &model::FilterConfig) -> serde_json::Value 
             if mc.gre_key.is_some() { fields += 2; }          // 32-bit comparator
             if mc.oam_level.is_some() { fields += 1; }        // 3-bit comparator
             if mc.oam_opcode.is_some() { fields += 1; }       // 8-bit comparator
+            if mc.nsh_spi.is_some() { fields += 2; }          // 24-bit comparator
+            if mc.nsh_si.is_some() { fields += 1; }           // 8-bit comparator
+            if mc.nsh_next_protocol.is_some() { fields += 1; } // 8-bit comparator
             if mc.conntrack_state.is_some() { fields += 1; }  // 1-bit comparator
             rule_luts += 10 + fields * 12;
         }
@@ -3197,6 +3266,12 @@ fn compute_resource_estimate(config: &model::FilterConfig) -> serde_json::Value 
     let num_oam = rules.iter().filter(|r| r.match_criteria.uses_oam()).count();
     if num_oam > 0 {
         rule_luts += num_oam * 8;
+    }
+
+    // NSH: +8 LUTs per rule with NSH fields (24-bit SPI + 8-bit SI + 8-bit next_protocol comparators)
+    let num_nsh = rules.iter().filter(|r| r.match_criteria.uses_nsh()).count();
+    if num_nsh > 0 {
+        rule_luts += num_nsh * 8;
     }
 
     // Egress LUT: +4 LUTs per rule with mirror/redirect (8-bit port + valid per action)
@@ -3344,6 +3419,9 @@ fn print_resource_estimate(config: &model::FilterConfig) {
             if mc.gre_key.is_some() { fields += 2; }
             if mc.oam_level.is_some() { fields += 1; }
             if mc.oam_opcode.is_some() { fields += 1; }
+            if mc.nsh_spi.is_some() { fields += 2; }
+            if mc.nsh_si.is_some() { fields += 1; }
+            if mc.nsh_next_protocol.is_some() { fields += 1; }
             if mc.conntrack_state.is_some() { fields += 1; }
             rule_luts += 10 + fields * 12;
         }
@@ -3353,6 +3431,12 @@ fn print_resource_estimate(config: &model::FilterConfig) {
     let num_oam = rules.iter().filter(|r| r.match_criteria.uses_oam()).count();
     if num_oam > 0 {
         rule_luts += num_oam * 8;
+    }
+
+    // NSH: +8 LUTs per rule with NSH fields (24-bit SPI + 8-bit SI + 8-bit next_protocol comparators)
+    let num_nsh = rules.iter().filter(|r| r.match_criteria.uses_nsh()).count();
+    if num_nsh > 0 {
+        rule_luts += num_nsh * 8;
     }
 
     // Rate limiter: +50 LUTs, +64 FFs per rate-limited rule
@@ -4148,6 +4232,23 @@ fn lint_rules(config: &model::FilterConfig, warnings: &[String], dynamic: bool, 
                     "code": "LINT038",
                     "message": format!("Rule '{}' uses oam_level/oam_opcode without ethertype: 0x8902 — OAM/CFM requires EtherType 0x8902", rule.name),
                     "suggestion": "Add 'ethertype: \"0x8902\"' to ensure OAM matching only applies to CFM/Y.1731 frames"
+                }));
+            }
+        }
+    }
+
+    // LINT039: NSH fields without ethertype 0x894F
+    for rule in &config.pacgate.rules {
+        if rule.match_criteria.uses_nsh() {
+            let has_nsh_ethertype = rule.match_criteria.ethertype.as_ref()
+                .map(|et| et == "0x894F" || et == "0x894f")
+                .unwrap_or(false);
+            if !has_nsh_ethertype {
+                findings.push(serde_json::json!({
+                    "level": "warning",
+                    "code": "LINT039",
+                    "message": format!("Rule '{}' uses nsh_spi/nsh_si/nsh_next_protocol without ethertype: 0x894F — NSH requires EtherType 0x894F", rule.name),
+                    "suggestion": "Add 'ethertype: \"0x894F\"' to ensure NSH matching only applies to NSH (RFC 8300) frames"
                 }));
             }
         }

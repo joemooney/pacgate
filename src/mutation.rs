@@ -434,6 +434,22 @@ pub fn generate_mutations(config: &FilterConfig) -> Vec<(Mutation, FilterConfig)
         }
     }
 
+    // Mutation 29: Remove nsh_spi (clears nsh_spi, nsh_si, and nsh_next_protocol)
+    for (i, rule) in config.pacgate.rules.iter().enumerate() {
+        if !rule.is_stateful() && rule.match_criteria.nsh_spi.is_some() {
+            let mut mutated = config.clone();
+            mutated.pacgate.rules[i].match_criteria.nsh_spi = None;
+            mutated.pacgate.rules[i].match_criteria.nsh_si = None;
+            mutated.pacgate.rules[i].match_criteria.nsh_next_protocol = None;
+            mutations.push((Mutation {
+                name: format!("remove_nsh_spi_{}", rule.name),
+                description: format!("Remove nsh_spi match from rule '{}'", rule.name),
+                mutant_index: index,
+            }, mutated));
+            index += 1;
+        }
+    }
+
     // Mutation 22: Remove set_src_port from rewrite actions
     for (i, rule) in config.pacgate.rules.iter().enumerate() {
         if !rule.is_stateful() {
@@ -1320,6 +1336,36 @@ mod tests {
         let rm = mutations.iter().find(|(m, _)| m.name.starts_with("remove_oam_level_")).unwrap();
         assert!(rm.1.pacgate.rules[0].match_criteria.oam_level.is_none());
         assert!(rm.1.pacgate.rules[0].match_criteria.oam_opcode.is_none());
+    }
+
+    #[test]
+    fn remove_nsh_spi_mutation() {
+        let config = FilterConfig {
+            pacgate: PacgateConfig {
+                version: "1.0".to_string(),
+                defaults: Defaults { action: Action::Drop },
+                rules: vec![
+                    StatelessRule {
+                        name: "nsh_rule".to_string(),
+                        priority: 100,
+                        match_criteria: MatchCriteria {
+                            nsh_spi: Some(100),
+                            nsh_si: Some(255),
+                            nsh_next_protocol: Some(1),
+                            ..Default::default()
+                        },
+                        action: Some(Action::Pass),
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None,
+                    },
+                ],
+                conntrack: None,
+            },
+        };
+        let mutations = generate_mutations(&config);
+        let rm = mutations.iter().find(|(m, _)| m.name.starts_with("remove_nsh_spi_")).unwrap();
+        assert!(rm.1.pacgate.rules[0].match_criteria.nsh_spi.is_none());
+        assert!(rm.1.pacgate.rules[0].match_criteria.nsh_si.is_none());
+        assert!(rm.1.pacgate.rules[0].match_criteria.nsh_next_protocol.is_none());
     }
 
     #[test]

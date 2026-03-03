@@ -308,6 +308,40 @@ class TestCoverageProtocols:
         assert cov.coverpoints["gtp_teid_range"].bins["mid"].hit
 
 
+class TestNshMatch:
+    def test_nsh_spi_match(self):
+        rule = Rule(name="nsh_path", priority=100, action="pass", nsh_spi=100)
+        frame = _make_frame(ethertype=0x894F)
+        assert rule.matches(frame, extracted={"nsh_spi": 100})
+
+    def test_nsh_spi_no_match(self):
+        rule = Rule(name="nsh_path", priority=100, action="pass", nsh_spi=100)
+        frame = _make_frame(ethertype=0x894F)
+        assert not rule.matches(frame, extracted={"nsh_spi": 200})
+
+    def test_nsh_si_match(self):
+        rule = Rule(name="nsh_index", priority=100, action="pass", nsh_si=255)
+        frame = _make_frame(ethertype=0x894F)
+        assert rule.matches(frame, extracted={"nsh_si": 255})
+
+    def test_nsh_si_no_match(self):
+        rule = Rule(name="nsh_index", priority=100, action="pass", nsh_si=255)
+        frame = _make_frame(ethertype=0x894F)
+        assert not rule.matches(frame, extracted={"nsh_si": 254})
+
+    def test_nsh_multi_field_match(self):
+        rule = Rule(name="nsh_full", priority=100, action="pass",
+                    nsh_spi=100, nsh_si=255, nsh_next_protocol=1)
+        frame = _make_frame(ethertype=0x894F)
+        assert rule.matches(frame, extracted={"nsh_spi": 100, "nsh_si": 255, "nsh_next_protocol": 1})
+        assert not rule.matches(frame, extracted={"nsh_spi": 100, "nsh_si": 255, "nsh_next_protocol": 2})
+
+    def test_nsh_missing_extracted(self):
+        rule = Rule(name="nsh_path", priority=100, action="pass", nsh_spi=100)
+        frame = _make_frame(ethertype=0x894F)
+        assert not rule.matches(frame, extracted={})
+
+
 class TestProtocolDeterminism:
     """Tests for protocol-specific determinism check functions."""
 

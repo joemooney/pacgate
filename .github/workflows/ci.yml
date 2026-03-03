@@ -128,7 +128,7 @@ jobs:
     needs: build-and-test
     strategy:
       matrix:
-        example: [allow_arp, enterprise, l3l4_firewall, ipv6_firewall, gtp_5g, mpls_network, multicast, vxlan_datacenter, qos_classification, tcp_flags_icmp, arp_security, icmpv6_firewall, qinq_provider, fragment_security, gre_tunnel, conntrack_firewall, mirror_redirect, flow_counters, oam_monitoring]
+        example: [allow_arp, enterprise, l3l4_firewall, ipv6_firewall, gtp_5g, mpls_network, multicast, vxlan_datacenter, qos_classification, tcp_flags_icmp, arp_security, icmpv6_firewall, qinq_provider, fragment_security, gre_tunnel, conntrack_firewall, mirror_redirect, flow_counters, oam_monitoring, nsh_sfc]
     steps:
       - uses: actions/checkout@v4
 

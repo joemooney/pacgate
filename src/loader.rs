@@ -197,6 +197,13 @@ fn validate_match_criteria(mc: &crate::model::MatchCriteria, rule_name: &str) ->
         }
     }
 
+    // NSH validation
+    if let Some(spi) = mc.nsh_spi {
+        if spi > 0xFFFFFF {
+            anyhow::bail!("nsh_spi must be 24-bit (0-16777215), got {} in rule '{}'", spi, rule_name);
+        }
+    }
+
     // Connection tracking state validation
     if let Some(ref state) = mc.conntrack_state {
         match state.as_str() {
@@ -1015,6 +1022,26 @@ pub fn criteria_shadows(a: &crate::model::MatchCriteria, b: &crate::model::Match
         }
     }
 
+    // NSH shadow check
+    if let Some(a_spi) = a.nsh_spi {
+        match b.nsh_spi {
+            Some(b_spi) if a_spi == b_spi => {},
+            _ => return false,
+        }
+    }
+    if let Some(a_si) = a.nsh_si {
+        match b.nsh_si {
+            Some(b_si) if a_si == b_si => {},
+            _ => return false,
+        }
+    }
+    if let Some(a_np) = a.nsh_next_protocol {
+        match b.nsh_next_protocol {
+            Some(b_np) if a_np == b_np => {},
+            _ => return false,
+        }
+    }
+
     // Connection tracking state shadow check
     if let Some(ref a_state) = a.conntrack_state {
         match &b.conntrack_state {
@@ -1212,6 +1239,17 @@ fn criteria_overlaps(a: &crate::model::MatchCriteria, b: &crate::model::MatchCri
     }
     if let (Some(a_opcode), Some(b_opcode)) = (a.oam_opcode, b.oam_opcode) {
         if a_opcode != b_opcode { return false; }
+    }
+
+    // NSH overlap checks
+    if let (Some(a_spi), Some(b_spi)) = (a.nsh_spi, b.nsh_spi) {
+        if a_spi != b_spi { return false; }
+    }
+    if let (Some(a_si), Some(b_si)) = (a.nsh_si, b.nsh_si) {
+        if a_si != b_si { return false; }
+    }
+    if let (Some(a_np), Some(b_np)) = (a.nsh_next_protocol, b.nsh_next_protocol) {
+        if a_np != b_np { return false; }
     }
 
     // Connection tracking state overlap checks
@@ -2255,6 +2293,36 @@ pacgate:
     fn accept_oam_opcode_only() {
         let yaml = valid_yaml(
             "    - name: dmm\n      priority: 100\n      match:\n        ethertype: \"0x8902\"\n        oam_opcode: 47\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_ok());
+    }
+
+    // --- NSH validation ---
+
+    #[test]
+    fn accept_nsh_rule() {
+        let yaml = valid_yaml(
+            "    - name: sfc\n      priority: 100\n      match:\n        ethertype: \"0x894F\"\n        nsh_spi: 100\n        nsh_si: 254\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn reject_nsh_spi_out_of_range() {
+        let yaml = valid_yaml(
+            "    - name: bad_nsh\n      priority: 100\n      match:\n        ethertype: \"0x894F\"\n        nsh_spi: 16777216\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("nsh_spi must be 24-bit"));
+    }
+
+    #[test]
+    fn accept_nsh_next_protocol_only() {
+        let yaml = valid_yaml(
+            "    - name: nsh_ipv4\n      priority: 100\n      match:\n        ethertype: \"0x894F\"\n        nsh_next_protocol: 1\n      action: pass",
         );
         let result = load_rules_from_str(&yaml);
         assert!(result.is_ok());
