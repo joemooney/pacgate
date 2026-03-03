@@ -532,6 +532,12 @@ module packet_filter_assertions (
 {% endfor %}
 {% endif %}
 
+{% if has_conntrack_state %}
+    // ── Connection Tracking State Cover Properties ──────────────────────
+    // conntrack_established is a 1-bit signal from the conntrack table.
+    cover_conntrack_established: cover property (@(posedge clk) disable iff (!rst_n) conntrack_established);
+{% endif %}
+
 {% if has_rewrite_rules %}
     // ── Rewrite Engine Assertions ───────────────────────────────────
     // Rewrite must only be applied when the packet is passed (not dropped).

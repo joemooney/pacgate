@@ -1,0 +1,65 @@
+# conntrack_firewall.yaml — Stateful firewall with connection tracking
+# Uses conntrack_state to differentiate new vs established connections.
+# Requires --conntrack flag at compile time for RTL support.
+#
+# Pattern: Allow new connections only to specific services (HTTP, SSH, DNS),
+# but allow all established (return) traffic automatically.
+#
+# 6 rules: allow established, new HTTP, new SSH, new DNS, new ICMP echo, drop all
+
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  conntrack:
+    table_size: 1024
+    timeout_cycles: 1000000
+  rules:
+    - name: allow_established
+      priority: 200
+      match:
+        ethertype: "0x0800"
+        conntrack_state: "established"
+      action: pass
+
+    - name: allow_new_http
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 80
+        conntrack_state: "new"
+      action: pass
+
+    - name: allow_new_ssh
+      priority: 90
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 22
+        conntrack_state: "new"
+      action: pass
+
+    - name: allow_new_dns
+      priority: 80
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17
+        dst_port: 53
+        conntrack_state: "new"
+      action: pass
+
+    - name: allow_new_icmp_echo
+      priority: 70
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 1
+        icmp_type: 8
+        conntrack_state: "new"
+      action: pass
+
+    - name: allow_arp
+      priority: 50
+      match:
+        ethertype: "0x0806"
+      action: pass

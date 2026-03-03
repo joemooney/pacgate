@@ -150,6 +150,12 @@ module packet_filter_top (
     wire [31:0] gre_key;
     wire        gre_valid;
 
+{% if has_conntrack_state %}
+    // Connection tracking state (driven by conntrack_table when --conntrack is used)
+    wire        conntrack_established;
+    assign conntrack_established = 1'b0; // Default: all packets are "new" unless --conntrack provides state
+{% endif %}
+
     wire        fields_valid;
 
     frame_parser u_parser (
@@ -322,6 +328,9 @@ module packet_filter_top (
 {% if has_gre %}
         .gre_protocol      (gre_protocol),
         .gre_key           (gre_key),
+{% endif %}
+{% if has_conntrack_state %}
+        .conntrack_established (conntrack_established),
 {% endif %}
 {% if has_byte_capture %}
 {% for cap in byte_captures %}

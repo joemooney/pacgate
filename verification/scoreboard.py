@@ -131,6 +131,8 @@ class Rule:
     # GRE tunnel fields
     gre_protocol: Optional[int] = None
     gre_key: Optional[int] = None
+    # Connection tracking state
+    conntrack_state: Optional[str] = None
 
     def matches(self, frame: EthernetFrame, extracted: Optional[dict] = None) -> bool:
         """Check if this rule matches the given frame.
@@ -354,6 +356,11 @@ class Rule:
         if self.gre_key is not None:
             pkt_gre_key = extracted.get("gre_key")
             if pkt_gre_key is None or pkt_gre_key != self.gre_key:
+                return False
+
+        # Connection tracking state matching
+        if self.conntrack_state is not None:
+            if extracted.get('conntrack_state') != self.conntrack_state:
                 return False
 
         return True

@@ -200,6 +200,11 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
             tc.insert("gre_key".to_string(), key.to_string());
             tc.insert("has_gre".to_string(), "true".to_string());
         }
+        // Connection tracking state
+        if let Some(ref state) = rule.match_criteria.conntrack_state {
+            tc.insert("conntrack_state".to_string(), state.clone());
+            tc.insert("has_conntrack_state".to_string(), "true".to_string());
+        }
         test_cases.push(tc);
     }
 
@@ -442,6 +447,10 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         if let Some(key) = rule.match_criteria.gre_key {
             sr.insert("gre_key".to_string(), key.to_string());
         }
+        // Connection tracking state scoreboard field
+        if let Some(ref state) = rule.match_criteria.conntrack_state {
+            sr.insert("conntrack_state".to_string(), state.clone());
+        }
         scoreboard_rules.push(sr);
     }
 
@@ -477,6 +486,7 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         ctx.insert("has_qinq_rules", &rules.iter().any(|r| r.match_criteria.uses_qinq()));
         ctx.insert("has_ip_frag_rules", &rules.iter().any(|r| r.match_criteria.uses_ip_frag()));
         ctx.insert("has_gre_rules", &rules.iter().any(|r| r.match_criteria.uses_gre()));
+        ctx.insert("has_conntrack_state_rules", &rules.iter().any(|r| r.match_criteria.uses_conntrack_state()));
 
         let rendered = tera.render("test_properties.py.tera", &ctx)?;
         std::fs::write(tb_dir.join("test_properties.py"), &rendered)?;

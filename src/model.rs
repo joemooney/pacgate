@@ -99,6 +99,9 @@ pub struct MatchCriteria {
     pub gre_protocol: Option<u16>,        // GRE Protocol Type (e.g., 0x0800, 0x86DD, 0x6558)
     #[serde(default)]
     pub gre_key: Option<u32>,             // GRE Key (32-bit, present when K flag set)
+    // Connection tracking state (requires --conntrack)
+    #[serde(default)]
+    pub conntrack_state: Option<String>,  // "new", "established" (TCP state-aware)
     // Byte-offset matching
     #[serde(default)]
     pub byte_match: Option<Vec<ByteMatch>>,
@@ -366,6 +369,11 @@ impl MatchCriteria {
     /// Returns true if this criteria uses GRE tunnel fields
     pub fn uses_gre(&self) -> bool {
         self.gre_protocol.is_some() || self.gre_key.is_some()
+    }
+
+    /// Returns true if this criteria uses connection tracking state matching
+    pub fn uses_conntrack_state(&self) -> bool {
+        self.conntrack_state.is_some()
     }
 }
 
@@ -1863,5 +1871,58 @@ pacgate:
         assert_eq!(rule.match_criteria.gre_protocol, Some(2048));
         assert_eq!(rule.match_criteria.gre_key, Some(99999));
         assert_eq!(rule.match_criteria.ip_protocol, Some(47));
+    }
+
+    #[test]
+    fn uses_conntrack_state_true() {
+        let mc = MatchCriteria { conntrack_state: Some("established".to_string()), ..Default::default() };
+        assert!(mc.uses_conntrack_state());
+    }
+
+    #[test]
+    fn uses_conntrack_state_false() {
+        let mc = MatchCriteria::default();
+        assert!(!mc.uses_conntrack_state());
+    }
+
+    #[test]
+    fn deserialize_conntrack_state_rule() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_established
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        conntrack_state: "established"
+      action: pass
+"#;
+        let config: FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let rule = &config.pacgate.rules[0];
+        assert_eq!(rule.match_criteria.conntrack_state, Some("established".to_string()));
+    }
+
+    #[test]
+    fn deserialize_conntrack_state_new() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_new_tcp
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        conntrack_state: "new"
+      action: pass
+"#;
+        let config: FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let rule = &config.pacgate.rules[0];
+        assert_eq!(rule.match_criteria.conntrack_state, Some("new".to_string()));
     }
 }

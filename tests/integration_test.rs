@@ -5404,3 +5404,128 @@ fn simulate_gre_json_output() {
     assert_eq!(json["action"], "pass");
     assert_eq!(json["matched_rule"], "gre_ipv4_keyed");
 }
+
+// --- Phase 25.2: Connection Tracking State ---
+
+#[test]
+fn validate_conntrack_firewall_rules() {
+    let output = pacgate_bin()
+        .args(["validate", "rules/examples/conntrack_firewall.yaml"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "validate failed: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn validate_conntrack_state_invalid() {
+    let tmp = tempfile::tempdir().unwrap();
+    let rules = tmp.path().join("bad_conntrack.yaml");
+    std::fs::write(&rules, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: bad
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        conntrack_state: "related"
+      action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["validate", rules.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("conntrack_state must be"), "Expected validation error: {}", stderr);
+}
+
+#[test]
+fn compile_conntrack_firewall_rules() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/conntrack_firewall.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(tmp.path().join("rtl/packet_filter_top.v").exists());
+}
+
+#[test]
+fn simulate_conntrack_state_established_match() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/conntrack_firewall.yaml", "--packet",
+            "ethertype=0x0800,conntrack_state=established"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("PASS"), "Established traffic should pass: {}", stdout);
+    assert!(stdout.contains("allow_established"), "Should match allow_established rule: {}", stdout);
+}
+
+#[test]
+fn simulate_conntrack_state_new_http() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/conntrack_firewall.yaml", "--packet",
+            "ethertype=0x0800,ip_protocol=6,dst_port=80,conntrack_state=new"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("PASS"), "New HTTP should pass: {}", stdout);
+    assert!(stdout.contains("allow_new_http"), "Should match allow_new_http: {}", stdout);
+}
+
+#[test]
+fn simulate_conntrack_state_new_blocked() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/conntrack_firewall.yaml", "--packet",
+            "ethertype=0x0800,ip_protocol=6,dst_port=443,conntrack_state=new"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Port 443 not in allowed new connections list → should be dropped
+    assert!(stdout.contains("DROP"), "New HTTPS (443) should be dropped: {}", stdout);
+}
+
+#[test]
+fn simulate_conntrack_state_json_output() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/conntrack_firewall.yaml", "--packet",
+            "ethertype=0x0800,conntrack_state=established", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["action"], "pass");
+    assert_eq!(json["matched_rule"], "allow_established");
+}
+
+#[test]
+fn simulate_conntrack_stateful_new_flow() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/conntrack_firewall.yaml", "--packet",
+            "ethertype=0x0800,ip_protocol=6,dst_port=22", "--stateful"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // With --stateful, a new flow (no conntrack entry) should match "new" SSH rule
+    assert!(stdout.contains("PASS"), "Stateful new SSH should pass: {}", stdout);
+}
+
+#[test]
+fn estimate_conntrack_state_rules() {
+    let output = pacgate_bin()
+        .args(["estimate", "rules/examples/conntrack_firewall.yaml"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("LUT"), "Should show LUT estimates: {}", stdout);
+}

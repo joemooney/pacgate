@@ -1513,6 +1513,7 @@ fn generate_rule_documentation(
         if let Some(fo) = rule.match_criteria.ip_frag_offset { match_fields.push(format!("ip_frag_offset: {}", fo)); }
         if let Some(gp) = rule.match_criteria.gre_protocol { match_fields.push(format!("gre_protocol: 0x{:04X}", gp)); }
         if let Some(gk) = rule.match_criteria.gre_key { match_fields.push(format!("gre_key: {}", gk)); }
+        if let Some(ref state) = rule.match_criteria.conntrack_state { match_fields.push(format!("conntrack_state: {}", state)); }
         if let Some(ref bms) = rule.match_criteria.byte_match {
             for bm in bms {
                 match_fields.push(format!("byte_match: offset={}, value={}, mask={}", bm.offset, bm.value, bm.mask.as_deref().unwrap_or("FF")));
@@ -1770,6 +1771,7 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
     let mut uses_ip_frag_offset = 0;
     let mut uses_gre_protocol = 0;
     let mut uses_gre_key = 0;
+    let mut uses_conntrack_state = 0;
     let mut match_field_count = Vec::new();
 
     for rule in rules.iter().filter(|r| !r.is_stateful()) {
@@ -1813,6 +1815,7 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
         if mc.ip_frag_offset.is_some() { uses_ip_frag_offset += 1; count += 1; }
         if mc.gre_protocol.is_some() { uses_gre_protocol += 1; count += 1; }
         if mc.gre_key.is_some() { uses_gre_key += 1; count += 1; }
+        if mc.conntrack_state.is_some() { uses_conntrack_state += 1; count += 1; }
         match_field_count.push(count);
     }
 
@@ -1875,6 +1878,7 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
             "ip_frag_offset": uses_ip_frag_offset,
             "gre_protocol": uses_gre_protocol,
             "gre_key": uses_gre_key,
+            "conntrack_state": uses_conntrack_state,
         },
         "match_complexity": {
             "avg_fields_per_rule": format!("{:.1}", avg_fields),
@@ -1926,6 +1930,7 @@ fn print_stats(config: &model::FilterConfig) {
     let mut uses_ip_frag_offset = 0usize;
     let mut uses_gre_protocol = 0usize;
     let mut uses_gre_key = 0usize;
+    let mut uses_conntrack_state = 0usize;
 
     for rule in rules.iter().filter(|r| !r.is_stateful()) {
         let mc = &rule.match_criteria;
@@ -1952,6 +1957,7 @@ fn print_stats(config: &model::FilterConfig) {
         if mc.ip_frag_offset.is_some() { uses_ip_frag_offset += 1; }
         if mc.gre_protocol.is_some() { uses_gre_protocol += 1; }
         if mc.gre_key.is_some() { uses_gre_key += 1; }
+        if mc.conntrack_state.is_some() { uses_conntrack_state += 1; }
     }
 
     // Priority spacing
@@ -2028,6 +2034,9 @@ fn print_stats(config: &model::FilterConfig) {
         }
         if uses_gre_key > 0 {
             println!("  gre_key      [{:>2}/{}] |{}|", uses_gre_key, stateless, bar(uses_gre_key));
+        }
+        if uses_conntrack_state > 0 {
+            println!("  ct_state     [{:>2}/{}] |{}|", uses_conntrack_state, stateless, bar(uses_conntrack_state));
         }
     }
     println!();
@@ -2112,6 +2121,7 @@ fn print_dot_graph(config: &model::FilterConfig) {
             if let Some(fo) = mc.ip_frag_offset { criteria.push(format!("ip_frag_offset={}", fo)); }
             if let Some(gp) = mc.gre_protocol { criteria.push(format!("gre_protocol=0x{:04X}", gp)); }
             if let Some(gk) = mc.gre_key { criteria.push(format!("gre_key={}", gk)); }
+            if let Some(ref state) = mc.conntrack_state { criteria.push(format!("ct_state={}", state)); }
         } else {
             criteria.push("(FSM states)".to_string());
         }
@@ -2347,6 +2357,10 @@ fn diff_rules(old: &model::FilterConfig, new: &model::FilterConfig, json: bool) 
                     changes.push(format!("gre_key: {:?} -> {:?}",
                         old_rule.match_criteria.gre_key, new_rule.match_criteria.gre_key));
                 }
+                if old_rule.match_criteria.conntrack_state != new_rule.match_criteria.conntrack_state {
+                    changes.push(format!("conntrack_state: {:?} -> {:?}",
+                        old_rule.match_criteria.conntrack_state, new_rule.match_criteria.conntrack_state));
+                }
                 if old_rule.is_stateful() != new_rule.is_stateful() {
                     changes.push(format!("type: {} -> {}",
                         if old_rule.is_stateful() { "stateful" } else { "stateless" },
@@ -2504,6 +2518,7 @@ fn generate_diff_html(
         if let Some(fo) = mc.ip_frag_offset { parts.push(format!("ip_frag_offset={}", fo)); }
         if let Some(gp) = mc.gre_protocol { parts.push(format!("gre_protocol=0x{:04X}", gp)); }
         if let Some(gk) = mc.gre_key { parts.push(format!("gre_key={}", gk)); }
+        if let Some(ref state) = mc.conntrack_state { parts.push(format!("ct_state={}", state)); }
         if parts.is_empty() { "any".to_string() } else { parts.join(", ") }
     };
 
@@ -2829,6 +2844,13 @@ fn generate_diff_html(
                         "new_value": format!("{:?}", new_rule.match_criteria.gre_key),
                     }));
                 }
+                if old_rule.match_criteria.conntrack_state != new_rule.match_criteria.conntrack_state {
+                    changes.push(serde_json::json!({
+                        "field": "conntrack_state",
+                        "old_value": format!("{:?}", old_rule.match_criteria.conntrack_state),
+                        "new_value": format!("{:?}", new_rule.match_criteria.conntrack_state),
+                    }));
+                }
 
                 if changes.is_empty() {
                     unchanged_count += 1;
@@ -2988,6 +3010,7 @@ fn compute_resource_estimate(config: &model::FilterConfig) -> serde_json::Value 
             if mc.ip_frag_offset.is_some() { fields += 1; }   // 13-bit comparator
             if mc.gre_protocol.is_some() { fields += 1; }     // 16-bit comparator
             if mc.gre_key.is_some() { fields += 2; }          // 32-bit comparator
+            if mc.conntrack_state.is_some() { fields += 1; }  // 1-bit comparator
             rule_luts += 10 + fields * 12;
         }
     }
@@ -3120,6 +3143,7 @@ fn print_resource_estimate(config: &model::FilterConfig) {
             if mc.ip_frag_offset.is_some() { fields += 1; }
             if mc.gre_protocol.is_some() { fields += 1; }
             if mc.gre_key.is_some() { fields += 2; }
+            if mc.conntrack_state.is_some() { fields += 1; }
             rule_luts += 10 + fields * 12;
         }
     }
@@ -3852,6 +3876,19 @@ fn lint_rules(config: &model::FilterConfig, warnings: &[String], dynamic: bool, 
                     "suggestion": "Add 'ip_protocol: 47' to ensure GRE matching only applies to GRE-encapsulated packets"
                 }));
             }
+        }
+    }
+
+    // LINT034: conntrack_state without stateful context
+    for rule in &config.pacgate.rules {
+        if rule.match_criteria.conntrack_state.is_some() {
+            findings.push(serde_json::json!({
+                "level": "info",
+                "code": "LINT034",
+                "rule": rule.name,
+                "message": format!("Rule '{}' uses conntrack_state — requires --conntrack flag at compile time for RTL support", rule.name),
+                "suggestion": "Use --conntrack flag when compiling to enable connection tracking hardware"
+            }));
         }
     }
 

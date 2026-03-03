@@ -361,6 +361,20 @@ pub fn generate_mutations(config: &FilterConfig) -> Vec<(Mutation, FilterConfig)
         }
     }
 
+    // Mutation 24: Remove conntrack_state
+    for (i, rule) in config.pacgate.rules.iter().enumerate() {
+        if !rule.is_stateful() && rule.match_criteria.conntrack_state.is_some() {
+            let mut mutated = config.clone();
+            mutated.pacgate.rules[i].match_criteria.conntrack_state = None;
+            mutations.push((Mutation {
+                name: format!("remove_conntrack_state_{}", rule.name),
+                description: format!("Remove conntrack_state match from rule '{}'", rule.name),
+                mutant_index: index,
+            }, mutated));
+            index += 1;
+        }
+    }
+
     // Mutation 22: Remove set_src_port from rewrite actions
     for (i, rule) in config.pacgate.rules.iter().enumerate() {
         if !rule.is_stateful() {
@@ -1060,6 +1074,32 @@ mod tests {
         let rm = mutations.iter().find(|(m, _)| m.name.starts_with("remove_gre_protocol_")).unwrap();
         assert!(rm.1.pacgate.rules[0].match_criteria.gre_protocol.is_none());
         assert!(rm.1.pacgate.rules[0].match_criteria.gre_key.is_none());
+    }
+
+    #[test]
+    fn remove_conntrack_state_mutation() {
+        let config = FilterConfig {
+            pacgate: PacgateConfig {
+                version: "1.0".to_string(),
+                defaults: Defaults { action: Action::Drop },
+                rules: vec![
+                    StatelessRule {
+                        name: "ct_rule".to_string(),
+                        priority: 100,
+                        match_criteria: MatchCriteria {
+                            conntrack_state: Some("established".to_string()),
+                            ..Default::default()
+                        },
+                        action: Some(Action::Pass),
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
+                    },
+                ],
+                conntrack: None,
+            },
+        };
+        let mutations = generate_mutations(&config);
+        let rm = mutations.iter().find(|(m, _)| m.name.starts_with("remove_conntrack_state_")).unwrap();
+        assert!(rm.1.pacgate.rules[0].match_criteria.conntrack_state.is_none());
     }
 
     #[test]

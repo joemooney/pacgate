@@ -48,6 +48,7 @@ pub struct SimPacket {
     pub ip_frag_offset: Option<u16>,
     pub gre_protocol: Option<u16>,
     pub gre_key: Option<u32>,
+    pub conntrack_state: Option<String>,
 }
 
 /// Rewrite actions that would be applied to a passed packet
@@ -282,6 +283,9 @@ pub fn parse_packet_spec(spec: &str) -> Result<SimPacket> {
                 let v: u32 = value.parse().map_err(|e| anyhow::anyhow!("Bad gre_key '{}': {}", value, e))?;
                 pkt.gre_key = Some(v);
             }
+            "conntrack_state" => {
+                pkt.conntrack_state = Some(value.to_string());
+            }
             _ => bail!("Unknown packet field '{}'", key),
         }
     }
@@ -430,9 +434,69 @@ pub fn simulate_with_rate_limit(
     result
 }
 
-/// Connection tracking table for software simulation
+/// TCP connection state for enhanced stateful tracking
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TcpState {
+    New,          // SYN seen (or first packet of non-TCP flow)
+    Established,  // Bidirectional traffic seen (SYN-ACK or return traffic)
+    FinWait,      // FIN seen
+    Closed,       // Both sides FIN'd or RST
+}
+
+impl TcpState {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TcpState::New => "new",
+            TcpState::Established => "established",
+            TcpState::FinWait => "established", // still considered established until fully closed
+            TcpState::Closed => "new", // closed flows revert to "new" state
+        }
+    }
+
+    /// Advance TCP state based on observed TCP flags
+    pub fn advance(self, tcp_flags: Option<u8>, is_reverse: bool) -> TcpState {
+        let flags = tcp_flags.unwrap_or(0);
+        let syn = flags & 0x02 != 0;
+        let ack = flags & 0x10 != 0;
+        let fin = flags & 0x01 != 0;
+        let rst = flags & 0x04 != 0;
+
+        if rst {
+            return TcpState::Closed;
+        }
+
+        match self {
+            TcpState::New => {
+                if is_reverse && (syn && ack) {
+                    TcpState::Established // SYN-ACK from server
+                } else if is_reverse && ack {
+                    TcpState::Established // ACK from either direction
+                } else {
+                    TcpState::New
+                }
+            }
+            TcpState::Established => {
+                if fin {
+                    TcpState::FinWait
+                } else {
+                    TcpState::Established
+                }
+            }
+            TcpState::FinWait => {
+                if fin || (ack && is_reverse) {
+                    TcpState::Closed
+                } else {
+                    TcpState::FinWait
+                }
+            }
+            TcpState::Closed => TcpState::Closed,
+        }
+    }
+}
+
+/// Connection tracking table for software simulation with TCP state tracking
 pub struct SimConntrackTable {
-    pub flows: HashMap<u64, (String, u64)>, // hash → (rule_name, timestamp)
+    pub flows: HashMap<u64, (String, u64, TcpState)>, // hash → (rule_name, timestamp, tcp_state)
     pub timeout: u64,
 }
 
@@ -470,21 +534,62 @@ impl SimConntrackTable {
         hasher.finish()
     }
 
-    /// Insert a flow entry
+    /// Insert a flow entry with initial TCP state
     pub fn insert_flow(&mut self, packet: &SimPacket, rule_name: &str, timestamp: u64) {
         let hash = Self::hash_5tuple(packet);
-        self.flows.insert(hash, (rule_name.to_string(), timestamp));
+        self.flows.insert(hash, (rule_name.to_string(), timestamp, TcpState::New));
     }
 
     /// Check if the reverse flow exists and hasn't timed out
     pub fn check_return(&self, packet: &SimPacket, timestamp: u64) -> Option<String> {
         let rev_hash = Self::hash_reverse(packet);
-        if let Some((rule_name, ts)) = self.flows.get(&rev_hash) {
-            if timestamp - ts <= self.timeout {
+        if let Some((rule_name, ts, state)) = self.flows.get(&rev_hash) {
+            if timestamp - ts <= self.timeout && *state != TcpState::Closed {
                 return Some(rule_name.clone());
             }
         }
         None
+    }
+
+    /// Determine the conntrack state for a packet (new vs established)
+    pub fn get_state(&self, packet: &SimPacket, timestamp: u64) -> &'static str {
+        let fwd_hash = Self::hash_5tuple(packet);
+        let rev_hash = Self::hash_reverse(packet);
+
+        // Check forward flow
+        if let Some((_, ts, state)) = self.flows.get(&fwd_hash) {
+            if timestamp - ts <= self.timeout && *state != TcpState::Closed {
+                return state.as_str();
+            }
+        }
+
+        // Check reverse flow (return traffic → established)
+        if let Some((_, ts, state)) = self.flows.get(&rev_hash) {
+            if timestamp - ts <= self.timeout && *state != TcpState::Closed {
+                return "established";
+            }
+        }
+
+        "new"
+    }
+
+    /// Update TCP state for an existing flow based on observed flags
+    pub fn update_tcp_state(&mut self, packet: &SimPacket, timestamp: u64) {
+        let fwd_hash = Self::hash_5tuple(packet);
+        let rev_hash = Self::hash_reverse(packet);
+
+        // Check if this is a forward flow packet
+        if let Some(entry) = self.flows.get_mut(&fwd_hash) {
+            entry.1 = timestamp; // update timestamp
+            entry.2 = entry.2.advance(packet.tcp_flags, false);
+            return;
+        }
+
+        // Check if this is a reverse flow packet
+        if let Some(entry) = self.flows.get_mut(&rev_hash) {
+            entry.1 = timestamp;
+            entry.2 = entry.2.advance(packet.tcp_flags, true);
+        }
     }
 }
 
@@ -497,8 +602,15 @@ pub fn simulate_stateful(
     elapsed_secs: f64,
     timestamp: u64,
 ) -> SimResult {
+    // Determine conntrack state and inject it into the packet for rule matching
+    let ct_state = conntrack.get_state(packet, timestamp);
+    let mut pkt_with_state = packet.clone();
+    pkt_with_state.conntrack_state = Some(ct_state.to_string());
+
     // First check if this is a return flow in conntrack
     if let Some(rule_name) = conntrack.check_return(packet, timestamp) {
+        // Update TCP state for return traffic
+        conntrack.update_tcp_state(packet, timestamp);
         return SimResult {
             rule_name: Some(rule_name),
             action: Action::Pass,
@@ -508,8 +620,8 @@ pub fn simulate_stateful(
         };
     }
 
-    // Run normal simulation with rate limiting
-    let result = simulate_with_rate_limit(config, packet, rate_state, elapsed_secs);
+    // Run normal simulation with rate limiting, using state-annotated packet
+    let result = simulate_with_rate_limit(config, &pkt_with_state, rate_state, elapsed_secs);
 
     // If matched a rule (not default), add to conntrack
     if !result.is_default {
@@ -1067,6 +1179,19 @@ pub fn match_criteria_against_packet(mc: &MatchCriteria, pkt: &SimPacket) -> (bo
             field: "gre_key".to_string(),
             rule_value: rule_key.to_string(),
             packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // conntrack_state
+    if let Some(ref rule_state) = mc.conntrack_state {
+        let pkt_val = pkt.conntrack_state.as_deref().unwrap_or("none");
+        let matches = pkt.conntrack_state.as_ref().map(|s| s == rule_state).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "conntrack_state".to_string(),
+            rule_value: rule_state.clone(),
+            packet_value: pkt_val.to_string(),
             matches,
         });
         if !matches { all_match = false; }
@@ -2338,5 +2463,160 @@ pacgate:
         let result = simulate(&config, &pkt);
         assert_eq!(result.action, Action::Pass);
         assert_eq!(result.rule_name.as_deref(), Some("allow_ttl64"));
+    }
+
+    #[test]
+    fn tcp_state_advance_syn_ack() {
+        let state = TcpState::New;
+        // SYN-ACK from reverse direction → established
+        let next = state.advance(Some(0x12), true); // SYN+ACK
+        assert_eq!(next, TcpState::Established);
+    }
+
+    #[test]
+    fn tcp_state_advance_rst() {
+        let state = TcpState::Established;
+        let next = state.advance(Some(0x04), false); // RST
+        assert_eq!(next, TcpState::Closed);
+    }
+
+    #[test]
+    fn tcp_state_advance_fin() {
+        let state = TcpState::Established;
+        let next = state.advance(Some(0x01), false); // FIN
+        assert_eq!(next, TcpState::FinWait);
+    }
+
+    #[test]
+    fn conntrack_state_new_flow() {
+        let ct = SimConntrackTable::new(1000);
+        let pkt = SimPacket {
+            src_ip: Some("10.0.0.1".to_string()),
+            dst_ip: Some("10.0.0.2".to_string()),
+            ip_protocol: Some(6),
+            src_port: Some(1234),
+            dst_port: Some(80),
+            ..Default::default()
+        };
+        assert_eq!(ct.get_state(&pkt, 0), "new");
+    }
+
+    #[test]
+    fn conntrack_state_after_insert() {
+        let mut ct = SimConntrackTable::new(1000);
+        let pkt = SimPacket {
+            src_ip: Some("10.0.0.1".to_string()),
+            dst_ip: Some("10.0.0.2".to_string()),
+            ip_protocol: Some(6),
+            src_port: Some(1234),
+            dst_port: Some(80),
+            ..Default::default()
+        };
+        ct.insert_flow(&pkt, "test_rule", 0);
+        // Forward flow should be "new" (initial state after SYN)
+        assert_eq!(ct.get_state(&pkt, 0), "new");
+    }
+
+    #[test]
+    fn conntrack_state_reverse_established() {
+        let mut ct = SimConntrackTable::new(1000);
+        let fwd = SimPacket {
+            src_ip: Some("10.0.0.1".to_string()),
+            dst_ip: Some("10.0.0.2".to_string()),
+            ip_protocol: Some(6),
+            src_port: Some(1234),
+            dst_port: Some(80),
+            ..Default::default()
+        };
+        ct.insert_flow(&fwd, "test_rule", 0);
+        // Reverse packet should see "established"
+        let rev = SimPacket {
+            src_ip: Some("10.0.0.2".to_string()),
+            dst_ip: Some("10.0.0.1".to_string()),
+            ip_protocol: Some(6),
+            src_port: Some(80),
+            dst_port: Some(1234),
+            ..Default::default()
+        };
+        assert_eq!(ct.get_state(&rev, 0), "established");
+    }
+
+    #[test]
+    fn conntrack_update_tcp_state() {
+        let mut ct = SimConntrackTable::new(1000);
+        let fwd = SimPacket {
+            src_ip: Some("10.0.0.1".to_string()),
+            dst_ip: Some("10.0.0.2".to_string()),
+            ip_protocol: Some(6),
+            src_port: Some(1234),
+            dst_port: Some(80),
+            tcp_flags: Some(0x02), // SYN
+            ..Default::default()
+        };
+        ct.insert_flow(&fwd, "test_rule", 0);
+        // SYN-ACK from reverse
+        let rev = SimPacket {
+            src_ip: Some("10.0.0.2".to_string()),
+            dst_ip: Some("10.0.0.1".to_string()),
+            ip_protocol: Some(6),
+            src_port: Some(80),
+            dst_port: Some(1234),
+            tcp_flags: Some(0x12), // SYN+ACK
+            ..Default::default()
+        };
+        ct.update_tcp_state(&rev, 1);
+        // Forward flow should now be established
+        assert_eq!(ct.get_state(&fwd, 1), "established");
+    }
+
+    #[test]
+    fn simulate_conntrack_state_match() {
+        let pkt = SimPacket {
+            ethertype: Some(0x0800),
+            conntrack_state: Some("established".to_string()),
+            ..Default::default()
+        };
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_established
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        conntrack_state: "established"
+      action: pass
+"#;
+        let config: crate::model::FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let result = simulate(&config, &pkt);
+        assert_eq!(result.action, Action::Pass);
+        assert_eq!(result.rule_name.as_deref(), Some("allow_established"));
+    }
+
+    #[test]
+    fn simulate_conntrack_state_no_match() {
+        let pkt = SimPacket {
+            ethertype: Some(0x0800),
+            conntrack_state: Some("new".to_string()),
+            ..Default::default()
+        };
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_established
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        conntrack_state: "established"
+      action: pass
+"#;
+        let config: crate::model::FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let result = simulate(&config, &pkt);
+        assert_eq!(result.action, Action::Drop);
     }
 }

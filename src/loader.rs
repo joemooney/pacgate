@@ -190,6 +190,14 @@ fn validate_match_criteria(mc: &crate::model::MatchCriteria, rule_name: &str) ->
         anyhow::bail!("gre_key requires gre_protocol in rule '{}'", rule_name);
     }
 
+    // Connection tracking state validation
+    if let Some(ref state) = mc.conntrack_state {
+        match state.as_str() {
+            "new" | "established" => {},
+            _ => anyhow::bail!("conntrack_state must be \"new\" or \"established\", got \"{}\" in rule '{}'", state, rule_name),
+        }
+    }
+
     Ok(())
 }
 
@@ -578,6 +586,7 @@ pub fn check_rule_overlaps(rules: &[crate::model::StatelessRule]) -> Vec<String>
             && !mc.uses_gtp() && !mc.uses_mpls() && !mc.uses_multicast()
             && !mc.uses_dscp_ecn() && !mc.uses_ipv6_tc() && !mc.uses_tcp_flags() && !mc.uses_icmp()
             && !mc.uses_gre()
+            && !mc.uses_conntrack_state()
         {
             warnings.push(format!(
                 "rule '{}' (priority {}) has no match criteria — matches ALL packets",
@@ -968,6 +977,14 @@ pub fn criteria_shadows(a: &crate::model::MatchCriteria, b: &crate::model::Match
         }
     }
 
+    // Connection tracking state shadow check
+    if let Some(ref a_state) = a.conntrack_state {
+        match &b.conntrack_state {
+            Some(b_state) if a_state == b_state => {},
+            _ => return false,
+        }
+    }
+
     true
 }
 
@@ -1149,6 +1166,11 @@ fn criteria_overlaps(a: &crate::model::MatchCriteria, b: &crate::model::MatchCri
     }
     if let (Some(a_key), Some(b_key)) = (a.gre_key, b.gre_key) {
         if a_key != b_key { return false; }
+    }
+
+    // Connection tracking state overlap checks
+    if let (Some(ref a_state), Some(ref b_state)) = (&a.conntrack_state, &b.conntrack_state) {
+        if a_state != b_state { return false; }
     }
 
     true
@@ -2102,5 +2124,33 @@ pacgate:
         );
         let result = load_rules_from_str(&yaml);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn accept_conntrack_state_new() {
+        let yaml = valid_yaml(
+            "    - name: new_conn\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n        conntrack_state: \"new\"\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn accept_conntrack_state_established() {
+        let yaml = valid_yaml(
+            "    - name: estab\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n        conntrack_state: \"established\"\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn reject_conntrack_state_invalid() {
+        let yaml = valid_yaml(
+            "    - name: bad\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n        conntrack_state: \"related\"\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("conntrack_state must be"));
     }
 }

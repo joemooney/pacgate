@@ -73,6 +73,9 @@ module rule_match_{{ rule_index }} (
     input  wire [15:0] gre_protocol,
     input  wire [31:0] gre_key,
 {% endif %}
+{% if has_conntrack_state %}
+    input  wire        conntrack_established,
+{% endif %}
 {% if has_byte_capture %}
 {% for cap in byte_captures %}
     input  wire [{{ cap.bit_width - 1 }}:0] byte_cap_{{ cap.offset }},

@@ -1,9 +1,10 @@
-// conntrack_table.v — Connection tracking hash table
+// conntrack_table.v — Connection tracking hash table with TCP state tracking
 // Hand-written infrastructure module for PacGate
 //
 // CRC-based hash with open-addressing linear probing.
 // Stores 5-tuple flow keys (src_ip, dst_ip, ip_protocol, src_port, dst_port)
 // with per-entry timeout via timestamp comparison.
+// Tracks TCP connection state per flow (NEW → ESTABLISHED → CLOSING → CLOSED).
 //
 // Parameters:
 //   TABLE_SIZE  — Number of entries (must be power of 2)
@@ -22,11 +23,16 @@ module conntrack_table #(
     // Global timestamp (free-running counter)
     input  wire [31:0]            timestamp,
 
+    // TCP flags for state tracking (from frame_parser)
+    input  wire [7:0]             tcp_flags_in,
+
     // Lookup interface
     input  wire [KEY_WIDTH-1:0]   key_in,
     input  wire                   lookup_valid,
     output reg                    lookup_hit,
     output reg                    lookup_done,
+    output reg  [2:0]             flow_state,     // TCP state of matched flow
+    output reg                    flow_state_valid, // flow_state output is valid
 
     // Insert interface (first packet of flow)
     input  wire                   insert_en,
@@ -35,10 +41,24 @@ module conntrack_table #(
     output reg                    insert_ok
 );
 
+    // TCP state encoding
+    localparam TCP_NONE        = 3'd0;  // No flow entry
+    localparam TCP_NEW         = 3'd1;  // SYN seen (first packet)
+    localparam TCP_ESTABLISHED = 3'd2;  // Bidirectional traffic (SYN-ACK or return)
+    localparam TCP_FIN_WAIT    = 3'd3;  // FIN seen
+    localparam TCP_CLOSED      = 3'd4;  // RST or both FINs seen
+
+    // TCP flag bit positions
+    wire flag_fin = tcp_flags_in[0];
+    wire flag_syn = tcp_flags_in[1];
+    wire flag_rst = tcp_flags_in[2];
+    wire flag_ack = tcp_flags_in[4];
+
     // Table storage
-    reg [KEY_WIDTH-1:0]  table_key   [0:TABLE_SIZE-1];
-    reg                  table_valid [0:TABLE_SIZE-1];
-    reg [31:0]           table_ts    [0:TABLE_SIZE-1];
+    reg [KEY_WIDTH-1:0]  table_key       [0:TABLE_SIZE-1];
+    reg                  table_valid     [0:TABLE_SIZE-1];
+    reg [31:0]           table_ts        [0:TABLE_SIZE-1];
+    reg [2:0]            table_tcp_state [0:TABLE_SIZE-1];
 
     // Hash function: simple CRC-like XOR folding
     function [INDEX_BITS-1:0] hash_key;
@@ -56,6 +76,39 @@ module conntrack_table #(
         end
     endfunction
 
+    // Next-state function for TCP state machine
+    function [2:0] tcp_next_state;
+        input [2:0] current;
+        input       syn, ack, fin, rst;
+        begin
+            if (rst)
+                tcp_next_state = TCP_CLOSED;
+            else case (current)
+                TCP_NEW: begin
+                    if (syn && ack)
+                        tcp_next_state = TCP_ESTABLISHED;
+                    else if (ack)
+                        tcp_next_state = TCP_ESTABLISHED;
+                    else
+                        tcp_next_state = TCP_NEW;
+                end
+                TCP_ESTABLISHED: begin
+                    if (fin)
+                        tcp_next_state = TCP_FIN_WAIT;
+                    else
+                        tcp_next_state = TCP_ESTABLISHED;
+                end
+                TCP_FIN_WAIT: begin
+                    if (fin || ack)
+                        tcp_next_state = TCP_CLOSED;
+                    else
+                        tcp_next_state = TCP_FIN_WAIT;
+                end
+                default: tcp_next_state = current;
+            endcase
+        end
+    endfunction
+
     // FSM states
     localparam S_IDLE      = 3'd0;
     localparam S_LOOKUP    = 3'd1;
@@ -68,37 +121,43 @@ module conntrack_table #(
     reg [INDEX_BITS-1:0]   probe_idx;
     reg [3:0]              probe_count;  // Max 16 probes
     reg [KEY_WIDTH-1:0]    op_key;
+    reg [7:0]              op_tcp_flags;  // Captured TCP flags for state update
 
     localparam MAX_PROBES = 4'd8;
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            state        <= S_IDLE;
-            lookup_hit   <= 1'b0;
-            lookup_done  <= 1'b0;
-            insert_done  <= 1'b0;
-            insert_ok    <= 1'b0;
-            probe_idx    <= {INDEX_BITS{1'b0}};
-            probe_count  <= 4'd0;
+            state            <= S_IDLE;
+            lookup_hit       <= 1'b0;
+            lookup_done      <= 1'b0;
+            insert_done      <= 1'b0;
+            insert_ok        <= 1'b0;
+            flow_state       <= TCP_NONE;
+            flow_state_valid <= 1'b0;
+            probe_idx        <= {INDEX_BITS{1'b0}};
+            probe_count      <= 4'd0;
         end else begin
             // Default: clear done signals after one cycle
-            lookup_done <= 1'b0;
-            insert_done <= 1'b0;
+            lookup_done      <= 1'b0;
+            insert_done      <= 1'b0;
+            flow_state_valid <= 1'b0;
 
             case (state)
                 S_IDLE: begin
                     lookup_hit <= 1'b0;
                     insert_ok  <= 1'b0;
                     if (lookup_valid) begin
-                        op_key      <= key_in;
-                        probe_idx   <= hash_key(key_in);
-                        probe_count <= 4'd0;
-                        state       <= S_LOOKUP;
+                        op_key       <= key_in;
+                        op_tcp_flags <= tcp_flags_in;
+                        probe_idx    <= hash_key(key_in);
+                        probe_count  <= 4'd0;
+                        state        <= S_LOOKUP;
                     end else if (insert_en) begin
-                        op_key      <= insert_key;
-                        probe_idx   <= hash_key(insert_key);
-                        probe_count <= 4'd0;
-                        state       <= S_INSERT;
+                        op_key       <= insert_key;
+                        op_tcp_flags <= tcp_flags_in;
+                        probe_idx    <= hash_key(insert_key);
+                        probe_count  <= 4'd0;
+                        state        <= S_INSERT;
                     end
                 end
 
@@ -106,16 +165,26 @@ module conntrack_table #(
                     if (table_valid[probe_idx] &&
                         table_key[probe_idx] == op_key &&
                         (timestamp - table_ts[probe_idx]) < TIMEOUT) begin
-                        // Hit: update timestamp
-                        lookup_hit  <= 1'b1;
-                        lookup_done <= 1'b1;
+                        // Hit: update timestamp + advance TCP state
+                        lookup_hit       <= 1'b1;
+                        lookup_done      <= 1'b1;
+                        flow_state       <= table_tcp_state[probe_idx];
+                        flow_state_valid <= 1'b1;
                         table_ts[probe_idx] <= timestamp;
-                        state       <= S_IDLE;
+                        // Advance TCP state based on flags
+                        table_tcp_state[probe_idx] <= tcp_next_state(
+                            table_tcp_state[probe_idx],
+                            op_tcp_flags[1], op_tcp_flags[4],
+                            op_tcp_flags[0], op_tcp_flags[2]
+                        );
+                        state <= S_IDLE;
                     end else if (!table_valid[probe_idx] || probe_count >= MAX_PROBES) begin
                         // Miss
-                        lookup_hit  <= 1'b0;
-                        lookup_done <= 1'b1;
-                        state       <= S_IDLE;
+                        lookup_hit       <= 1'b0;
+                        lookup_done      <= 1'b1;
+                        flow_state       <= TCP_NONE;
+                        flow_state_valid <= 1'b1;
+                        state            <= S_IDLE;
                     end else begin
                         // Expired entry or collision: probe next
                         if (table_valid[probe_idx] &&
@@ -130,16 +199,22 @@ module conntrack_table #(
                 S_INSERT: begin
                     if (!table_valid[probe_idx] ||
                         (timestamp - table_ts[probe_idx]) >= TIMEOUT) begin
-                        // Empty or expired slot: insert
-                        table_key[probe_idx]   <= op_key;
-                        table_valid[probe_idx] <= 1'b1;
-                        table_ts[probe_idx]    <= timestamp;
+                        // Empty or expired slot: insert with initial TCP state
+                        table_key[probe_idx]       <= op_key;
+                        table_valid[probe_idx]     <= 1'b1;
+                        table_ts[probe_idx]        <= timestamp;
+                        table_tcp_state[probe_idx] <= (op_tcp_flags[1]) ? TCP_NEW : TCP_ESTABLISHED;
                         insert_ok   <= 1'b1;
                         insert_done <= 1'b1;
                         state       <= S_IDLE;
                     end else if (table_key[probe_idx] == op_key) begin
-                        // Already exists: update timestamp
+                        // Already exists: update timestamp + advance state
                         table_ts[probe_idx] <= timestamp;
+                        table_tcp_state[probe_idx] <= tcp_next_state(
+                            table_tcp_state[probe_idx],
+                            op_tcp_flags[1], op_tcp_flags[4],
+                            op_tcp_flags[0], op_tcp_flags[2]
+                        );
                         insert_ok   <= 1'b1;
                         insert_done <= 1'b1;
                         state       <= S_IDLE;
@@ -165,8 +240,9 @@ module conntrack_table #(
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             for (j = 0; j < TABLE_SIZE; j = j + 1) begin
-                table_valid[j] <= 1'b0;
-                table_ts[j]    <= 32'd0;
+                table_valid[j]     <= 1'b0;
+                table_ts[j]        <= 32'd0;
+                table_tcp_state[j] <= TCP_NONE;
             end
         end
     end
