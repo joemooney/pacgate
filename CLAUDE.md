@@ -19,6 +19,7 @@
 - **QinQ (802.1ad)**: outer_vlan_id (12-bit), outer_vlan_pcp (3-bit) for double-tagged carrier/ISP networks (0x88A8 + 0x9100 legacy)
 - **IPv4 fragmentation**: ip_dont_fragment (DF flag), ip_more_fragments (MF flag), ip_frag_offset (13-bit) for fragment attack detection
 - **GRE tunnel**: gre_protocol (16-bit protocol type), gre_key (32-bit key) matching for IP protocol 47 GRE encapsulation
+- **Connection tracking state**: conntrack_state ("new"/"established") for stateful firewall rules; TCP state machine tracking (SYN→ESTABLISHED→FIN→CLOSED) in RTL conntrack table
 - **L4 port rewrite**: set_src_port, set_dst_port with RFC 1624 incremental L4 checksum update (TCP/UDP, UDP cksum=0 preserved)
 - **Byte-offset matching**: raw byte inspection at any packet offset with value/mask (`byte_match`)
 - **Hierarchical State Machines**: nested states, variables (1-32 bit), guards, entry/exit/transition actions
@@ -45,7 +46,7 @@
 - **HTML diff visualization**: color-coded side-by-side HTML diff report (`diff --html`)
 - **Performance benchmarking**: compile time, simulation throughput (pkts/sec), LUT/FF scaling curves (`bench` subcommand)
 - Rule overlap and shadow detection with warnings
-- **Full-stack scoreboard**: Python reference model matches L2/L3/L4/IPv6/VXLAN/GTP-U/MPLS/IGMP/MLD/DSCP/ECN/IPv6-TC/TCP-flags/ICMP/ICMPv6/ARP/IPv6-ext/QinQ/IP-frag/GRE/byte-match fields
+- **Full-stack scoreboard**: Python reference model matches L2/L3/L4/IPv6/VXLAN/GTP-U/MPLS/IGMP/MLD/DSCP/ECN/IPv6-TC/TCP-flags/ICMP/ICMPv6/ARP/IPv6-ext/QinQ/IP-frag/GRE/conntrack-state/byte-match fields
 - **Directed L3/L4 tests**: generated tests construct proper IPv4/IPv6/TCP/UDP headers
 - **Byte-match simulation**: software simulator evaluates byte_match rules with raw_bytes
 - **Enhanced formal**: SVA assertions for IPv6 CIDR, port range, rate limiter enforcement, byte-match, GTP-U/MPLS/IGMP/MLD/GRE prerequisite + bounds assertions with protocol cover statements
@@ -59,7 +60,7 @@
 - **Packet regression**: high-volume regression testing against scenarios using direct `simulate()` calls (~600K pps)
 - **Topology simulation**: 2-port RMAC/L3 switch topology simulation with subnet gating, ingress validation, egress routing
 - **Scenario store**: import/export scenario files to/from JSON store (merge or replace modes)
-- `lint` subcommand for best-practice analysis and security checks (32 lint rules)
+- `lint` subcommand for best-practice analysis and security checks (34 lint rules)
 - FPGA resource estimation (LUTs/FFs for Artix-7) + timing/pipeline analysis
 - `--json` flag on compile/validate/estimate/diff/formal/lint for CI/scripting integration
 - `diff` subcommand for rule set change management
@@ -73,8 +74,8 @@
 - Coverage XML export with merge support across runs
 - Coverage-directed test generation (verification/coverage_driven.py)
 - Enhanced overlap detection with CIDR containment and port range analysis
-- 32 real-world YAML examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite, OpenNIC, Corundum, TCP flags/ICMP, ARP security, ICMPv6 firewall, QinQ provider, fragment security, port rewrite)
-- 366 Rust unit tests + 274 integration tests = 640 total, 47 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
+- 33 real-world YAML examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite, OpenNIC, Corundum, TCP flags/ICMP, ARP security, ICMPv6 firewall, QinQ provider, fragment security, port rewrite, GRE tunnel, conntrack firewall)
+- 383 Rust unit tests + 283 integration tests = 666 total, 47 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
 
 ## Architecture
 ```
@@ -167,6 +168,8 @@ pacgate simulate rules.yaml --packet "ethertype=0x86DD,ipv6_hop_limit=64,ipv6_fl
 pacgate simulate rules.yaml --packet "ethertype=0x88A8,outer_vlan_id=100,outer_vlan_pcp=5"     # QinQ double VLAN
 pacgate simulate rules.yaml --packet "ethertype=0x0800,ip_dont_fragment=true"                  # IPv4 DF flag
 pacgate simulate rules.yaml --packet "ethertype=0x0800,ip_protocol=47,gre_protocol=0x0800"     # GRE tunnel matching
+pacgate simulate rules.yaml --packet "ethertype=0x0800,conntrack_state=established"            # Conntrack state matching
+pacgate simulate rules.yaml --packet "ethertype=0x0800,ip_protocol=6,dst_port=80,conntrack_state=new"  # New TCP connection
 pacgate simulate rules.yaml --packet "ethertype=0x0800,ip_protocol=6,dst_port=80"              # Port rewrite (with rewrite actions)
 pacgate simulate rules.yaml --packet "..." --pcap-out trace.pcap     # Write simulation results to PCAP
 pacgate pcap-analyze capture.pcap      # Analyze PCAP + suggest rules
@@ -200,7 +203,7 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 ```
 
 ## Key Files
-- `src/model.rs` — Data model (Action, MatchCriteria, ByteMatch, Ipv6Prefix, RateLimit, FsmVariable, HSM types, ConntrackConfig, GtpTeid, MplsLabel, IgmpType, MldType, IpDscp, IpEcn, Ipv6Dscp, Ipv6Ecn, TcpFlags, IcmpType, IcmpCode, ICMPv6Type, ICMPv6Code, ArpOpcode, ArpSpa, ArpTpa, Ipv6HopLimit, Ipv6FlowLabel, OuterVlanId, OuterVlanPcp, IpDontFragment, IpMoreFragments, IpFragOffset, GreProtocol, GreKey, RewriteAction with set_src_port/set_dst_port)
+- `src/model.rs` — Data model (Action, MatchCriteria, ByteMatch, Ipv6Prefix, RateLimit, FsmVariable, HSM types, ConntrackConfig, GtpTeid, MplsLabel, IgmpType, MldType, IpDscp, IpEcn, Ipv6Dscp, Ipv6Ecn, TcpFlags, IcmpType, IcmpCode, ICMPv6Type, ICMPv6Code, ArpOpcode, ArpSpa, ArpTpa, Ipv6HopLimit, Ipv6FlowLabel, OuterVlanId, OuterVlanPcp, IpDontFragment, IpMoreFragments, IpFragOffset, GreProtocol, GreKey, ConntrackState, RewriteAction with set_src_port/set_dst_port)
 - `src/loader.rs` — YAML loading + validation + CIDR/port overlap detection + HSM/byte_match/conntrack validation
 - `src/verilog_gen.rs` — Tera-based Verilog generation (L2/L3/L4/IPv6/VXLAN/GTP-U/MPLS/IGMP/MLD/byte-match, HSM flattening, multiport)
 - `src/cocotb_gen.rs` — cocotb test harness + AXI tests + property test generation
@@ -224,7 +227,7 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 - `rtl/store_forward_fifo.v` — Store-and-forward FIFO with decision-based forwarding
 - `rtl/packet_filter_axi_top.v` — AXI-Stream top-level integrating all modules
 - `rtl/packet_rewrite.v` — Hand-written byte substitution engine with RFC 1624 incremental checksum
-- `rtl/conntrack_table.v` — Connection tracking hash table with CRC hash + timeout
+- `rtl/conntrack_table.v` — Connection tracking hash table with CRC hash + timeout + TCP state machine (NEW→ESTABLISHED→FIN_WAIT→CLOSED)
 - `rtl/rate_limiter.v` — Token-bucket rate limiter (parameterized PPS, BURST)
 - `rtl/axis_512_to_8.v` — 512→8-bit AXI-Stream width converter (for platform targets)
 - `rtl/axis_8_to_512.v` — 8→512-bit AXI-Stream width converter (for platform targets)
@@ -235,7 +238,7 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 - `templates/pacgate_opennic_250.v.tera` — OpenNIC Shell 250MHz user box wrapper template
 - `templates/pacgate_corundum_app.v.tera` — Corundum mqnic_app_block wrapper template
 - `verification/` — Python verification framework (packet, scoreboard, coverage, driver, properties, coverage_driven, test_scoreboard)
-- `rules/examples/` — 29 YAML examples
+- `rules/examples/` — 33 YAML examples
 - `rules/templates/` — 7 rule template YAML snippets
 - `.github/workflows/ci.yml` — GitHub Actions CI pipeline
 
@@ -260,7 +263,7 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 - ARP detection: EtherType 0x0806, S_ARP_HDR state extracts opcode (bytes 6-7), sender protocol address (bytes 14-17), target protocol address (bytes 24-27)
 - IPv6 hop_limit: extracted from IPv6 header byte 7; flow_label: extracted from IPv6 header bytes 1-3 (lower 20 bits)
 - Multi-port: N independent filter instances sharing same rule set
-- Connection tracking: CRC-based hash, open-addressing linear probing, timestamp-based timeout
+- Connection tracking: CRC-based hash, open-addressing linear probing, timestamp-based timeout, per-entry TCP state machine (NEW→ESTABLISHED→FIN_WAIT→CLOSED)
 - Rate limiting: token-bucket per rule (parameterized PPS/BURST, 16-bit tokens, 32-bit refill counter)
 - Packet simulation: software reference model evaluates rules without hardware toolchain
 - Overlap detection: CIDR prefix containment + port range analysis (not just string equality)
@@ -306,4 +309,5 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 - **Phase 22**: Complete — IPv6 Traffic Class + TCP Flags + ICMP Type/Code: 6 new match fields (ipv6_dscp, ipv6_ecn, tcp_flags, tcp_flags_mask, icmp_type, icmp_code), frame parser IPv6 TC extraction + TCP flags at byte 13 + ICMP state machine, mask-aware TCP flags matching, LINT023-025 (IPv6 TC/TCP flags/ICMP prerequisite checks), SVA assertions (IPv6 TC bounds, TCP flags prereq, ICMP covers), 16 mutation types, tcp_flags_icmp.yaml example (7 rules: SYN/established/Xmas/ICMP echo/reply/IPv6 EF/ARP), Python scoreboard + cocotb + formal support, 298 unit + 230 integration = 528 tests
 - **Phase 23**: Complete — ARP matching (arp_opcode/arp_spa/arp_tpa), ICMPv6 type/code (icmpv6_type/icmpv6_code with MLD backward compatibility), IPv6 extension fields (ipv6_hop_limit/ipv6_flow_label), frame parser S_ICMPV6_HDR + S_ARP_HDR states, LINT026-028 (ICMPv6/ARP/IPv6-ext prerequisite checks), SVA assertions, 19 mutation types, arp_security.yaml + icmpv6_firewall.yaml examples, 324 unit + 244 integration = 568 tests
 - **Phase 24**: Complete — QinQ (802.1ad) double VLAN (outer_vlan_id/outer_vlan_pcp with 0x88A8+0x9100), IPv4 fragmentation (ip_dont_fragment/ip_more_fragments/ip_frag_offset), L4 port rewrite (set_src_port/set_dst_port with RFC 1624 L4 checksum), frame parser S_OUTER_VLAN state + frame_byte_cnt + l4_port_offset, rewrite flags 8→16-bit, ip_base 3-way (14/18/22), LINT029-032, SVA assertions (QinQ/frag/port rewrite), 22 mutation types, qinq_provider.yaml + fragment_security.yaml + port_rewrite.yaml examples, 348 unit + 267 integration = 615 tests
-- **Phase 25**: Complete — GRE tunnel support: gre_protocol (16-bit) + gre_key (32-bit) matching for IP protocol 47, frame parser S_GRE_HDR state, full verification (scoreboard, SVA assertions, mutation type 23, cocotb generation), gre_tunnel.yaml example, 366 unit + 274 integration = 640 tests
+- **Phase 25.1**: Complete — GRE tunnel support: gre_protocol (16-bit) + gre_key (32-bit) matching for IP protocol 47, frame parser S_GRE_HDR state, full verification (scoreboard, SVA assertions, mutation type 23, cocotb generation), gre_tunnel.yaml example, 366 unit + 274 integration = 640 tests
+- **Phase 25.2**: Complete — Connection tracking state matching: conntrack_state ("new"/"established") match field, TCP state machine in conntrack_table.v (NEW→ESTABLISHED→FIN_WAIT→CLOSED with SYN/ACK/FIN/RST tracking), enhanced SimConntrackTable with per-flow TcpState, LINT034 (conntrack_state requires --conntrack), mutation type 24, conntrack_firewall.yaml example, 383 unit + 283 integration = 666 tests
