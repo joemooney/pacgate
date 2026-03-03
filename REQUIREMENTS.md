@@ -1073,3 +1073,32 @@
 - REQ-2021: 274 Rust integration tests (through Phase 25) [IMPLEMENTED]
 - REQ-2022: 47 Python scoreboard unit tests unchanged [IMPLEMENTED]
 - REQ-2023: Integration tests for GRE compile, simulate, validate [IMPLEMENTED]
+
+## Phase 26 Requirements — Mirror/Redirect Port Egress Actions [IMPLEMENTED]
+
+### Model
+- REQ-2100: mirror_port field on StatelessRule (Option<u8>, 0-255) [IMPLEMENTED]
+- REQ-2101: redirect_port field on StatelessRule (Option<u8>, 0-255) [IMPLEMENTED]
+- REQ-2102: has_mirror() and has_redirect() convenience methods [IMPLEMENTED]
+
+### Verification
+- REQ-2110: Python scoreboard Rule dataclass includes mirror_port/redirect_port (informational, no pass/drop effect) [IMPLEMENTED]
+- REQ-2111: SVA cover properties for egress_mirror_valid signal (valid, pass+mirror, drop+mirror) [IMPLEMENTED]
+- REQ-2112: SVA cover properties for egress_redirect_valid signal (valid, pass+redirect) [IMPLEMENTED]
+- REQ-2113: Formal generation inserts has_mirror/has_redirect flags into template context [IMPLEMENTED]
+
+### Mutation Testing
+- REQ-2120: Mutation type 25: remove_mirror_port — clears mirror_port from rules [IMPLEMENTED]
+- REQ-2121: Mutation type 26: remove_redirect_port — clears redirect_port from rules [IMPLEMENTED]
+- REQ-2122: Unit tests for both new mutation types [IMPLEMENTED]
+
+### cocotb Generation
+- REQ-2130: Test cases include mirror_port/redirect_port informational fields [IMPLEMENTED]
+- REQ-2131: Property test context includes has_mirror_rules/has_redirect_rules flags [IMPLEMENTED]
+
+### Lint
+- REQ-2140: LINT035: redirect_port with action: drop warning [IMPLEMENTED]
+- REQ-2141: LINT036: mirror/redirect requires multi-port or platform target info [IMPLEMENTED]
+
+### Example
+- REQ-2150: mirror_redirect.yaml example demonstrating both egress actions [IMPLEMENTED]

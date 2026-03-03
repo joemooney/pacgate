@@ -2009,3 +2009,41 @@ Add GRE tunnel support to verification files (scoreboard, formal assertions, mut
 
 ### Git Operations
 - Commit b05c3f0 pushed to https://github.com/joemooney/pacgate.git
+
+---
+
+## Session — 2026-03-03: Mirror/Redirect Port Verification Support
+
+### Goal
+Add mirror_port and redirect_port egress action support to the verification, formal, mutation, and cocotb generation subsystems. The model fields (`mirror_port: Option<u8>`, `redirect_port: Option<u8>` on StatelessRule) were already added.
+
+### Actions Taken
+
+1. **verification/scoreboard.py** — Added `mirror_port: Optional[int] = None` and `redirect_port: Optional[int] = None` to the Rule dataclass. These are informational fields that do not affect pass/drop matching.
+
+2. **src/formal_gen.rs** — Added `has_mirror` and `has_redirect` flags computed from rule set, inserted into template context for conditional SVA generation.
+
+3. **templates/assertions.sv.tera** — Added conditional cover properties for `egress_mirror_valid` (3 covers: valid, pass+mirror, drop+mirror) and `egress_redirect_valid` (2 covers: valid, pass+redirect), gated by `has_mirror`/`has_redirect` template flags.
+
+4. **src/mutation.rs** — Added mutation 25: `remove_mirror_port` (clears mirror_port from rules that have it) and mutation 26: `remove_redirect_port` (clears redirect_port). Added unit tests `remove_mirror_port_mutation` and `remove_redirect_port_mutation`. Fixed all existing test struct literals to include `mirror_port: None, redirect_port: None`.
+
+5. **src/cocotb_gen.rs** — Added mirror_port/redirect_port to test_cases generation (informational fields with has_mirror/has_redirect flags). Added `has_mirror_rules` and `has_redirect_rules` property flags to property test generation context.
+
+6. **src/main.rs** — Fixed pre-existing bug where `bar` closure was referenced outside its scope in the egress actions stats section.
+
+### Files Modified
+- `verification/scoreboard.py` — mirror_port/redirect_port fields in Rule dataclass
+- `src/formal_gen.rs` — has_mirror/has_redirect flags and context insertion
+- `templates/assertions.sv.tera` — Mirror/redirect SVA cover properties
+- `src/mutation.rs` — Mutations 25-26 + tests + fixed struct literals
+- `src/cocotb_gen.rs` — Mirror/redirect test_cases fields and property flags
+- `src/main.rs` — Fixed bar closure scope bug
+
+### Test Results
+- 399 unit tests — all PASS
+- 283 integration tests — all PASS
+- Total: 682 Rust tests
+- 47 Python scoreboard tests — all PASS
+
+### Git Operations
+- Commit 50ca275 pushed to https://github.com/joemooney/pacgate.git
