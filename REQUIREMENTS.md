@@ -1102,3 +1102,29 @@
 
 ### Example
 - REQ-2150: mirror_redirect.yaml example demonstrating both egress actions [IMPLEMENTED]
+
+## Phase 25.4: Per-Flow Counters + Flow Export
+
+### Model & Config
+- REQ-2200: enable_flow_counters field on ConntrackConfig (Option<bool>, default None/false) [IMPLEMENTED]
+- REQ-2201: StatelessRule::has_flow_counters() helper checks conntrack config [IMPLEMENTED]
+- REQ-2202: YAML deserialization of enable_flow_counters: true/false/omitted [IMPLEMENTED]
+
+### Verification
+- REQ-2210: Python scoreboard Rule dataclass includes enable_flow_counters: bool (informational, no pass/drop effect) [IMPLEMENTED]
+- REQ-2211: SVA cover properties for flow_read_done signal (flow counter read completes) [IMPLEMENTED]
+- REQ-2212: SVA cover property for flow_pkt_count > 0 on read [IMPLEMENTED]
+- REQ-2213: Formal generation inserts has_flow_counters flag into template context [IMPLEMENTED]
+
+### Mutation Testing
+- REQ-2220: Mutation type 27: remove_flow_counters — clears enable_flow_counters from conntrack config [IMPLEMENTED]
+- REQ-2221: Unit test for remove_flow_counters mutation (positive and negative cases) [IMPLEMENTED]
+
+### Cocotb Generation
+- REQ-2230: Property test context includes has_flow_counters flag [IMPLEMENTED]
+
+### Diff Support
+- REQ-2240: diff_rules() detects conntrack config changes (table_size, timeout, enable_flow_counters) [IMPLEMENTED]
+
+### Example
+- REQ-2250: flow_counters.yaml example with enable_flow_counters: true (4 rules) [IMPLEMENTED]

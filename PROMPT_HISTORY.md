@@ -2070,4 +2070,65 @@ Add mirror_port and redirect_port egress action support to the verification, for
 - 47 Python scoreboard tests — all PASS
 
 ### Git Operations
-- Commit pending
+- Committed and pushed: `7d42372` Phase 25.3
+
+---
+
+## Session — 2026-03-03: Phase 25.4 Per-Flow Counters — Verification, Formal, Mutation, Cocotb
+
+### Goal
+Update the verification framework, formal generation, and mutation testing for Phase 25.4 per-flow counters + flow export. Model and simulator changes were already done.
+
+### Actions Taken
+
+1. **verification/scoreboard.py** — Added `enable_flow_counters: bool = False` to the Rule dataclass. Hardware-only feature, does not affect pass/drop matching.
+
+2. **src/formal_gen.rs** — Added `has_flow_counters` flag to template context, computed from `config.pacgate.conntrack.as_ref().and_then(|c| c.enable_flow_counters).unwrap_or(false)`.
+
+3. **templates/assertions.sv.tera** — Added SVA cover properties guarded by `{% if has_flow_counters %}`:
+   - `cover_flow_read_done`: covers flow counter read interface completion
+   - `cover_flow_pkt_count_nonzero`: covers pkt_count > 0 on read
+
+4. **src/mutation.rs** — Added Mutation 27 (`remove_flow_counters`): mutates `enable_flow_counters: Some(true)` to `None` in conntrack config. Added 2 unit tests (`remove_flow_counters_mutation` and `no_remove_flow_counters_when_disabled`).
+
+5. **src/cocotb_gen.rs** — Added `has_flow_counters` to property test flags context.
+
+6. **src/main.rs** — Fixed `model::Rule::has_flow_counters` -> `model::StatelessRule::has_flow_counters` (5 occurrences). Added conntrack config diffing to `diff_rules()` for flow counter change detection.
+
+7. **rules/examples/flow_counters.yaml** — New example with `enable_flow_counters: true` (4 rules: allow_tcp, allow_udp_dns, allow_icmp, allow_arp).
+
+8. **rtl/conntrack_table.v** — Per-entry flow counters:
+   - Added `pkt_len_in[15:0]` input for byte counting
+   - Added `table_pkt_count[63:0]` and `table_byte_count[63:0]` register arrays
+   - S_LOOKUP HIT: increment pkt_count by 1, byte_count by pkt_len_in
+   - S_INSERT (new entry): initialize to 1/pkt_len_in
+   - S_INSERT (existing key update): increment counters
+   - Added flow read-back interface: `flow_read_idx`, `flow_read_en`, `flow_read_key`, `flow_read_valid`, `flow_read_pkt_count`, `flow_read_byte_count`, `flow_read_tcp_state`, `flow_read_done`
+   - Registered read interface (1-cycle latency on flow_read_en)
+   - Reset: all counters initialized to 0
+
+9. **src/verilog_gen.rs** — `has_flow_counters` flag:
+   - Added to `GlobalProtocolFlags` struct
+   - Computed from `config.pacgate.conntrack.as_ref().and_then(|c| c.enable_flow_counters).unwrap_or(false)`
+   - Inserted into template contexts: top-level, AXI, OpenNIC, Corundum
+
+10. **templates/packet_filter_axi_top.v.tera** — Flow counter wiring:
+    - Added flow_read_* ports to module port list (guarded by `{% if has_flow_counters %}`)
+    - Added conntrack_table instantiation with timestamp counter, flow_read pass-through
+
+11. **templates/pacgate_opennic_250.v.tera** — Flow counter pass-through:
+    - Added flow_read_* ports to module port list
+    - Wired through to packet_filter_axi_top u_filter instance
+
+12. **templates/pacgate_corundum_app.v.tera** — Flow counter pass-through:
+    - Added flow_read_* ports to module port list
+    - Wired through to packet_filter_axi_top u_filter instance
+
+### Test Results
+- 414 unit tests — all PASS
+- 305 integration tests — all PASS
+- Total: 719 Rust tests
+- 47 Python scoreboard tests — all PASS
+
+### Git Operations
+- Committed and pushed: `d32254b` Phase 25.4
