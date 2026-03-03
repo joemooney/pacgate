@@ -5529,3 +5529,205 @@ fn estimate_conntrack_state_rules() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("LUT"), "Should show LUT estimates: {}", stdout);
 }
+
+// ──────────────────────────────────────────────────────────────
+// Phase 25.3: Mirror/Redirect egress actions
+// ──────────────────────────────────────────────────────────────
+
+#[test]
+fn validate_mirror_redirect_rules() {
+    let output = pacgate_bin()
+        .args(["validate", "rules/examples/mirror_redirect.yaml"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "Validation failed: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn compile_mirror_redirect_rules() {
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/mirror_redirect.yaml"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "Compile failed: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn simulate_mirror_port_match() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/mirror_redirect.yaml",
+               "--packet", "ethertype=0x0800,ip_protocol=6,dst_port=80", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["action"], "pass");
+    assert_eq!(json["matched_rule"], "mirror_http_to_ids");
+    assert_eq!(json["mirror_port"], 1);
+}
+
+#[test]
+fn simulate_redirect_port_match() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/mirror_redirect.yaml",
+               "--packet", "ethertype=0x0800,ip_protocol=17,dst_port=53", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["action"], "pass");
+    assert_eq!(json["matched_rule"], "redirect_dns_to_proxy");
+    assert_eq!(json["redirect_port"], 2);
+}
+
+#[test]
+fn simulate_mirror_and_redirect_combined() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/mirror_redirect.yaml",
+               "--packet", "ethertype=0x0800,ip_protocol=17,dst_port=161", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["action"], "pass");
+    assert_eq!(json["matched_rule"], "mirror_and_redirect_snmp");
+    assert_eq!(json["mirror_port"], 3);
+    assert_eq!(json["redirect_port"], 4);
+}
+
+#[test]
+fn simulate_no_match_no_egress() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/mirror_redirect.yaml",
+               "--packet", "ethertype=0x0800,ip_protocol=6,dst_port=443", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["action"], "drop");
+    assert!(json.get("mirror_port").is_none(), "No mirror_port on default drop");
+    assert!(json.get("redirect_port").is_none(), "No redirect_port on default drop");
+}
+
+#[test]
+fn simulate_mirror_text_output() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/mirror_redirect.yaml",
+               "--packet", "ethertype=0x0800,ip_protocol=6,dst_port=80"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("mirror_port: 1"), "Text output should show mirror: {}", stdout);
+    assert!(stdout.contains("Egress Actions"), "Text output should show Egress Actions section: {}", stdout);
+}
+
+#[test]
+fn reject_redirect_with_drop_action() {
+    let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: bad
+      priority: 100
+      match:
+        ethertype: "0x0800"
+      action: drop
+      redirect_port: 2
+"#;
+    let tmp = std::env::temp_dir().join("test_redirect_drop.yaml");
+    std::fs::write(&tmp, yaml).unwrap();
+    let output = pacgate_bin()
+        .args(["validate", &tmp.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("redirect_port requires action: pass"), "Error: {}", stderr);
+}
+
+#[test]
+fn estimate_mirror_redirect_rules() {
+    let output = pacgate_bin()
+        .args(["estimate", "rules/examples/mirror_redirect.yaml"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("LUT"), "Should show LUT estimates: {}", stdout);
+}
+
+#[test]
+fn lint_mirror_redirect_rules() {
+    let output = pacgate_bin()
+        .args(["lint", "rules/examples/mirror_redirect.yaml", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let findings = json["findings"].as_array().unwrap();
+    let has_lint036 = findings.iter().any(|f| f["code"] == "LINT036");
+    assert!(has_lint036, "Should have LINT036 for egress actions: {}", stdout);
+}
+
+#[test]
+fn stats_mirror_redirect_rules() {
+    let output = pacgate_bin()
+        .args(["stats", "rules/examples/mirror_redirect.yaml", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert!(json["egress_actions"]["mirror_port"].as_u64().unwrap() >= 2, "Mirror count");
+    assert!(json["egress_actions"]["redirect_port"].as_u64().unwrap() >= 2, "Redirect count");
+}
+
+#[test]
+fn diff_mirror_redirect_change() {
+    // Create two YAML files with different mirror settings
+    let old_yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: rule1
+      priority: 100
+      match:
+        ethertype: "0x0800"
+      action: pass
+      mirror_port: 1
+"#;
+    let new_yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: rule1
+      priority: 100
+      match:
+        ethertype: "0x0800"
+      action: pass
+      mirror_port: 5
+"#;
+    let tmp_old = std::env::temp_dir().join("test_diff_mirror_old.yaml");
+    let tmp_new = std::env::temp_dir().join("test_diff_mirror_new.yaml");
+    std::fs::write(&tmp_old, old_yaml).unwrap();
+    std::fs::write(&tmp_new, new_yaml).unwrap();
+    let output = pacgate_bin()
+        .args(["diff", &tmp_old.to_string_lossy(), &tmp_new.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("mirror_port"), "Diff should show mirror_port change: {}", stdout);
+}

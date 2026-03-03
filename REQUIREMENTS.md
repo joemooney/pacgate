@@ -1074,7 +1074,7 @@
 - REQ-2022: 47 Python scoreboard unit tests unchanged [IMPLEMENTED]
 - REQ-2023: Integration tests for GRE compile, simulate, validate [IMPLEMENTED]
 
-## Phase 26 Requirements — Mirror/Redirect Port Egress Actions [IMPLEMENTED]
+## Phase 25.3 Requirements — Mirror/Redirect Port Egress Actions [IMPLEMENTED]
 
 ### Model
 - REQ-2100: mirror_port field on StatelessRule (Option<u8>, 0-255) [IMPLEMENTED]

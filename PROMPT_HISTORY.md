@@ -2039,11 +2039,35 @@ Add mirror_port and redirect_port egress action support to the verification, for
 - `src/cocotb_gen.rs` — Mirror/redirect test_cases fields and property flags
 - `src/main.rs` — Fixed bar closure scope bug
 
+7. **src/model.rs** — Added `mirror_port: Option<u8>` and `redirect_port: Option<u8>` to StatelessRule, plus `has_mirror()` and `has_redirect()` helpers. Added 6 unit tests.
+
+8. **src/loader.rs** — Added validation: redirect_port requires action: pass, mirror/redirect not supported on stateful rules. Added 4 unit tests.
+
+9. **src/simulator.rs** — Added mirror_port/redirect_port to SimResult, populated from matched rule. Added 4 unit tests.
+
+10. **src/main.rs** — Simulate JSON/text output includes mirror_port/redirect_port. LINT035 (redirect with drop), LINT036 (egress actions info). Estimate: +4 LUTs/rule. Stats: egress_actions section. Graph: mirror/redirect labels. Diff: mirror/redirect change detection. Doc: mirror/redirect HTML fields.
+
+11. **src/verilog_gen.rs** — Added has_mirror/has_redirect to GlobalProtocolFlags. Conditional egress_lut generation when rules have mirror/redirect.
+
+12. **templates/egress_lut.v.tera** — NEW: Combinational ROM mapping rule_idx to mirror_port[7:0]+valid and redirect_port[7:0]+valid.
+
+13. **templates/packet_filter_top.v.tera** — Conditional egress output ports and egress_lut instantiation.
+
+14. **templates/packet_filter_axi_top.v.tera** — Wire egress ports from filter_top to AXI top outputs.
+
+15. **templates/rule_documentation.html.tera** — Mirror/redirect display in doc HTML.
+
+16. **rules/examples/mirror_redirect.yaml** — 5-rule example (mirror HTTP to IDS, redirect DNS to proxy, both SNMP, SSH, ARP).
+
+17. **.github/workflows/ci.yml** — Added mirror_redirect to simulate matrix (17 examples).
+
+18. **tests/integration_test.rs** — 12 new integration tests covering validate, compile, simulate (mirror, redirect, combined, no-match, text output), reject redirect-with-drop, estimate, lint, stats, diff.
+
 ### Test Results
 - 399 unit tests — all PASS
-- 283 integration tests — all PASS
-- Total: 682 Rust tests
+- 295 integration tests — all PASS
+- Total: 694 Rust tests
 - 47 Python scoreboard tests — all PASS
 
 ### Git Operations
-- Commit 50ca275 pushed to https://github.com/joemooney/pacgate.git
+- Commit pending

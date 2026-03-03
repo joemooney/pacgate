@@ -61,7 +61,7 @@
 - **Packet regression**: high-volume regression testing against scenarios using direct `simulate()` calls (~600K pps)
 - **Topology simulation**: 2-port RMAC/L3 switch topology simulation with subnet gating, ingress validation, egress routing
 - **Scenario store**: import/export scenario files to/from JSON store (merge or replace modes)
-- `lint` subcommand for best-practice analysis and security checks (34 lint rules)
+- `lint` subcommand for best-practice analysis and security checks (36 lint rules)
 - FPGA resource estimation (LUTs/FFs for Artix-7) + timing/pipeline analysis
 - `--json` flag on compile/validate/estimate/diff/formal/lint for CI/scripting integration
 - `diff` subcommand for rule set change management
@@ -75,8 +75,8 @@
 - Coverage XML export with merge support across runs
 - Coverage-directed test generation (verification/coverage_driven.py)
 - Enhanced overlap detection with CIDR containment and port range analysis
-- 33 real-world YAML examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite, OpenNIC, Corundum, TCP flags/ICMP, ARP security, ICMPv6 firewall, QinQ provider, fragment security, port rewrite, GRE tunnel, conntrack firewall)
-- 399 Rust unit tests + 283 integration tests = 682 total, 47 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
+- 34 real-world YAML examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite, OpenNIC, Corundum, TCP flags/ICMP, ARP security, ICMPv6 firewall, QinQ provider, fragment security, port rewrite, GRE tunnel, conntrack firewall, mirror/redirect)
+- 399 Rust unit tests + 295 integration tests = 694 total, 47 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
 
 ## Architecture
 ```
@@ -106,6 +106,7 @@ Mermaid .md --> pacgate from-mermaid --> YAML rules
   - `packet_filter_top` — core filter (above)
   - `store_forward_fifo` — frame buffering, forwards/discards based on decision
   - `rewrite_lut` — generated combinational ROM mapping rule_idx to rewrite ops (if rewrite rules present)
+  - `egress_lut` — generated combinational ROM mapping rule_idx to mirror/redirect port params (if mirror/redirect rules present)
   - `packet_rewrite` — hand-written byte substitution engine with RFC 1624 checksum (rtl/packet_rewrite.v)
 - `packet_filter_dynamic_top` — dynamic mode top-level (generated, `--dynamic`)
   - `frame_parser` — same hand-written parser
@@ -234,12 +235,13 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 - `rtl/axis_8_to_512.v` — 8→512-bit AXI-Stream width converter (for platform targets)
 - `templates/*.tera` — 26+ Tera templates (+ synth scripts, rate limiter TB, HTML docs, diff report, MCY config, flow table, dynamic top, rewrite_lut, packet_filter_axi_top, cocotb 2.0 runner scripts)
 - `templates/rewrite_lut.v.tera` — Combinational ROM mapping rule_idx to rewrite operations
+- `templates/egress_lut.v.tera` — Combinational ROM mapping rule_idx to mirror/redirect port parameters
 - `templates/packet_filter_axi_top.v.tera` — Templatized AXI top-level with rewrite engine wiring
 - `templates/diff_report.html.tera` — HTML diff visualization template (color-coded additions/removals/modifications)
 - `templates/pacgate_opennic_250.v.tera` — OpenNIC Shell 250MHz user box wrapper template
 - `templates/pacgate_corundum_app.v.tera` — Corundum mqnic_app_block wrapper template
 - `verification/` — Python verification framework (packet, scoreboard, coverage, driver, properties, coverage_driven, test_scoreboard)
-- `rules/examples/` — 33 YAML examples
+- `rules/examples/` — 34 YAML examples
 - `rules/templates/` — 7 rule template YAML snippets
 - `.github/workflows/ci.yml` — GitHub Actions CI pipeline
 
@@ -312,4 +314,4 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 - **Phase 24**: Complete — QinQ (802.1ad) double VLAN (outer_vlan_id/outer_vlan_pcp with 0x88A8+0x9100), IPv4 fragmentation (ip_dont_fragment/ip_more_fragments/ip_frag_offset), L4 port rewrite (set_src_port/set_dst_port with RFC 1624 L4 checksum), frame parser S_OUTER_VLAN state + frame_byte_cnt + l4_port_offset, rewrite flags 8→16-bit, ip_base 3-way (14/18/22), LINT029-032, SVA assertions (QinQ/frag/port rewrite), 22 mutation types, qinq_provider.yaml + fragment_security.yaml + port_rewrite.yaml examples, 348 unit + 267 integration = 615 tests
 - **Phase 25.1**: Complete — GRE tunnel support: gre_protocol (16-bit) + gre_key (32-bit) matching for IP protocol 47, frame parser S_GRE_HDR state, full verification (scoreboard, SVA assertions, mutation type 23, cocotb generation), gre_tunnel.yaml example, 366 unit + 274 integration = 640 tests
 - **Phase 25.2**: Complete — Connection tracking state matching: conntrack_state ("new"/"established") match field, TCP state machine in conntrack_table.v (NEW→ESTABLISHED→FIN_WAIT→CLOSED with SYN/ACK/FIN/RST tracking), enhanced SimConntrackTable with per-flow TcpState, LINT034 (conntrack_state requires --conntrack), mutation type 24, conntrack_firewall.yaml example, 383 unit + 283 integration = 666 tests
-- **Phase 26**: Complete — Mirror/redirect port egress actions: mirror_port (copy packet to egress port) and redirect_port (override egress port) on StatelessRule, egress_lut.v (generated ROM), verification (scoreboard, SVA cover properties, mutation types 25-26, cocotb generation), LINT035-036, mirror_redirect.yaml example, 399 unit + 283 integration = 682 tests
+- **Phase 25.3**: Complete — Mirror/redirect port egress actions: mirror_port (copy packet to egress port) and redirect_port (override egress port) on StatelessRule, egress_lut.v (generated combinational ROM), packet_filter_top/axi_top egress output ports, verification (scoreboard, SVA cover properties, mutation types 25-26, cocotb generation), LINT035-036, simulator mirror/redirect in results, stats/graph/diff/doc egress support, mirror_redirect.yaml example (5 rules), 399 unit + 295 integration = 694 tests
