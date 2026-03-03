@@ -1015,6 +1015,12 @@ fn main() -> Result<()> {
                         "stateful".to_string(),
                         serde_json::Value::Bool(true),
                     );
+                    if model::StatelessRule::has_flow_counters(&config.pacgate) {
+                        summary.as_object_mut().unwrap().insert(
+                            "flow_counters".to_string(),
+                            serde_json::json!({ "enabled": true }),
+                        );
+                    }
                 }
                 println!("{}", serde_json::to_string_pretty(&summary)?);
             } else {
@@ -1063,6 +1069,11 @@ fn main() -> Result<()> {
                         if let Some(port) = result.redirect_port {
                             println!("    redirect_port: {}", port);
                         }
+                    }
+                    if stateful && model::StatelessRule::has_flow_counters(&config.pacgate) {
+                        println!();
+                        println!("  Flow Counters:");
+                        println!("    enabled: true");
                     }
                 }
                 println!();
@@ -1911,6 +1922,9 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
             "mirror_port": uses_mirror,
             "redirect_port": uses_redirect,
         },
+        "flow_counters": {
+            "enabled": model::StatelessRule::has_flow_counters(&config.pacgate),
+        },
         "match_complexity": {
             "avg_fields_per_rule": format!("{:.1}", avg_fields),
             "max_fields": match_field_count.iter().max().unwrap_or(&0),
@@ -2083,6 +2097,17 @@ fn print_stats(config: &model::FilterConfig) {
         }
         if uses_redirect > 0 {
             println!("  redirect     [{:>2}/{}] |{}|", uses_redirect, total, bar(uses_redirect));
+        }
+    }
+
+    // Flow counters
+    if model::StatelessRule::has_flow_counters(&config.pacgate) {
+        println!();
+        println!("  Flow Counters:");
+        println!("  ─────────────────────────────────");
+        println!("  enabled: true");
+        if let Some(ref ct) = config.pacgate.conntrack {
+            println!("  conntrack entries: {}", ct.table_size);
         }
     }
     println!();
@@ -2454,6 +2479,33 @@ fn diff_rules(old: &model::FilterConfig, new: &model::FilterConfig, json: bool) 
     // Check default action change
     let default_changed = old.pacgate.defaults.action != new.pacgate.defaults.action;
 
+    // Check conntrack config changes
+    let mut conntrack_changes: Vec<String> = Vec::new();
+    match (&old.pacgate.conntrack, &new.pacgate.conntrack) {
+        (None, Some(ct)) => {
+            conntrack_changes.push(format!("conntrack: added (table_size={}, timeout={})", ct.table_size, ct.timeout_cycles));
+            if ct.enable_flow_counters == Some(true) {
+                conntrack_changes.push("flow_counters: enabled".to_string());
+            }
+        }
+        (Some(_), None) => {
+            conntrack_changes.push("conntrack: removed".to_string());
+        }
+        (Some(old_ct), Some(new_ct)) => {
+            if old_ct.table_size != new_ct.table_size {
+                conntrack_changes.push(format!("conntrack table_size: {} -> {}", old_ct.table_size, new_ct.table_size));
+            }
+            if old_ct.timeout_cycles != new_ct.timeout_cycles {
+                conntrack_changes.push(format!("conntrack timeout_cycles: {} -> {}", old_ct.timeout_cycles, new_ct.timeout_cycles));
+            }
+            if old_ct.enable_flow_counters != new_ct.enable_flow_counters {
+                conntrack_changes.push(format!("conntrack enable_flow_counters: {:?} -> {:?}",
+                    old_ct.enable_flow_counters, new_ct.enable_flow_counters));
+            }
+        }
+        (None, None) => {}
+    }
+
     if json {
         let summary = serde_json::json!({
             "added": added,
@@ -2463,6 +2515,7 @@ fn diff_rules(old: &model::FilterConfig, new: &model::FilterConfig, json: bool) 
             }).collect::<Vec<_>>(),
             "unchanged": unchanged.len(),
             "default_action_changed": default_changed,
+            "conntrack_changes": conntrack_changes,
         });
         println!("{}", serde_json::to_string_pretty(&summary)?);
     } else {
@@ -2472,7 +2525,15 @@ fn diff_rules(old: &model::FilterConfig, new: &model::FilterConfig, json: bool) 
             println!();
         }
 
-        if added.is_empty() && removed.is_empty() && modified.is_empty() && !default_changed {
+        if !conntrack_changes.is_empty() {
+            println!("  Conntrack config changes:");
+            for change in &conntrack_changes {
+                println!("    ~ {}", change);
+            }
+            println!();
+        }
+
+        if added.is_empty() && removed.is_empty() && modified.is_empty() && !default_changed && conntrack_changes.is_empty() {
             println!("No differences found.");
             return Ok(());
         }
@@ -3104,11 +3165,17 @@ fn compute_resource_estimate(config: &model::FilterConfig) -> serde_json::Value 
     let rewrite_luts = if num_rewrite > 0 { 50 + num_rewrite * 20 } else { 0 };
     let rewrite_ffs = if num_rewrite > 0 { 100 } else { 0 };
 
+    // Flow counters: +128 LUTs per conntrack entry (64-bit pkt + 64-bit byte counters)
+    let has_flow_counters = model::StatelessRule::has_flow_counters(&config.pacgate);
+    let conntrack_entries = config.pacgate.conntrack.as_ref().map(|c| c.table_size).unwrap_or(0) as usize;
+    let flow_counter_luts = if has_flow_counters { conntrack_entries * 128 } else { 0 };
+    let flow_counter_ffs = if has_flow_counters { conntrack_entries * 128 } else { 0 };
+
     let decision_luts = 10 * total + 8;
     let decision_ffs = 4;
     let io_luts = 20;
-    let total_luts = parser_luts + rule_luts + decision_luts + io_luts + rate_luts + rewrite_luts;
-    let total_ffs = parser_ffs + rule_ffs + decision_ffs + rate_ffs + rewrite_ffs;
+    let total_luts = parser_luts + rule_luts + decision_luts + io_luts + rate_luts + rewrite_luts + flow_counter_luts;
+    let total_ffs = parser_ffs + rule_ffs + decision_ffs + rate_ffs + rewrite_ffs + flow_counter_ffs;
 
     let rule_limit_warning = if total > 64 {
         Some(format!("{} rules exceeds recommended limit of 64 for Artix-7", total))
@@ -3129,6 +3196,7 @@ fn compute_resource_estimate(config: &model::FilterConfig) -> serde_json::Value 
             "rule_matchers": { "luts": rule_luts, "ffs": rule_ffs },
             "rate_limiters": { "count": num_rate_limited, "luts": rate_luts, "ffs": rate_ffs },
             "rewrite_engine": { "count": num_rewrite, "luts": rewrite_luts, "ffs": rewrite_ffs },
+            "flow_counters": { "enabled": has_flow_counters, "entries": conntrack_entries, "luts": flow_counter_luts, "ffs": flow_counter_ffs },
             "decision_logic": { "luts": decision_luts, "ffs": decision_ffs },
             "io_logic": { "luts": io_luts, "ffs": 0 },
         },
@@ -3241,12 +3309,18 @@ fn print_resource_estimate(config: &model::FilterConfig) {
     let rewrite_luts = if num_rewrite > 0 { 50 + num_rewrite * 20 + if has_port_rewrite { 30 } else { 0 } } else { 0 };
     let rewrite_ffs = if num_rewrite > 0 { 100 + if has_port_rewrite { 32 } else { 0 } } else { 0 };
 
+    // Flow counters: +128 LUTs per conntrack entry (64-bit pkt + 64-bit byte counters)
+    let has_flow_counters = model::StatelessRule::has_flow_counters(&config.pacgate);
+    let conntrack_entries = config.pacgate.conntrack.as_ref().map(|c| c.table_size).unwrap_or(0) as usize;
+    let flow_counter_luts = if has_flow_counters { conntrack_entries * 128 } else { 0 };
+    let flow_counter_ffs = if has_flow_counters { conntrack_entries * 128 } else { 0 };
+
     let decision_luts = 10 * total + 8;
     let decision_ffs = 4;
     let io_luts = 20;
 
-    let total_luts = parser_luts + rule_luts + decision_luts + io_luts + rate_luts + rewrite_luts;
-    let total_ffs = parser_ffs + rule_ffs + decision_ffs + rate_ffs + rewrite_ffs;
+    let total_luts = parser_luts + rule_luts + decision_luts + io_luts + rate_luts + rewrite_luts + flow_counter_luts;
+    let total_ffs = parser_ffs + rule_ffs + decision_ffs + rate_ffs + rewrite_ffs + flow_counter_ffs;
 
     // Artix-7 reference: XC7A35T has 20,800 LUTs, 41,600 FFs
     let artix_lut_pct = total_luts as f64 / 20800.0 * 100.0;
@@ -3262,6 +3336,9 @@ fn print_resource_estimate(config: &model::FilterConfig) {
     if num_rewrite > 0 {
         println!("  Rewrite rules: {}", num_rewrite);
     }
+    if has_flow_counters {
+        println!("  Flow counters: enabled ({} entries)", conntrack_entries);
+    }
     println!();
     println!("  Component             Est. LUTs   Est. FFs");
     println!("  ───────────────────── ────────── ─────────");
@@ -3272,6 +3349,9 @@ fn print_resource_estimate(config: &model::FilterConfig) {
     }
     if num_rewrite > 0 {
         println!("  Rewrite engine            {:>5}     {:>5}", rewrite_luts, rewrite_ffs);
+    }
+    if has_flow_counters {
+        println!("  Flow counters             {:>5}     {:>5}", flow_counter_luts, flow_counter_ffs);
     }
     println!("  Decision logic            {:>5}     {:>5}", decision_luts, decision_ffs);
     println!("  I/O logic                 {:>5}         -", io_luts);
@@ -3994,6 +4074,19 @@ fn lint_rules(config: &model::FilterConfig, warnings: &[String], dynamic: bool, 
                 "suggestion": "Use --ports N for multi-port deployment to enable cross-port egress actions"
             }));
         }
+    }
+
+    // LINT037: enable_flow_counters requires --conntrack
+    if config.pacgate.conntrack.as_ref()
+        .and_then(|c| c.enable_flow_counters)
+        .unwrap_or(false)
+    {
+        findings.push(serde_json::json!({
+            "level": "info",
+            "code": "LINT037",
+            "message": "enable_flow_counters is enabled — requires --conntrack flag at compile time for per-flow counter hardware",
+            "suggestion": "Use --conntrack flag when compiling to enable connection tracking with per-flow counters"
+        }));
     }
 
     // Include overlap warnings

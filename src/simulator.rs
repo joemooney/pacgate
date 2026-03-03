@@ -502,9 +502,19 @@ impl TcpState {
     }
 }
 
+/// Per-flow entry with counters and TCP state
+#[derive(Debug, Clone)]
+pub struct FlowEntry {
+    pub rule_name: String,
+    pub timestamp: u64,
+    pub tcp_state: TcpState,
+    pub pkt_count: u64,
+    pub byte_count: u64,
+}
+
 /// Connection tracking table for software simulation with TCP state tracking
 pub struct SimConntrackTable {
-    pub flows: HashMap<u64, (String, u64, TcpState)>, // hash → (rule_name, timestamp, tcp_state)
+    pub flows: HashMap<u64, FlowEntry>,
     pub timeout: u64,
 }
 
@@ -545,15 +555,21 @@ impl SimConntrackTable {
     /// Insert a flow entry with initial TCP state
     pub fn insert_flow(&mut self, packet: &SimPacket, rule_name: &str, timestamp: u64) {
         let hash = Self::hash_5tuple(packet);
-        self.flows.insert(hash, (rule_name.to_string(), timestamp, TcpState::New));
+        self.flows.insert(hash, FlowEntry {
+            rule_name: rule_name.to_string(),
+            timestamp,
+            tcp_state: TcpState::New,
+            pkt_count: 1,
+            byte_count: 0,
+        });
     }
 
     /// Check if the reverse flow exists and hasn't timed out
     pub fn check_return(&self, packet: &SimPacket, timestamp: u64) -> Option<String> {
         let rev_hash = Self::hash_reverse(packet);
-        if let Some((rule_name, ts, state)) = self.flows.get(&rev_hash) {
-            if timestamp - ts <= self.timeout && *state != TcpState::Closed {
-                return Some(rule_name.clone());
+        if let Some(entry) = self.flows.get(&rev_hash) {
+            if timestamp - entry.timestamp <= self.timeout && entry.tcp_state != TcpState::Closed {
+                return Some(entry.rule_name.clone());
             }
         }
         None
@@ -565,15 +581,15 @@ impl SimConntrackTable {
         let rev_hash = Self::hash_reverse(packet);
 
         // Check forward flow
-        if let Some((_, ts, state)) = self.flows.get(&fwd_hash) {
-            if timestamp - ts <= self.timeout && *state != TcpState::Closed {
-                return state.as_str();
+        if let Some(entry) = self.flows.get(&fwd_hash) {
+            if timestamp - entry.timestamp <= self.timeout && entry.tcp_state != TcpState::Closed {
+                return entry.tcp_state.as_str();
             }
         }
 
         // Check reverse flow (return traffic → established)
-        if let Some((_, ts, state)) = self.flows.get(&rev_hash) {
-            if timestamp - ts <= self.timeout && *state != TcpState::Closed {
+        if let Some(entry) = self.flows.get(&rev_hash) {
+            if timestamp - entry.timestamp <= self.timeout && entry.tcp_state != TcpState::Closed {
                 return "established";
             }
         }
@@ -588,17 +604,60 @@ impl SimConntrackTable {
 
         // Check if this is a forward flow packet
         if let Some(entry) = self.flows.get_mut(&fwd_hash) {
-            entry.1 = timestamp; // update timestamp
-            entry.2 = entry.2.advance(packet.tcp_flags, false);
+            entry.timestamp = timestamp;
+            entry.tcp_state = entry.tcp_state.advance(packet.tcp_flags, false);
+            entry.pkt_count += 1;
             return;
         }
 
         // Check if this is a reverse flow packet
         if let Some(entry) = self.flows.get_mut(&rev_hash) {
-            entry.1 = timestamp;
-            entry.2 = entry.2.advance(packet.tcp_flags, true);
+            entry.timestamp = timestamp;
+            entry.tcp_state = entry.tcp_state.advance(packet.tcp_flags, true);
+            entry.pkt_count += 1;
         }
     }
+
+    /// Increment flow counters for a matched flow (forward direction)
+    pub fn increment_counters(&mut self, packet: &SimPacket, byte_len: u64) {
+        let fwd_hash = Self::hash_5tuple(packet);
+        if let Some(entry) = self.flows.get_mut(&fwd_hash) {
+            entry.pkt_count += 1;
+            entry.byte_count += byte_len;
+            return;
+        }
+        let rev_hash = Self::hash_reverse(packet);
+        if let Some(entry) = self.flows.get_mut(&rev_hash) {
+            entry.pkt_count += 1;
+            entry.byte_count += byte_len;
+        }
+    }
+
+    /// Get flow statistics for all active flows
+    pub fn flow_stats(&self, timestamp: u64) -> Vec<FlowStats> {
+        self.flows.iter()
+            .filter(|(_, entry)| {
+                timestamp - entry.timestamp <= self.timeout && entry.tcp_state != TcpState::Closed
+            })
+            .map(|(hash, entry)| FlowStats {
+                flow_hash: *hash,
+                rule_name: entry.rule_name.clone(),
+                tcp_state: entry.tcp_state,
+                pkt_count: entry.pkt_count,
+                byte_count: entry.byte_count,
+            })
+            .collect()
+    }
+}
+
+/// Flow statistics summary for export
+#[derive(Debug, Clone)]
+pub struct FlowStats {
+    pub flow_hash: u64,
+    pub rule_name: String,
+    pub tcp_state: TcpState,
+    pub pkt_count: u64,
+    pub byte_count: u64,
 }
 
 /// Full stateful simulation combining rate-limit + connection tracking
@@ -2717,6 +2776,89 @@ pacgate:
         assert_eq!(result.action, Action::Pass);
         assert_eq!(result.mirror_port, Some(3));
         assert_eq!(result.redirect_port, Some(4));
+    }
+
+    // --- Flow counter tests ---
+
+    #[test]
+    fn flow_entry_initial_counts() {
+        let mut ct = SimConntrackTable::new(1000);
+        let pkt = parse_packet_spec("src_ip=10.0.0.1,dst_ip=10.0.0.2,ip_protocol=6,src_port=1234,dst_port=80").unwrap();
+        ct.insert_flow(&pkt, "allow_web", 0);
+        let hash = SimConntrackTable::hash_5tuple(&pkt);
+        let entry = ct.flows.get(&hash).unwrap();
+        assert_eq!(entry.pkt_count, 1);
+        assert_eq!(entry.byte_count, 0);
+    }
+
+    #[test]
+    fn flow_counter_increment() {
+        let mut ct = SimConntrackTable::new(1000);
+        let pkt = parse_packet_spec("src_ip=10.0.0.1,dst_ip=10.0.0.2,ip_protocol=6,src_port=1234,dst_port=80").unwrap();
+        ct.insert_flow(&pkt, "allow_web", 0);
+        ct.increment_counters(&pkt, 64);
+        ct.increment_counters(&pkt, 128);
+        let hash = SimConntrackTable::hash_5tuple(&pkt);
+        let entry = ct.flows.get(&hash).unwrap();
+        assert_eq!(entry.pkt_count, 3); // 1 from insert + 2 from increment
+        assert_eq!(entry.byte_count, 192);
+    }
+
+    #[test]
+    fn flow_counter_reverse_direction() {
+        let mut ct = SimConntrackTable::new(1000);
+        let fwd = parse_packet_spec("src_ip=10.0.0.1,dst_ip=10.0.0.2,ip_protocol=6,src_port=1234,dst_port=80").unwrap();
+        ct.insert_flow(&fwd, "allow_web", 0);
+        // Increment via reverse packet
+        let rev = parse_packet_spec("src_ip=10.0.0.2,dst_ip=10.0.0.1,ip_protocol=6,src_port=80,dst_port=1234").unwrap();
+        ct.increment_counters(&rev, 100);
+        let hash = SimConntrackTable::hash_5tuple(&fwd);
+        let entry = ct.flows.get(&hash).unwrap();
+        assert_eq!(entry.pkt_count, 2); // 1 from insert + 1 from reverse increment
+        assert_eq!(entry.byte_count, 100);
+    }
+
+    #[test]
+    fn flow_stats_active_only() {
+        let mut ct = SimConntrackTable::new(100);
+        let pkt1 = parse_packet_spec("src_ip=10.0.0.1,dst_ip=10.0.0.2,ip_protocol=6,src_port=1234,dst_port=80").unwrap();
+        let pkt2 = parse_packet_spec("src_ip=10.0.0.3,dst_ip=10.0.0.4,ip_protocol=17,src_port=5000,dst_port=53").unwrap();
+        ct.insert_flow(&pkt1, "flow1", 0);
+        ct.insert_flow(&pkt2, "flow2", 50);
+        // At timestamp 200, flow1 should be expired (200-0=200 > 100), flow2 still active (200-50=150 > 100)
+        // Actually 200-50=150 > 100, so both expired
+        let stats = ct.flow_stats(200);
+        assert_eq!(stats.len(), 0);
+        // At timestamp 90, both active
+        let stats = ct.flow_stats(90);
+        assert_eq!(stats.len(), 2);
+    }
+
+    #[test]
+    fn flow_stats_counter_values() {
+        let mut ct = SimConntrackTable::new(1000);
+        let pkt = parse_packet_spec("src_ip=10.0.0.1,dst_ip=10.0.0.2,ip_protocol=6,src_port=1234,dst_port=80").unwrap();
+        ct.insert_flow(&pkt, "allow_web", 0);
+        ct.increment_counters(&pkt, 64);
+        ct.increment_counters(&pkt, 128);
+        let stats = ct.flow_stats(10);
+        assert_eq!(stats.len(), 1);
+        assert_eq!(stats[0].rule_name, "allow_web");
+        assert_eq!(stats[0].pkt_count, 3);
+        assert_eq!(stats[0].byte_count, 192);
+    }
+
+    #[test]
+    fn update_tcp_state_increments_pkt_count() {
+        let mut ct = SimConntrackTable::new(1000);
+        let fwd = parse_packet_spec("src_ip=10.0.0.1,dst_ip=10.0.0.2,ip_protocol=6,src_port=1234,dst_port=80").unwrap();
+        ct.insert_flow(&fwd, "test", 0);
+        let mut syn_ack = parse_packet_spec("src_ip=10.0.0.2,dst_ip=10.0.0.1,ip_protocol=6,src_port=80,dst_port=1234").unwrap();
+        syn_ack.tcp_flags = Some(0x12);
+        ct.update_tcp_state(&syn_ack, 1);
+        let hash = SimConntrackTable::hash_5tuple(&fwd);
+        let entry = ct.flows.get(&hash).unwrap();
+        assert_eq!(entry.pkt_count, 2); // 1 from insert + 1 from update_tcp_state
     }
 
     #[test]

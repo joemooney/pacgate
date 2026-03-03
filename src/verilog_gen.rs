@@ -53,6 +53,7 @@ struct GlobalProtocolFlags {
     has_ip_frag: bool,
     has_gre: bool,
     has_conntrack_state: bool,
+    has_flow_counters: bool,
     has_mirror: bool,
     has_redirect: bool,
 }
@@ -423,6 +424,7 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
     let has_ip_frag = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_ip_frag());
     let has_gre = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_gre());
     let has_conntrack_state = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_conntrack_state());
+    let has_flow_counters = config.pacgate.conntrack.as_ref().and_then(|c| c.enable_flow_counters).unwrap_or(false);
     let has_mirror = config.pacgate.rules.iter().any(|r| r.has_mirror());
     let has_redirect = config.pacgate.rules.iter().any(|r| r.has_redirect());
 
@@ -443,6 +445,7 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         has_ip_frag,
         has_gre,
         has_conntrack_state,
+        has_flow_counters,
         has_mirror,
         has_redirect,
     };
@@ -494,6 +497,7 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         ctx.insert("has_ip_frag", &has_ip_frag);
         ctx.insert("has_gre", &has_gre);
         ctx.insert("has_conntrack_state", &has_conntrack_state);
+        ctx.insert("has_flow_counters", &has_flow_counters);
         ctx.insert("has_rewrite", &has_rewrite);
         ctx.insert("has_mirror", &has_mirror);
         ctx.insert("has_redirect", &has_redirect);
@@ -928,10 +932,13 @@ pub fn copy_axi_rtl(output_dir: &Path, config: &FilterConfig, templates_dir: &Pa
         ((rules.len() as f64).log2().ceil() as usize).max(1)
     };
 
+    let has_flow_counters = config.pacgate.conntrack.as_ref().and_then(|c| c.enable_flow_counters).unwrap_or(false);
+
     let mut ctx = tera::Context::new();
     ctx.insert("has_rewrite", &has_rewrite);
     ctx.insert("has_mirror", &has_mirror);
     ctx.insert("has_redirect", &has_redirect);
+    ctx.insert("has_flow_counters", &has_flow_counters);
     ctx.insert("idx_bits", &idx_bits);
     ctx.insert("num_rules", &rules.len());
 
@@ -1029,12 +1036,14 @@ pub fn generate_opennic_wrapper(config: &FilterConfig, templates_dir: &Path, out
         ((rules.len() as f64).log2().ceil() as usize).max(1)
     };
     let has_counters = true; // OpenNIC typically wants CSR access
+    let has_flow_counters = config.pacgate.conntrack.as_ref().and_then(|c| c.enable_flow_counters).unwrap_or(false);
 
     let mut ctx = tera::Context::new();
     ctx.insert("has_rewrite", &has_rewrite);
     ctx.insert("has_mirror", &has_mirror);
     ctx.insert("has_redirect", &has_redirect);
     ctx.insert("has_counters", &has_counters);
+    ctx.insert("has_flow_counters", &has_flow_counters);
     ctx.insert("idx_bits", &idx_bits);
     ctx.insert("num_rules", &rules.len());
 
@@ -1062,10 +1071,13 @@ pub fn generate_corundum_wrapper(config: &FilterConfig, templates_dir: &Path, ou
         ((rules.len() as f64).log2().ceil() as usize).max(1)
     };
 
+    let has_flow_counters = config.pacgate.conntrack.as_ref().and_then(|c| c.enable_flow_counters).unwrap_or(false);
+
     let mut ctx = tera::Context::new();
     ctx.insert("has_rewrite", &has_rewrite);
     ctx.insert("has_mirror", &has_mirror);
     ctx.insert("has_redirect", &has_redirect);
+    ctx.insert("has_flow_counters", &has_flow_counters);
     ctx.insert("idx_bits", &idx_bits);
     ctx.insert("num_rules", &rules.len());
 

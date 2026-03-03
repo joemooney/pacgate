@@ -26,6 +26,9 @@ module conntrack_table #(
     // TCP flags for state tracking (from frame_parser)
     input  wire [7:0]             tcp_flags_in,
 
+    // Packet length for per-flow byte counting
+    input  wire [15:0]            pkt_len_in,
+
     // Lookup interface
     input  wire [KEY_WIDTH-1:0]   key_in,
     input  wire                   lookup_valid,
@@ -38,7 +41,17 @@ module conntrack_table #(
     input  wire                   insert_en,
     input  wire [KEY_WIDTH-1:0]   insert_key,
     output reg                    insert_done,
-    output reg                    insert_ok
+    output reg                    insert_ok,
+
+    // Flow read-back interface (for flow export)
+    input  wire [INDEX_BITS-1:0]  flow_read_idx,
+    input  wire                   flow_read_en,
+    output reg  [KEY_WIDTH-1:0]   flow_read_key,
+    output reg                    flow_read_valid,
+    output reg  [63:0]            flow_read_pkt_count,
+    output reg  [63:0]            flow_read_byte_count,
+    output reg  [2:0]             flow_read_tcp_state,
+    output reg                    flow_read_done
 );
 
     // TCP state encoding
@@ -59,6 +72,10 @@ module conntrack_table #(
     reg                  table_valid     [0:TABLE_SIZE-1];
     reg [31:0]           table_ts        [0:TABLE_SIZE-1];
     reg [2:0]            table_tcp_state [0:TABLE_SIZE-1];
+
+    // Per-flow counters
+    reg [63:0]           table_pkt_count  [0:TABLE_SIZE-1];
+    reg [63:0]           table_byte_count [0:TABLE_SIZE-1];
 
     // Hash function: simple CRC-like XOR folding
     function [INDEX_BITS-1:0] hash_key;
@@ -122,6 +139,7 @@ module conntrack_table #(
     reg [3:0]              probe_count;  // Max 16 probes
     reg [KEY_WIDTH-1:0]    op_key;
     reg [7:0]              op_tcp_flags;  // Captured TCP flags for state update
+    reg [15:0]             op_pkt_len;   // Captured packet length for byte counting
 
     localparam MAX_PROBES = 4'd8;
 
@@ -136,6 +154,7 @@ module conntrack_table #(
             flow_state_valid <= 1'b0;
             probe_idx        <= {INDEX_BITS{1'b0}};
             probe_count      <= 4'd0;
+            op_pkt_len       <= 16'd0;
         end else begin
             // Default: clear done signals after one cycle
             lookup_done      <= 1'b0;
@@ -149,12 +168,14 @@ module conntrack_table #(
                     if (lookup_valid) begin
                         op_key       <= key_in;
                         op_tcp_flags <= tcp_flags_in;
+                        op_pkt_len   <= pkt_len_in;
                         probe_idx    <= hash_key(key_in);
                         probe_count  <= 4'd0;
                         state        <= S_LOOKUP;
                     end else if (insert_en) begin
                         op_key       <= insert_key;
                         op_tcp_flags <= tcp_flags_in;
+                        op_pkt_len   <= pkt_len_in;
                         probe_idx    <= hash_key(insert_key);
                         probe_count  <= 4'd0;
                         state        <= S_INSERT;
@@ -165,7 +186,7 @@ module conntrack_table #(
                     if (table_valid[probe_idx] &&
                         table_key[probe_idx] == op_key &&
                         (timestamp - table_ts[probe_idx]) < TIMEOUT) begin
-                        // Hit: update timestamp + advance TCP state
+                        // Hit: update timestamp + advance TCP state + increment counters
                         lookup_hit       <= 1'b1;
                         lookup_done      <= 1'b1;
                         flow_state       <= table_tcp_state[probe_idx];
@@ -177,6 +198,9 @@ module conntrack_table #(
                             op_tcp_flags[1], op_tcp_flags[4],
                             op_tcp_flags[0], op_tcp_flags[2]
                         );
+                        // Increment per-flow counters
+                        table_pkt_count[probe_idx]  <= table_pkt_count[probe_idx] + 64'd1;
+                        table_byte_count[probe_idx] <= table_byte_count[probe_idx] + {48'd0, op_pkt_len};
                         state <= S_IDLE;
                     end else if (!table_valid[probe_idx] || probe_count >= MAX_PROBES) begin
                         // Miss
@@ -199,22 +223,26 @@ module conntrack_table #(
                 S_INSERT: begin
                     if (!table_valid[probe_idx] ||
                         (timestamp - table_ts[probe_idx]) >= TIMEOUT) begin
-                        // Empty or expired slot: insert with initial TCP state
+                        // Empty or expired slot: insert with initial TCP state + counters
                         table_key[probe_idx]       <= op_key;
                         table_valid[probe_idx]     <= 1'b1;
                         table_ts[probe_idx]        <= timestamp;
                         table_tcp_state[probe_idx] <= (op_tcp_flags[1]) ? TCP_NEW : TCP_ESTABLISHED;
+                        table_pkt_count[probe_idx]  <= 64'd1;
+                        table_byte_count[probe_idx] <= {48'd0, op_pkt_len};
                         insert_ok   <= 1'b1;
                         insert_done <= 1'b1;
                         state       <= S_IDLE;
                     end else if (table_key[probe_idx] == op_key) begin
-                        // Already exists: update timestamp + advance state
+                        // Already exists: update timestamp + advance state + increment counters
                         table_ts[probe_idx] <= timestamp;
                         table_tcp_state[probe_idx] <= tcp_next_state(
                             table_tcp_state[probe_idx],
                             op_tcp_flags[1], op_tcp_flags[4],
                             op_tcp_flags[0], op_tcp_flags[2]
                         );
+                        table_pkt_count[probe_idx]  <= table_pkt_count[probe_idx] + 64'd1;
+                        table_byte_count[probe_idx] <= table_byte_count[probe_idx] + {48'd0, op_pkt_len};
                         insert_ok   <= 1'b1;
                         insert_done <= 1'b1;
                         state       <= S_IDLE;
@@ -240,9 +268,33 @@ module conntrack_table #(
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             for (j = 0; j < TABLE_SIZE; j = j + 1) begin
-                table_valid[j]     <= 1'b0;
-                table_ts[j]        <= 32'd0;
-                table_tcp_state[j] <= TCP_NONE;
+                table_valid[j]      <= 1'b0;
+                table_ts[j]         <= 32'd0;
+                table_tcp_state[j]  <= TCP_NONE;
+                table_pkt_count[j]  <= 64'd0;
+                table_byte_count[j] <= 64'd0;
+            end
+        end
+    end
+
+    // Flow read-back interface (registered, 1-cycle latency)
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            flow_read_key       <= {KEY_WIDTH{1'b0}};
+            flow_read_valid     <= 1'b0;
+            flow_read_pkt_count <= 64'd0;
+            flow_read_byte_count<= 64'd0;
+            flow_read_tcp_state <= TCP_NONE;
+            flow_read_done      <= 1'b0;
+        end else begin
+            flow_read_done <= 1'b0;  // Default: clear done after one cycle
+            if (flow_read_en) begin
+                flow_read_key        <= table_key[flow_read_idx];
+                flow_read_valid      <= table_valid[flow_read_idx];
+                flow_read_pkt_count  <= table_pkt_count[flow_read_idx];
+                flow_read_byte_count <= table_byte_count[flow_read_idx];
+                flow_read_tcp_state  <= table_tcp_state[flow_read_idx];
+                flow_read_done       <= 1'b1;
             end
         end
     end

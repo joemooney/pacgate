@@ -2201,6 +2201,82 @@ pacgate:
         assert!(result.unwrap_err().to_string().contains("redirect_port requires action: pass"));
     }
 
+    // --- Flow counter validation ---
+
+    #[test]
+    fn accept_flow_counters_enabled() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  conntrack:
+    table_size: 1024
+    timeout_cycles: 100000
+    enable_flow_counters: true
+  rules:
+    - name: allow_tcp
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+      action: pass
+"#;
+        let result = load_rules_from_str(yaml);
+        assert!(result.is_ok());
+        let config = result.unwrap();
+        assert_eq!(config.pacgate.conntrack.as_ref().unwrap().enable_flow_counters, Some(true));
+    }
+
+    #[test]
+    fn accept_flow_counters_disabled() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  conntrack:
+    table_size: 1024
+    timeout_cycles: 100000
+    enable_flow_counters: false
+  rules:
+    - name: allow_tcp
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+      action: pass
+"#;
+        let result = load_rules_from_str(yaml);
+        assert!(result.is_ok());
+        let config = result.unwrap();
+        assert_eq!(config.pacgate.conntrack.as_ref().unwrap().enable_flow_counters, Some(false));
+    }
+
+    #[test]
+    fn accept_flow_counters_omitted() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  conntrack:
+    table_size: 1024
+    timeout_cycles: 100000
+  rules:
+    - name: allow_tcp
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+      action: pass
+"#;
+        let result = load_rules_from_str(yaml);
+        assert!(result.is_ok());
+        let config = result.unwrap();
+        assert_eq!(config.pacgate.conntrack.as_ref().unwrap().enable_flow_counters, None);
+    }
+
     #[test]
     fn accept_mirror_and_redirect() {
         let yaml = valid_yaml(

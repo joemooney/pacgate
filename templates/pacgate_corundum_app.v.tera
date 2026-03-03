@@ -37,6 +37,18 @@ module pacgate_corundum_app #(
     input  wire                         m_axis_sync_tx_tready,
     output wire                         m_axis_sync_tx_tlast,
     output wire [PTP_TS_WIDTH-1:0]      m_axis_sync_tx_tuser
+{% if has_flow_counters %}
+    ,
+    // Flow counter read-back interface (conntrack per-flow counters)
+    input  wire [9:0]  flow_read_idx,
+    input  wire        flow_read_en,
+    output wire [103:0] flow_read_key,
+    output wire        flow_read_valid,
+    output wire [63:0] flow_read_pkt_count,
+    output wire [63:0] flow_read_byte_count,
+    output wire [2:0]  flow_read_tcp_state,
+    output wire        flow_read_done
+{% endif %}
 );
 
     // --- Reset inversion: Corundum uses active-high, PacGate uses active-low ---
@@ -104,6 +116,17 @@ module pacgate_corundum_app #(
         .decision_pass  (decision_pass),
         .fifo_overflow  (fifo_overflow),
         .fifo_empty     (fifo_empty)
+{% if has_flow_counters %}
+        ,
+        .flow_read_idx       (flow_read_idx),
+        .flow_read_en        (flow_read_en),
+        .flow_read_key       (flow_read_key),
+        .flow_read_valid     (flow_read_valid),
+        .flow_read_pkt_count (flow_read_pkt_count),
+        .flow_read_byte_count(flow_read_byte_count),
+        .flow_read_tcp_state (flow_read_tcp_state),
+        .flow_read_done      (flow_read_done)
+{% endif %}
     );
 
     // --- 8-bit to 512-bit width converter (TX path) ---

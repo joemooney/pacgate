@@ -498,6 +498,9 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         ctx.insert("has_conntrack_state_rules", &rules.iter().any(|r| r.match_criteria.uses_conntrack_state()));
         ctx.insert("has_mirror_rules", &rules.iter().any(|r| r.has_mirror()));
         ctx.insert("has_redirect_rules", &rules.iter().any(|r| r.has_redirect()));
+        ctx.insert("has_flow_counters", &config.pacgate.conntrack.as_ref()
+            .and_then(|c| c.enable_flow_counters)
+            .unwrap_or(false));
 
         let rendered = tera.render("test_properties.py.tera", &ctx)?;
         std::fs::write(tb_dir.join("test_properties.py"), &rendered)?;

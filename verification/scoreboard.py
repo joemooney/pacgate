@@ -136,6 +136,8 @@ class Rule:
     # Egress port actions (informational — do not affect pass/drop matching)
     mirror_port: Optional[int] = None
     redirect_port: Optional[int] = None
+    # Flow counters (hardware feature — does not affect pass/drop matching)
+    enable_flow_counters: bool = False
 
     def matches(self, frame: EthernetFrame, extracted: Optional[dict] = None) -> bool:
         """Check if this rule matches the given frame.

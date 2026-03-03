@@ -576,6 +576,13 @@ impl StatelessRule {
     pub fn has_redirect(&self) -> bool {
         self.redirect_port.is_some()
     }
+
+    /// Returns true if this rule set has flow counters enabled via conntrack config
+    pub fn has_flow_counters(config: &PacgateConfig) -> bool {
+        config.conntrack.as_ref()
+            .and_then(|c| c.enable_flow_counters)
+            .unwrap_or(false)
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -590,6 +597,9 @@ pub struct ConntrackConfig {
     pub timeout_cycles: u64,
     #[serde(default = "default_conntrack_fields")]
     pub fields: Vec<String>,
+    /// Enable per-flow packet/byte counters (default: false)
+    #[serde(default)]
+    pub enable_flow_counters: Option<bool>,
 }
 
 fn default_conntrack_fields() -> Vec<String> {
@@ -2057,6 +2067,75 @@ pacgate:
         let rule = &config.pacgate.rules[0];
         assert_eq!(rule.mirror_port, None);
         assert_eq!(rule.redirect_port, Some(2));
+    }
+
+    // --- Flow counters ---
+
+    #[test]
+    fn has_flow_counters_true() {
+        let config = PacgateConfig {
+            version: "1.0".to_string(),
+            defaults: Defaults { action: Action::Drop },
+            rules: vec![],
+            conntrack: Some(ConntrackConfig {
+                table_size: 1024,
+                timeout_cycles: 100000,
+                fields: default_conntrack_fields(),
+                enable_flow_counters: Some(true),
+            }),
+        };
+        assert!(StatelessRule::has_flow_counters(&config));
+    }
+
+    #[test]
+    fn has_flow_counters_false_none() {
+        let config = PacgateConfig {
+            version: "1.0".to_string(),
+            defaults: Defaults { action: Action::Drop },
+            rules: vec![],
+            conntrack: Some(ConntrackConfig {
+                table_size: 1024,
+                timeout_cycles: 100000,
+                fields: default_conntrack_fields(),
+                enable_flow_counters: None,
+            }),
+        };
+        assert!(!StatelessRule::has_flow_counters(&config));
+    }
+
+    #[test]
+    fn has_flow_counters_false_no_conntrack() {
+        let config = PacgateConfig {
+            version: "1.0".to_string(),
+            defaults: Defaults { action: Action::Drop },
+            rules: vec![],
+            conntrack: None,
+        };
+        assert!(!StatelessRule::has_flow_counters(&config));
+    }
+
+    #[test]
+    fn deserialize_flow_counters() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  conntrack:
+    table_size: 1024
+    timeout_cycles: 100000
+    enable_flow_counters: true
+  rules:
+    - name: allow_tcp
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+      action: pass
+"#;
+        let config: FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.pacgate.conntrack.as_ref().unwrap().enable_flow_counters, Some(true));
+        assert!(StatelessRule::has_flow_counters(&config.pacgate));
     }
 
     #[test]

@@ -1,0 +1,36 @@
+# Flow Counters — Per-flow packet/byte counting with connection tracking
+# Use with: pacgate compile flow_counters.yaml --conntrack
+# Requires: --conntrack flag for hardware connection tracking
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  conntrack:
+    table_size: 1024
+    timeout_cycles: 100000
+    enable_flow_counters: true
+  rules:
+    - name: allow_tcp
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+      action: pass
+    - name: allow_udp_dns
+      priority: 90
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17
+        dst_port: 53
+      action: pass
+    - name: allow_icmp
+      priority: 80
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 1
+      action: pass
+    - name: allow_arp
+      priority: 70
+      match:
+        ethertype: "0x0806"
+      action: pass

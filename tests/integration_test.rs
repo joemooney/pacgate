@@ -5731,3 +5731,159 @@ pacgate:
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("mirror_port"), "Diff should show mirror_port change: {}", stdout);
 }
+
+// ── Phase 25.4: Flow Counter Tests ───────────────────────────────
+
+#[test]
+fn validate_flow_counters_rules() {
+    let output = pacgate_bin()
+        .args(["validate", "rules/examples/flow_counters.yaml"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "validate failed: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn compile_flow_counters_with_conntrack() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/flow_counters.yaml", "--conntrack",
+               "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile --conntrack failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(tmp.path().join("rtl/conntrack_table.v").exists(), "conntrack_table.v missing");
+}
+
+#[test]
+fn simulate_flow_counters_match() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/flow_counters.yaml",
+               "--packet", "ethertype=0x0800,ip_protocol=6,dst_port=80"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "simulate failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("allow_tcp") || stdout.contains("pass"),
+            "Should match allow_tcp: {}", stdout);
+}
+
+#[test]
+fn simulate_flow_counters_dns() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/flow_counters.yaml",
+               "--packet", "ethertype=0x0800,ip_protocol=17,dst_port=53"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "simulate failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("allow_udp_dns"), "Should match allow_udp_dns: {}", stdout);
+}
+
+#[test]
+fn estimate_flow_counters_rules() {
+    let output = pacgate_bin()
+        .args(["estimate", "rules/examples/flow_counters.yaml"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "estimate failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("LUT") || stdout.contains("lut"), "Should show LUT estimate: {}", stdout);
+}
+
+#[test]
+fn lint_flow_counters_without_conntrack_flag() {
+    // Lint should warn about flow counters without --conntrack
+    let output = pacgate_bin()
+        .args(["lint", "rules/examples/flow_counters.yaml"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "lint failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("LINT") || stdout.contains("flow_counter") || stdout.contains("conntrack"),
+            "Should show lint info about flow counters: {}", stdout);
+}
+
+#[test]
+fn stats_flow_counters_rules() {
+    let output = pacgate_bin()
+        .args(["stats", "rules/examples/flow_counters.yaml"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "stats failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("conntrack") || stdout.contains("flow"),
+            "Should show conntrack/flow info: {}", stdout);
+}
+
+#[test]
+fn diff_flow_counters_change() {
+    let old_yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  conntrack:
+    table_size: 1024
+    timeout_cycles: 100000
+  rules:
+    - name: rule1
+      priority: 100
+      match:
+        ethertype: "0x0800"
+      action: pass
+"#;
+    let new_yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  conntrack:
+    table_size: 1024
+    timeout_cycles: 100000
+    enable_flow_counters: true
+  rules:
+    - name: rule1
+      priority: 100
+      match:
+        ethertype: "0x0800"
+      action: pass
+"#;
+    let tmp_old = std::env::temp_dir().join("test_diff_flow_old.yaml");
+    let tmp_new = std::env::temp_dir().join("test_diff_flow_new.yaml");
+    std::fs::write(&tmp_old, old_yaml).unwrap();
+    std::fs::write(&tmp_new, new_yaml).unwrap();
+    let output = pacgate_bin()
+        .args(["diff", &tmp_old.to_string_lossy(), &tmp_new.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("flow_counter") || stdout.contains("conntrack"),
+            "Diff should mention flow counters or conntrack change: {}", stdout);
+}
+
+#[test]
+fn doc_flow_counters_rules() {
+    let tmp = tempfile::tempdir().unwrap();
+    let out = tmp.path().join("flow_counters_doc.html");
+    let output = pacgate_bin()
+        .args(["doc", "rules/examples/flow_counters.yaml", "-o", &out.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "doc failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(out.exists(), "HTML doc should be generated");
+    let html = std::fs::read_to_string(&out).unwrap();
+    assert!(html.contains("allow_tcp"), "Doc should contain rule name");
+}
+
+#[test]
+fn formal_flow_counters_rules() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["formal", "rules/examples/flow_counters.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "formal failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(tmp.path().join("formal").exists(), "formal/ directory should exist");
+}

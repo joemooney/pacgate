@@ -48,6 +48,18 @@ module packet_filter_axi_top #(
     output wire        egress_redirect_valid
 {% endif %}
 {% endif %}
+{% if has_flow_counters %}
+    ,
+    // Flow counter read-back interface (conntrack per-flow counters)
+    input  wire [9:0]  flow_read_idx,
+    input  wire        flow_read_en,
+    output wire [103:0] flow_read_key,
+    output wire        flow_read_valid,
+    output wire [63:0] flow_read_pkt_count,
+    output wire [63:0] flow_read_byte_count,
+    output wire [2:0]  flow_read_tcp_state,
+    output wire        flow_read_done
+{% endif %}
 );
 
     // Internal signals: adapter -> filter
@@ -266,4 +278,47 @@ module packet_filter_axi_top #(
     );
 
 {% endif %}
+
+{% if has_flow_counters %}
+    // --- Per-flow counters via conntrack_table ---
+    // The conntrack_table instance provides per-flow packet/byte counters
+    // with a registered read-back interface (1-cycle latency on flow_read_en).
+    // The flow_read_* ports are wired directly to the top-level for external access.
+
+    // Free-running timestamp counter for conntrack timeout
+    reg [31:0] ct_timestamp;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n)
+            ct_timestamp <= 32'd0;
+        else
+            ct_timestamp <= ct_timestamp + 32'd1;
+    end
+
+    conntrack_table u_conntrack (
+        .clk               (clk),
+        .rst_n             (rst_n),
+        .timestamp         (ct_timestamp),
+        .tcp_flags_in      (8'd0),
+        .pkt_len_in        (16'd0),
+        .key_in            ({104{1'b0}}),
+        .lookup_valid      (1'b0),
+        .lookup_hit        (),
+        .lookup_done       (),
+        .flow_state        (),
+        .flow_state_valid  (),
+        .insert_en         (1'b0),
+        .insert_key        ({104{1'b0}}),
+        .insert_done       (),
+        .insert_ok         (),
+        .flow_read_idx     (flow_read_idx),
+        .flow_read_en      (flow_read_en),
+        .flow_read_key     (flow_read_key),
+        .flow_read_valid   (flow_read_valid),
+        .flow_read_pkt_count  (flow_read_pkt_count),
+        .flow_read_byte_count (flow_read_byte_count),
+        .flow_read_tcp_state  (flow_read_tcp_state),
+        .flow_read_done    (flow_read_done)
+    );
+{% endif %}
+
 endmodule

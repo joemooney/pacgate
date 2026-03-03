@@ -108,6 +108,9 @@ pub fn generate_with_dynamic(config: &FilterConfig, templates_dir: &Path, output
     let has_conntrack_state = rules.iter().any(|r| r.match_criteria.uses_conntrack_state());
     let has_mirror = rules.iter().any(|r| r.has_mirror());
     let has_redirect = rules.iter().any(|r| r.has_redirect());
+    let has_flow_counters = config.pacgate.conntrack.as_ref()
+        .and_then(|c| c.enable_flow_counters)
+        .unwrap_or(false);
     let icmpv6_rule_indices: Vec<usize> = rules.iter().enumerate()
         .filter(|(_, r)| r.match_criteria.uses_icmpv6())
         .map(|(i, _)| i).collect();
@@ -170,6 +173,7 @@ pub fn generate_with_dynamic(config: &FilterConfig, templates_dir: &Path, output
         ctx.insert("has_conntrack_state", &has_conntrack_state);
         ctx.insert("has_mirror", &has_mirror);
         ctx.insert("has_redirect", &has_redirect);
+        ctx.insert("has_flow_counters", &has_flow_counters);
         ctx.insert("has_dynamic", &dynamic);
         ctx.insert("dynamic_num_entries", &num_entries);
 

@@ -403,6 +403,22 @@ pub fn generate_mutations(config: &FilterConfig) -> Vec<(Mutation, FilterConfig)
         }
     }
 
+    // Mutation 27: Remove flow counters from conntrack config
+    if let Some(ref ct) = config.pacgate.conntrack {
+        if ct.enable_flow_counters == Some(true) {
+            let mut mutated = config.clone();
+            if let Some(ref mut mct) = mutated.pacgate.conntrack {
+                mct.enable_flow_counters = None;
+            }
+            mutations.push((Mutation {
+                name: "remove_flow_counters".to_string(),
+                description: "Remove enable_flow_counters from conntrack config".to_string(),
+                mutant_index: index,
+            }, mutated));
+            index += 1;
+        }
+    }
+
     // Mutation 22: Remove set_src_port from rewrite actions
     for (i, rule) in config.pacgate.rules.iter().enumerate() {
         if !rule.is_stateful() {
@@ -1226,5 +1242,74 @@ mod tests {
         let mutations = generate_mutations(&config);
         let rm = mutations.iter().find(|(m, _)| m.name.starts_with("remove_redirect_port_")).unwrap();
         assert!(rm.1.pacgate.rules[0].redirect_port.is_none());
+    }
+
+    #[test]
+    fn remove_flow_counters_mutation() {
+        let config = FilterConfig {
+            pacgate: PacgateConfig {
+                version: "1.0".to_string(),
+                defaults: Defaults { action: Action::Drop },
+                rules: vec![
+                    StatelessRule {
+                        name: "test_rule".to_string(),
+                        priority: 100,
+                        match_criteria: MatchCriteria {
+                            ethertype: Some("0x0800".to_string()),
+                            ..Default::default()
+                        },
+                        action: Some(Action::Pass),
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
+                        mirror_port: None, redirect_port: None,
+                    },
+                ],
+                conntrack: Some(ConntrackConfig {
+                    table_size: 1024,
+                    timeout_cycles: 100000,
+                    fields: vec![
+                        "src_ip".to_string(), "dst_ip".to_string(),
+                        "ip_protocol".to_string(), "src_port".to_string(), "dst_port".to_string(),
+                    ],
+                    enable_flow_counters: Some(true),
+                }),
+            },
+        };
+        let mutations = generate_mutations(&config);
+        let rm = mutations.iter().find(|(m, _)| m.name == "remove_flow_counters").unwrap();
+        assert!(rm.1.pacgate.conntrack.as_ref().unwrap().enable_flow_counters.is_none());
+    }
+
+    #[test]
+    fn no_remove_flow_counters_when_disabled() {
+        let config = FilterConfig {
+            pacgate: PacgateConfig {
+                version: "1.0".to_string(),
+                defaults: Defaults { action: Action::Drop },
+                rules: vec![
+                    StatelessRule {
+                        name: "test_rule".to_string(),
+                        priority: 100,
+                        match_criteria: MatchCriteria {
+                            ethertype: Some("0x0800".to_string()),
+                            ..Default::default()
+                        },
+                        action: Some(Action::Pass),
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
+                        mirror_port: None, redirect_port: None,
+                    },
+                ],
+                conntrack: Some(ConntrackConfig {
+                    table_size: 1024,
+                    timeout_cycles: 100000,
+                    fields: vec![
+                        "src_ip".to_string(), "dst_ip".to_string(),
+                        "ip_protocol".to_string(), "src_port".to_string(), "dst_port".to_string(),
+                    ],
+                    enable_flow_counters: None,
+                }),
+            },
+        };
+        let mutations = generate_mutations(&config);
+        assert!(mutations.iter().find(|(m, _)| m.name == "remove_flow_counters").is_none());
     }
 }

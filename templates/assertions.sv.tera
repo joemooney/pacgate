@@ -597,6 +597,19 @@ module packet_filter_assertions (
         decision_valid && decision_pass && egress_redirect_valid);
 {% endif %}
 
+{% if has_flow_counters %}
+    // ── Per-Flow Counter Assertions ──────────────────────────────────
+    // Flow counters track per-flow packet/byte counts in the conntrack table.
+
+    // Cover: flow counter read interface completes (flow_read_done asserted)
+    cover_flow_read_done: cover property (@(posedge clk) disable iff (!rst_n)
+        flow_read_done);
+
+    // Cover: flow counter pkt_count > 0 on read
+    cover_flow_pkt_count_nonzero: cover property (@(posedge clk) disable iff (!rst_n)
+        flow_read_done && (flow_pkt_count > 0));
+{% endif %}
+
 {% if has_dynamic %}
     // ── Dynamic Flow Table Assertions ───────────────────────────────
 
