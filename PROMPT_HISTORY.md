@@ -2332,3 +2332,81 @@ Update main.rs tools (lint, estimate, stats, diff, doc, graph), create OAM examp
 - 327 integration tests — all PASS
 - 53 Python scoreboard tests — all PASS
 - Total: 766 Rust tests + 53 Python tests
+
+---
+
+## Prompt 49 — Phase 26: Geneve + TTL Match + IPv6 Rewrite + Cocotb/Hypothesis Completeness + VLAN Rewrite
+
+**Request**: Implement Phase 26 with 6 sub-phases: Geneve tunnel, ip_ttl/frame_len match, IPv6 rewrite actions, cocotb test completeness, Hypothesis property test completeness, VLAN PCP/outer VLAN rewrite.
+
+**Date**: 2026-03-03
+
+### Actions Taken
+
+**Phase 26.1 — Geneve Tunnel Matching (RFC 8926)**:
+- Added geneve_vni (24-bit, 0-16777215) to model/MatchCriteria with uses_geneve() helper
+- Loader validation: geneve_vni range check (0-16777215), shadow/overlap detection
+- RTL frame_parser.v: S_GENEVE_HDR parser state (UDP dst port 6081 detection, 24-bit VNI extraction)
+- Verilog generation: has_geneve flag, geneve condition expressions, template wiring
+- Simulator: geneve_vni in SimPacket, parse_packet_spec, match_criteria_against_packet
+- Cocotb generation: geneve fields in test cases and scoreboard rules
+- Formal: SVA assertions (Geneve prerequisite, cover properties)
+- Mutation type 30: remove_geneve_vni
+- Example: geneve_datacenter.yaml
+
+**Phase 26.2 — ip_ttl Match + Frame Length (Simulation-Only)**:
+- Added ip_ttl (8-bit, 0-255) match field to model/MatchCriteria
+- Added frame_len_min/frame_len_max (16-bit) simulation-only match fields
+- ip_ttl wired through RTL (condition generation, template ports) for hardware matching
+- frame_len_min/max evaluated only in software simulator (not synthesized)
+- Loader validation: ip_ttl range (0-255), shadow/overlap detection
+- Mutation type 31: remove_ip_ttl
+- Example: ttl_security.yaml
+
+**Phase 26.3 — IPv6 Rewrite Actions**:
+- Added dec_hop_limit rewrite action (decrement IPv6 hop limit by 1)
+- Added set_hop_limit rewrite action (set IPv6 hop limit to 1-255)
+- Added set_ecn rewrite action (set IPv4/IPv6 ECN bits, 0-3)
+- packet_rewrite.v: hop_limit byte substitution at IPv6 header offset, ECN bit substitution in TOS/TC byte
+- rewrite_lut.v.tera: hop_limit/ecn output ports with per-entry values
+- rewrite_flags bits 10-12 for dec_hop_limit/set_hop_limit/set_ecn
+- Example: ipv6_routing.yaml
+
+**Phase 26.4 — Cocotb Test Completeness**:
+- Added 14 PacketFactory methods covering all supported protocols
+- Added 13 protocol branches in test_harness.py.tera for directed test generation
+- Protocol-specific frame construction for GRE, OAM, NSH, Geneve, conntrack, ip_ttl, and more
+
+**Phase 26.5 — Hypothesis Property Test Completeness**:
+- Added 8 new Hypothesis strategies: gre_frames, oam_frames, nsh_frames, arp_security_frames, icmp_frames, icmpv6_frames, qinq_frames, tcp_flags_frames
+- Added 9 conditional blocks in test_properties.py.tera for protocol-specific property tests
+- All strategies imported and wired into generated test files when corresponding protocol rules present
+
+**Phase 26.6 — VLAN PCP / Outer VLAN Rewrite**:
+- Added set_vlan_pcp rewrite action (0-7, VLAN priority bits)
+- Added set_outer_vlan_id rewrite action (0-4095, QinQ outer VLAN)
+- packet_rewrite.v: VLAN PCP bit substitution, outer VLAN ID substitution
+- rewrite_lut: vlan_pcp/outer_vlan_id output ports
+- rewrite_flags bits 13-14 for set_vlan_pcp/set_outer_vlan_id
+- Example: qos_rewrite.yaml
+
+**Bug Fixes**:
+- Fixed NSH matching conditions missing from build_condition_expr() in verilog_gen.rs
+- Fixed rewrite LUT entry population for new fields (hop_limit, ecn, vlan_pcp, outer_vlan_id)
+
+**Lint Rules**: LINT040 (Geneve without UDP prerequisite), LINT041 (ip_ttl without IPv4), LINT042 (frame_len simulation-only info), LINT043 (dec_hop_limit/set_hop_limit without IPv6), LINT044 (set_ecn without IPv4/IPv6), LINT045 (set_vlan_pcp without VLAN), LINT046 (set_outer_vlan_id without QinQ)
+
+**All examples compile, simulate correctly, pass iverilog lint.**
+
+### Test Results
+- 479 unit tests — all PASS
+- 327 integration tests — all PASS
+- 67 Python scoreboard tests — all PASS
+- Total: 806 Rust tests + 67 Python tests
+
+### New Artifacts
+- 4 new YAML examples (geneve_datacenter, ttl_security, ipv6_routing, qos_rewrite) — 42 total
+- 7 new lint rules (LINT040-046) — 46 total
+- 4 new mutation types (30-33) — 33 total
+- 1 new parser state (S_GENEVE_HDR)
+- 5 new rewrite flag bits (10-14)

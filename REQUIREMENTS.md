@@ -1261,3 +1261,86 @@
 - REQ-2475: 439 Rust unit tests (through Phase 25.6) [IMPLEMENTED]
 - REQ-2476: 327 Rust integration tests (through Phase 25.6) [IMPLEMENTED]
 - REQ-2477: 53 Python scoreboard unit tests (through Phase 25.6) [IMPLEMENTED]
+
+## Phase 26 Requirements — Geneve + TTL Match + IPv6 Rewrite + Cocotb/Hypothesis Completeness + VLAN Rewrite [IMPLEMENTED]
+
+### Phase 26.1: Geneve Tunnel Matching (RFC 8926)
+- REQ-2500: Detect Geneve encapsulation (UDP dst port 6081) [IMPLEMENTED]
+- REQ-2501: Parse Geneve header, extract 24-bit VNI (0-16777215) [IMPLEMENTED]
+- REQ-2502: Match on geneve_vni field in YAML rules [IMPLEMENTED]
+- REQ-2503: Frame parser S_GENEVE_HDR state for Geneve header extraction [IMPLEMENTED]
+- REQ-2504: Geneve VNI matching in hardware: exact 24-bit comparison [IMPLEMENTED]
+- REQ-2505: Geneve wiring through all templates (rule_match, rule_fsm, packet_filter_top) [IMPLEMENTED]
+- REQ-2506: Simulator support for geneve_vni field matching [IMPLEMENTED]
+- REQ-2507: Geneve YAML example (geneve_datacenter.yaml) [IMPLEMENTED]
+- REQ-2508: geneve_vni range validation (0-16777215) in loader [IMPLEMENTED]
+- REQ-2509: Shadow/overlap detection for geneve_vni field [IMPLEMENTED]
+- REQ-2510: SVA formal assertions: Geneve prerequisite, cover properties [IMPLEMENTED]
+- REQ-2511: Mutation type 30: remove_geneve_vni [IMPLEMENTED]
+- REQ-2512: Python scoreboard geneve_vni match field [IMPLEMENTED]
+- REQ-2513: cocotb test generation includes Geneve fields [IMPLEMENTED]
+
+### Phase 26.2: ip_ttl Match + Frame Length (Simulation-Only)
+- REQ-2520: Match on ip_ttl (8-bit, 0-255) for GTSM/TTL-based security [IMPLEMENTED]
+- REQ-2521: ip_ttl matching in hardware: exact 8-bit comparison [IMPLEMENTED]
+- REQ-2522: ip_ttl condition generation in verilog_gen.rs [IMPLEMENTED]
+- REQ-2523: Simulator support for ip_ttl field matching [IMPLEMENTED]
+- REQ-2524: frame_len_min match field (simulation-only, 16-bit minimum frame length) [IMPLEMENTED]
+- REQ-2525: frame_len_max match field (simulation-only, 16-bit maximum frame length) [IMPLEMENTED]
+- REQ-2526: frame_len_min/max evaluated in software simulator only (not in RTL) [IMPLEMENTED]
+- REQ-2527: TTL security YAML example (ttl_security.yaml) [IMPLEMENTED]
+- REQ-2528: ip_ttl range validation (0-255) in loader [IMPLEMENTED]
+- REQ-2529: Shadow/overlap detection for ip_ttl field [IMPLEMENTED]
+- REQ-2530: Mutation type 31: remove_ip_ttl [IMPLEMENTED]
+
+### Phase 26.3: IPv6 Rewrite Actions
+- REQ-2540: dec_hop_limit rewrite action — decrement IPv6 hop limit by 1 [IMPLEMENTED]
+- REQ-2541: set_hop_limit rewrite action — set IPv6 hop limit to specific value (1-255) [IMPLEMENTED]
+- REQ-2542: set_ecn rewrite action — set IPv4/IPv6 ECN bits (0-3) [IMPLEMENTED]
+- REQ-2543: dec_hop_limit requires IPv6 ethertype prerequisite [IMPLEMENTED]
+- REQ-2544: set_hop_limit requires IPv6 ethertype prerequisite [IMPLEMENTED]
+- REQ-2545: set_ecn range validation (0-3) [IMPLEMENTED]
+- REQ-2546: packet_rewrite.v extended with hop_limit byte substitution at IPv6 header offset [IMPLEMENTED]
+- REQ-2547: packet_rewrite.v extended with ECN bit substitution in TOS/TC byte [IMPLEMENTED]
+- REQ-2548: rewrite_lut generates hop_limit/ecn output ports and per-entry values [IMPLEMENTED]
+- REQ-2549: rewrite_flags bits 10-12 for dec_hop_limit/set_hop_limit/set_ecn [IMPLEMENTED]
+- REQ-2550: IPv6 routing YAML example (ipv6_routing.yaml) [IMPLEMENTED]
+
+### Phase 26.4: Cocotb Test Completeness
+- REQ-2560: 14 PacketFactory methods for protocol-specific frame construction [IMPLEMENTED]
+- REQ-2561: PacketFactory methods for GRE, OAM, NSH, Geneve, conntrack, ip_ttl frame types [IMPLEMENTED]
+- REQ-2562: 13 protocol branches in test_harness.py.tera for directed test generation [IMPLEMENTED]
+- REQ-2563: Protocol-specific directed tests for all supported protocol types [IMPLEMENTED]
+
+### Phase 26.5: Hypothesis Property Test Completeness
+- REQ-2570: 8 new Hypothesis strategies: gre_frames, oam_frames, nsh_frames, arp_security_frames, icmp_frames, icmpv6_frames, qinq_frames, tcp_flags_frames [IMPLEMENTED]
+- REQ-2571: 9 conditional blocks in test_properties.py.tera for protocol-specific property tests [IMPLEMENTED]
+- REQ-2572: Protocol strategies imported and wired into generated test files [IMPLEMENTED]
+
+### Phase 26.6: VLAN PCP / Outer VLAN Rewrite
+- REQ-2580: set_vlan_pcp rewrite action — set VLAN PCP priority bits (0-7) [IMPLEMENTED]
+- REQ-2581: set_outer_vlan_id rewrite action — set outer VLAN ID for QinQ (0-4095) [IMPLEMENTED]
+- REQ-2582: set_vlan_pcp range validation (0-7) [IMPLEMENTED]
+- REQ-2583: set_outer_vlan_id range validation (0-4095) [IMPLEMENTED]
+- REQ-2584: packet_rewrite.v extended with VLAN PCP bit substitution [IMPLEMENTED]
+- REQ-2585: packet_rewrite.v extended with outer VLAN ID substitution [IMPLEMENTED]
+- REQ-2586: rewrite_lut generates vlan_pcp/outer_vlan_id output ports [IMPLEMENTED]
+- REQ-2587: rewrite_flags bits 13-14 for set_vlan_pcp/set_outer_vlan_id [IMPLEMENTED]
+- REQ-2588: QoS rewrite YAML example (qos_rewrite.yaml) [IMPLEMENTED]
+
+### Lint Rules (Phase 26)
+- REQ-2600: LINT040 — Geneve VNI without UDP prerequisite (ip_protocol:17, dst_port:6081) [IMPLEMENTED]
+- REQ-2601: LINT041 — ip_ttl without IPv4 ethertype (0x0800) prerequisite [IMPLEMENTED]
+- REQ-2602: LINT042 — frame_len_min/max is simulation-only (informational) [IMPLEMENTED]
+- REQ-2603: LINT043 — dec_hop_limit/set_hop_limit without IPv6 ethertype prerequisite [IMPLEMENTED]
+- REQ-2604: LINT044 — set_ecn without IPv4 or IPv6 ethertype prerequisite [IMPLEMENTED]
+- REQ-2605: LINT045 — set_vlan_pcp without VLAN prerequisite [IMPLEMENTED]
+- REQ-2606: LINT046 — set_outer_vlan_id without QinQ (802.1ad) prerequisite [IMPLEMENTED]
+
+### Test Counts (Phase 26)
+- REQ-2610: 479 Rust unit tests (through Phase 26) [IMPLEMENTED]
+- REQ-2611: 327 Rust integration tests (through Phase 26) [IMPLEMENTED]
+- REQ-2612: 67 Python scoreboard unit tests (through Phase 26) [IMPLEMENTED]
+- REQ-2613: 42 YAML examples [IMPLEMENTED]
+- REQ-2614: 46 lint rules (LINT001-046) [IMPLEMENTED]
+- REQ-2615: 33 mutation types [IMPLEMENTED]
