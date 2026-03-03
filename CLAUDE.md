@@ -120,7 +120,7 @@ Mermaid .md --> pacgate from-mermaid --> YAML rules
   - Same internal structure: axis_512_to_8 → filter → axis_8_to_512
 - `rule_counters` — per-rule 64-bit packet/byte counters (rtl/rule_counters.v)
 - `axi_lite_csr` — AXI4-Lite register interface for counter readout (rtl/axi_lite_csr.v)
-- `conntrack_table` — connection tracking hash table (rtl/conntrack_table.v)
+- `conntrack_table` — connection tracking hash table with per-flow 64-bit pkt/byte counters + flow read-back interface (rtl/conntrack_table.v)
 - `rate_limiter` — token-bucket rate limiter per rule (rtl/rate_limiter.v)
 
 ### Packet Interface
@@ -230,7 +230,7 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 - `rtl/store_forward_fifo.v` — Store-and-forward FIFO with decision-based forwarding
 - `rtl/packet_filter_axi_top.v` — AXI-Stream top-level integrating all modules
 - `rtl/packet_rewrite.v` — Hand-written byte substitution engine with RFC 1624 incremental checksum
-- `rtl/conntrack_table.v` — Connection tracking hash table with CRC hash + timeout + TCP state machine (NEW→ESTABLISHED→FIN_WAIT→CLOSED)
+- `rtl/conntrack_table.v` — Connection tracking hash table with CRC hash + timeout + TCP state machine (NEW→ESTABLISHED→FIN_WAIT→CLOSED) + per-flow 64-bit pkt/byte counters + flow read-back interface
 - `rtl/rate_limiter.v` — Token-bucket rate limiter (parameterized PPS, BURST)
 - `rtl/axis_512_to_8.v` — 512→8-bit AXI-Stream width converter (for platform targets)
 - `rtl/axis_8_to_512.v` — 8→512-bit AXI-Stream width converter (for platform targets)
