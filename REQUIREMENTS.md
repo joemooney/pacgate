@@ -1148,3 +1148,55 @@
 
 ### Example
 - REQ-2250: flow_counters.yaml example with enable_flow_counters: true (4 rules) [IMPLEMENTED]
+
+## Phase 25.5 Requirements — OAM/CFM (IEEE 802.1ag) Support [IMPLEMENTED]
+
+### Model
+- REQ-2300: oam_level field on MatchCriteria (Option<u8>, 0-7, 3-bit Maintenance Domain Level) [IMPLEMENTED]
+- REQ-2301: oam_opcode field on MatchCriteria (Option<u8>, 0-255, CFM OpCode) [IMPLEMENTED]
+- REQ-2302: uses_oam() helper method on MatchCriteria [IMPLEMENTED]
+- REQ-2303: YAML deserialization of oam_level and oam_opcode match fields [IMPLEMENTED]
+
+### Loader/Validation
+- REQ-2310: Validate oam_level range 0-7 [IMPLEMENTED]
+- REQ-2311: Overlap detection for OAM fields (oam_level, oam_opcode) [IMPLEMENTED]
+
+### Simulator
+- REQ-2320: Parse oam_level and oam_opcode from --packet spec [IMPLEMENTED]
+- REQ-2321: OAM field matching in software simulator [IMPLEMENTED]
+
+### RTL Frame Parser
+- REQ-2330: Detect OAM/CFM frames via EtherType 0x8902 in S_ETYPE, S_ETYPE2, S_OUTER_VLAN [IMPLEMENTED]
+- REQ-2331: S_OAM_HDR state: extract MEL from byte 0 bits[7:5], OpCode from byte 1 [IMPLEMENTED]
+- REQ-2332: New outputs: oam_level[2:0], oam_opcode[7:0], oam_valid [IMPLEMENTED]
+- REQ-2333: OAM field initialization on reset and SOF [IMPLEMENTED]
+
+### Verilog Code Generation
+- REQ-2340: has_oam flag in GlobalProtocolFlags [IMPLEMENTED]
+- REQ-2341: OAM condition expressions: (oam_valid && oam_level == 3'd{val}) [IMPLEMENTED]
+- REQ-2342: has_oam inserted into all template contexts (top, stateless, FSM) [IMPLEMENTED]
+
+### Templates
+- REQ-2350: rule_match.v.tera: conditional OAM input ports (oam_level, oam_opcode, oam_valid) [IMPLEMENTED]
+- REQ-2351: rule_fsm.v.tera: conditional OAM input ports [IMPLEMENTED]
+- REQ-2352: packet_filter_top.v.tera: OAM wire declarations + parser wiring + rule matcher wiring [IMPLEMENTED]
+
+### Verification
+- REQ-2360: SVA assertions: oam_level bounds, OAM prerequisite (ethertype==0x8902) [IMPLEMENTED]
+- REQ-2361: SVA cover properties: oam_valid, oam_ccm, per-rule OAM covers [IMPLEMENTED]
+- REQ-2362: Python scoreboard OAM matching [IMPLEMENTED]
+- REQ-2363: cocotb test generation includes OAM fields [IMPLEMENTED]
+
+### Mutation Testing
+- REQ-2370: Mutation type 28: remove_oam_level (clears oam_level + oam_opcode) [IMPLEMENTED]
+
+### Lint
+- REQ-2380: LINT038: OAM fields without ethertype 0x8902 [IMPLEMENTED]
+
+### Example
+- REQ-2390: oam_monitoring.yaml example (5 rules: CCM/DMM/DMR/LBR/IPv4) [IMPLEMENTED]
+
+### Test Counts
+- REQ-2395: 426 Rust unit tests (through Phase 25.5) [IMPLEMENTED]
+- REQ-2396: 317 Rust integration tests (through Phase 25.5) [IMPLEMENTED]
+- REQ-2397: 47 Python scoreboard unit tests unchanged [IMPLEMENTED]

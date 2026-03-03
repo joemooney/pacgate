@@ -4,7 +4,7 @@
 PacGate is an FPGA-based packet filtering switch where YAML-defined rules compile into both synthesizable Verilog (the filter hardware) and a cocotb test harness (the validator). The two outputs are generated from the same specification but serve orthogonal purposes: the filter enforces rules in hardware, the harness proves they work correctly in simulation.
 
 ## What It Does
-1. You define packet filter rules in YAML (match on MAC, IPv4/IPv6, ports, VLAN, QinQ double VLAN, VXLAN VNI, GTP-U TEID, GRE protocol/key, MPLS labels, IGMP/MLD, DSCP/ECN, IPv6 TC, TCP flags, ICMP type/code, ICMPv6 type/code, ARP opcode/SPA/TPA, IPv6 hop_limit/flow_label, IPv4 fragmentation flags, etc.) with optional rewrite actions (NAT, TTL, MAC, VLAN, DSCP, L4 port rewrite) and egress actions (mirror_port, redirect_port)
+1. You define packet filter rules in YAML (match on MAC, IPv4/IPv6, ports, VLAN, QinQ double VLAN, VXLAN VNI, GTP-U TEID, GRE protocol/key, MPLS labels, IGMP/MLD, DSCP/ECN, IPv6 TC, TCP flags, ICMP type/code, ICMPv6 type/code, ARP opcode/SPA/TPA, IPv6 hop_limit/flow_label, IPv4 fragmentation flags, OAM/CFM level+opcode, etc.) with optional rewrite actions (NAT, TTL, MAC, VLAN, DSCP, L4 port rewrite) and egress actions (mirror_port, redirect_port)
 2. The `pacgate` compiler (written in Rust) reads the YAML and generates:
    - **Verilog RTL** — synthesizable hardware description for an FPGA
    - **cocotb test bench** — Python tests that verify the hardware via simulation

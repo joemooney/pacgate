@@ -2178,3 +2178,89 @@ Add OAM (IEEE 802.1ag CFM) support to verification framework, formal generation,
 
 ### Git Operations
 - Committed and pushed: `047ea1b` Phase 25.5 Batch 2
+
+---
+
+## Phase 25.5 Batch 3 — 2026-03-03: OAM/CFM Frame Parsing, Verilog Codegen, Template Wiring
+
+### Goal
+Complete OAM/CFM support in the RTL parser, Verilog code generator, and Tera templates so that OAM rules compile to working hardware.
+
+### Actions Taken
+
+1. **rtl/frame_parser.v** — OAM/CFM frame parsing:
+   - Added new outputs: `oam_level[2:0]`, `oam_opcode[7:0]`, `oam_valid`
+   - Added `S_OAM_HDR` state (`5'd19`) for CFM header parsing
+   - EtherType 0x8902 detection in `S_ETYPE`, `S_ETYPE2`, and `S_OUTER_VLAN` states
+   - CFM header parsing: byte 0 extracts MEL (bits[7:5]) as oam_level, byte 1 extracts OpCode as oam_opcode
+   - OAM field initialization in reset block and SOF block
+
+2. **src/verilog_gen.rs** — OAM codegen support:
+   - Added `has_oam: bool` to `GlobalProtocolFlags` struct
+   - Computed from `config.pacgate.rules.iter().any(|r| r.match_criteria.uses_oam())`
+   - Added OAM condition expressions: `(oam_valid && oam_level == 3'd{val})` and `(oam_valid && oam_opcode == 8'd{val})`
+   - Inserted `has_oam` into top-level, stateless rule, and FSM rule template contexts
+
+3. **templates/rule_match.v.tera** — OAM conditional ports:
+   - Added `{% if has_oam %}` block with `oam_level[2:0]`, `oam_opcode[7:0]`, `oam_valid` input ports
+
+4. **templates/rule_fsm.v.tera** — OAM conditional ports:
+   - Same conditional OAM input ports as rule_match template
+
+5. **templates/packet_filter_top.v.tera** — OAM wiring:
+   - Added OAM wire declarations (oam_level, oam_opcode, oam_valid)
+   - Wired OAM outputs from frame_parser instantiation
+   - Wired OAM ports in per-rule matcher instantiation with `{% if has_oam %}` guard
+
+6. **rules/examples/oam_monitoring.yaml** — OAM example:
+   - 5 rules: allow_ccm_level3 (level=3, opcode=1), allow_dmm (level=5, opcode=47), allow_dmr (opcode=48), allow_loopback (opcode=3), allow_ipv4
+   - Default action: drop
+
+### Test Results
+- 426 unit tests — all PASS
+- 317 integration tests — all PASS (previously failing 10 OAM tests now pass)
+- Total: 743 tests passing
+
+### Git Operations
+- Committed and pushed: `e0fc70d` Phase 25.5 Batch 3
+
+## Phase 25.5 Batch 4: Tools + Example + CI for OAM/CFM
+
+### Goal
+Update main.rs tools (lint, estimate, stats, diff, doc, graph), create OAM example YAML, and update CI simulate matrix for OAM/CFM support.
+
+### Actions Taken
+
+1. **LINT038** — OAM fields without ethertype 0x8902:
+   - Warning if oam_level or oam_opcode used without ethertype matching 0x8902
+   - Pattern follows LINT033 (GRE without ip_protocol 47)
+
+2. **Estimate** — OAM LUT accounting:
+   - +8 LUTs per rule with OAM fields (3-bit level + 8-bit opcode comparators)
+   - Added to both JSON and text estimate functions
+   - Also added oam_level/oam_opcode field counting in per-rule estimator
+
+3. **Stats** — OAM field counters:
+   - Added `uses_oam_level` and `uses_oam_opcode` counters
+   - Present in both JSON (`field_usage`) and text bar chart output
+
+4. **Diff** — OAM field change detection:
+   - Added oam_level and oam_opcode comparison in text diff, JSON diff, and HTML diff
+   - Added OAM to criteria_str helper in HTML diff function
+
+5. **Doc** — OAM in rule_info:
+   - Added oam_level and oam_opcode to match_fields list in doc generation
+
+6. **Graph** — OAM labels on rule nodes:
+   - Added `oam_level={val}` and `oam_opcode={val}` to DOT graph criteria
+
+7. **Example YAML** — `rules/examples/oam_monitoring.yaml`:
+   - 5 rules: allow_ccm_level3 (level=3, opcode=1), allow_dmm (opcode=47), allow_dmr (opcode=48), allow_lbr (opcode=3), allow_arp
+   - Default action: drop
+
+8. **CI** — Added `oam_monitoring` to simulate matrix in `.github/workflows/ci.yml`
+
+### Test Results
+- 426 unit tests — all PASS
+- 317 integration tests — all PASS
+- Total: 743 tests passing
