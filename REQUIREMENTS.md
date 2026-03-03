@@ -1110,6 +1110,26 @@
 - REQ-2201: StatelessRule::has_flow_counters() helper checks conntrack config [IMPLEMENTED]
 - REQ-2202: YAML deserialization of enable_flow_counters: true/false/omitted [IMPLEMENTED]
 
+### RTL
+- REQ-2203: conntrack_table.v pkt_len_in[15:0] input for byte counting [IMPLEMENTED]
+- REQ-2204: conntrack_table.v per-entry table_pkt_count[63:0] and table_byte_count[63:0] register arrays [IMPLEMENTED]
+- REQ-2205: Lookup HIT increments pkt_count by 1 and byte_count by pkt_len_in [IMPLEMENTED]
+- REQ-2206: INSERT (new entry) initializes counters to 1/pkt_len_in [IMPLEMENTED]
+- REQ-2207: INSERT (existing key update) increments counters [IMPLEMENTED]
+- REQ-2208: Flow read-back interface: flow_read_idx, flow_read_en, flow_read_key, flow_read_valid, flow_read_pkt_count, flow_read_byte_count, flow_read_tcp_state, flow_read_done [IMPLEMENTED]
+- REQ-2209: Flow read interface is registered (1-cycle latency on flow_read_en) [IMPLEMENTED]
+
+### Code Generation
+- REQ-2260: has_flow_counters flag in GlobalProtocolFlags struct [IMPLEMENTED]
+- REQ-2261: has_flow_counters computed from conntrack.enable_flow_counters config [IMPLEMENTED]
+- REQ-2262: has_flow_counters inserted into top/AXI/OpenNIC/Corundum template contexts [IMPLEMENTED]
+
+### Templates
+- REQ-2270: packet_filter_axi_top.v.tera: flow_read_* ports guarded by has_flow_counters [IMPLEMENTED]
+- REQ-2271: packet_filter_axi_top.v.tera: conntrack_table instantiation when has_flow_counters [IMPLEMENTED]
+- REQ-2272: pacgate_opennic_250.v.tera: flow_read_* port pass-through when has_flow_counters [IMPLEMENTED]
+- REQ-2273: pacgate_corundum_app.v.tera: flow_read_* port pass-through when has_flow_counters [IMPLEMENTED]
+
 ### Verification
 - REQ-2210: Python scoreboard Rule dataclass includes enable_flow_counters: bool (informational, no pass/drop effect) [IMPLEMENTED]
 - REQ-2211: SVA cover properties for flow_read_done signal (flow counter read completes) [IMPLEMENTED]
