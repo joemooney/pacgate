@@ -1046,3 +1046,30 @@
 - REQ-1903: Integration tests for QinQ compile, simulate, validate, lint, estimate, diff, formal [IMPLEMENTED]
 - REQ-1904: Integration tests for IPv4 fragmentation compile, simulate, validate, lint [IMPLEMENTED]
 - REQ-1905: Integration tests for L4 port rewrite compile, validate, lint, formal [IMPLEMENTED]
+
+## Phase 25 Requirements — GRE Tunnel Support [IMPLEMENTED]
+
+### GRE Tunnel Parsing
+- REQ-2000: Detect GRE encapsulation (IP protocol 47) [IMPLEMENTED]
+- REQ-2001: Parse GRE header: 16-bit protocol type, optional 32-bit key (K flag) [IMPLEMENTED]
+- REQ-2002: Match on gre_protocol and gre_key fields in YAML rules [IMPLEMENTED]
+- REQ-2003: Frame parser S_GRE_HDR state for GRE header extraction [IMPLEMENTED]
+- REQ-2004: GRE matching in hardware: gre_protocol (16-bit), gre_key (32-bit) [IMPLEMENTED]
+- REQ-2005: GRE wiring through all templates (rule_match, rule_fsm, packet_filter_top) [IMPLEMENTED]
+- REQ-2006: Simulator support for gre_protocol and gre_key field matching [IMPLEMENTED]
+- REQ-2007: GRE YAML example (gre_tunnel.yaml) [IMPLEMENTED]
+- REQ-2008: Loader validation: gre_key requires gre_protocol [IMPLEMENTED]
+- REQ-2009: Overlap detection for GRE fields [IMPLEMENTED]
+
+### Verification
+- REQ-2010: Python scoreboard gre_protocol and gre_key match fields [IMPLEMENTED]
+- REQ-2011: SVA formal assertions: GRE prerequisite (ip_protocol==47), cover properties [IMPLEMENTED]
+- REQ-2012: Mutation type 23: remove_gre_protocol (removes gre_key too) [IMPLEMENTED]
+- REQ-2013: cocotb test generation includes GRE fields in test_cases and scoreboard_rules [IMPLEMENTED]
+- REQ-2014: has_gre_rules flag in property test generation context [IMPLEMENTED]
+
+### Testing
+- REQ-2020: 366 Rust unit tests (through Phase 25) [IMPLEMENTED]
+- REQ-2021: 274 Rust integration tests (through Phase 25) [IMPLEMENTED]
+- REQ-2022: 47 Python scoreboard unit tests unchanged [IMPLEMENTED]
+- REQ-2023: Integration tests for GRE compile, simulate, validate [IMPLEMENTED]

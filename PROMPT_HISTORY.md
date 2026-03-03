@@ -1968,3 +1968,44 @@ Implement Phase 19: Platform Integration Targets. Add `--target opennic` and `--
 
 ### Git Operations
 - Commits pushed to https://github.com/joemooney/pacgate.git
+
+---
+
+## Session — 2026-03-03: GRE Tunnel Verification Support
+
+### Goal
+Add GRE tunnel support to verification files (scoreboard, formal assertions, mutation testing, cocotb generation).
+
+### Actions Taken
+
+1. **verification/scoreboard.py** — Added `gre_protocol` (Optional[int]) and `gre_key` (Optional[int]) fields to the Rule dataclass and corresponding match logic in `matches()` method.
+
+2. **src/formal_gen.rs** — Added `has_gre` template context flag, `gre_rule_indices` vector for per-rule tracking, and context insertions for SVA template rendering.
+
+3. **templates/assertions.sv.tera** — Added GRE SVA assertion block:
+   - GRE prerequisite: match implies ip_protocol == 47
+   - Cover property for gre_valid signal
+   - Cover properties for each GRE rule exercised
+
+4. **src/mutation.rs** — Added mutation 23: `remove_gre_protocol` (removes both gre_protocol and gre_key). Added corresponding unit test `remove_gre_protocol_mutation`.
+
+5. **src/cocotb_gen.rs** — Added GRE fields to test_cases (gre_protocol, gre_key, has_gre), GRE scoreboard fields in scoreboard_rules section, and `has_gre_rules` flag for property test generation.
+
+6. **src/main.rs** — Added `#![recursion_limit = "256"]` to fix serde_json macro expansion limit reached with growing json! macro usage.
+
+### Files Modified
+- `verification/scoreboard.py` — GRE match fields in Rule class
+- `src/formal_gen.rs` — has_gre flag and gre_rule_indices
+- `templates/assertions.sv.tera` — GRE SVA assertions block
+- `src/mutation.rs` — remove_gre_protocol mutation (23) + test
+- `src/cocotb_gen.rs` — GRE test fields and scoreboard fields
+- `src/main.rs` — recursion_limit attribute
+
+### Test Results
+- 366 unit tests — all PASS
+- 274 integration tests — all PASS
+- Total: 640 Rust tests
+- 47 Python scoreboard tests — all PASS
+
+### Git Operations
+- Commit b05c3f0 pushed to https://github.com/joemooney/pacgate.git

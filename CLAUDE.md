@@ -18,6 +18,7 @@
 - **IPv6 extensions**: ipv6_hop_limit (0-255), ipv6_flow_label (20-bit) for IPv6 TTL and flow classification
 - **QinQ (802.1ad)**: outer_vlan_id (12-bit), outer_vlan_pcp (3-bit) for double-tagged carrier/ISP networks (0x88A8 + 0x9100 legacy)
 - **IPv4 fragmentation**: ip_dont_fragment (DF flag), ip_more_fragments (MF flag), ip_frag_offset (13-bit) for fragment attack detection
+- **GRE tunnel**: gre_protocol (16-bit protocol type), gre_key (32-bit key) matching for IP protocol 47 GRE encapsulation
 - **L4 port rewrite**: set_src_port, set_dst_port with RFC 1624 incremental L4 checksum update (TCP/UDP, UDP cksum=0 preserved)
 - **Byte-offset matching**: raw byte inspection at any packet offset with value/mask (`byte_match`)
 - **Hierarchical State Machines**: nested states, variables (1-32 bit), guards, entry/exit/transition actions
@@ -44,10 +45,10 @@
 - **HTML diff visualization**: color-coded side-by-side HTML diff report (`diff --html`)
 - **Performance benchmarking**: compile time, simulation throughput (pkts/sec), LUT/FF scaling curves (`bench` subcommand)
 - Rule overlap and shadow detection with warnings
-- **Full-stack scoreboard**: Python reference model matches L2/L3/L4/IPv6/VXLAN/GTP-U/MPLS/IGMP/MLD/DSCP/ECN/IPv6-TC/TCP-flags/ICMP/ICMPv6/ARP/IPv6-ext/QinQ/IP-frag/byte-match fields
+- **Full-stack scoreboard**: Python reference model matches L2/L3/L4/IPv6/VXLAN/GTP-U/MPLS/IGMP/MLD/DSCP/ECN/IPv6-TC/TCP-flags/ICMP/ICMPv6/ARP/IPv6-ext/QinQ/IP-frag/GRE/byte-match fields
 - **Directed L3/L4 tests**: generated tests construct proper IPv4/IPv6/TCP/UDP headers
 - **Byte-match simulation**: software simulator evaluates byte_match rules with raw_bytes
-- **Enhanced formal**: SVA assertions for IPv6 CIDR, port range, rate limiter enforcement, byte-match, GTP-U/MPLS/IGMP/MLD prerequisite + bounds assertions with protocol cover statements
+- **Enhanced formal**: SVA assertions for IPv6 CIDR, port range, rate limiter enforcement, byte-match, GTP-U/MPLS/IGMP/MLD/GRE prerequisite + bounds assertions with protocol cover statements
 - **Conntrack cocotb tests**: 5 tests (new flow, return traffic, timeout, collision, overflow)
 - **MCY Verilog mutation testing**: generate MCY config for Yosys-level mutation analysis (`mcy` subcommand)
 - **Mutation kill-rate runner**: compile + lint each mutant, report kill/survived/error rates (`mutate --run`)
@@ -73,7 +74,7 @@
 - Coverage-directed test generation (verification/coverage_driven.py)
 - Enhanced overlap detection with CIDR containment and port range analysis
 - 32 real-world YAML examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite, OpenNIC, Corundum, TCP flags/ICMP, ARP security, ICMPv6 firewall, QinQ provider, fragment security, port rewrite)
-- 348 Rust unit tests + 267 integration tests = 615 total, 47 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
+- 366 Rust unit tests + 274 integration tests = 640 total, 47 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
 
 ## Architecture
 ```
@@ -165,6 +166,7 @@ pacgate simulate rules.yaml --packet "ethertype=0x0806,arp_opcode=1"            
 pacgate simulate rules.yaml --packet "ethertype=0x86DD,ipv6_hop_limit=64,ipv6_flow_label=12345"  # IPv6 ext fields
 pacgate simulate rules.yaml --packet "ethertype=0x88A8,outer_vlan_id=100,outer_vlan_pcp=5"     # QinQ double VLAN
 pacgate simulate rules.yaml --packet "ethertype=0x0800,ip_dont_fragment=true"                  # IPv4 DF flag
+pacgate simulate rules.yaml --packet "ethertype=0x0800,ip_protocol=47,gre_protocol=0x0800"     # GRE tunnel matching
 pacgate simulate rules.yaml --packet "ethertype=0x0800,ip_protocol=6,dst_port=80"              # Port rewrite (with rewrite actions)
 pacgate simulate rules.yaml --packet "..." --pcap-out trace.pcap     # Write simulation results to PCAP
 pacgate pcap-analyze capture.pcap      # Analyze PCAP + suggest rules
@@ -198,7 +200,7 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 ```
 
 ## Key Files
-- `src/model.rs` — Data model (Action, MatchCriteria, ByteMatch, Ipv6Prefix, RateLimit, FsmVariable, HSM types, ConntrackConfig, GtpTeid, MplsLabel, IgmpType, MldType, IpDscp, IpEcn, Ipv6Dscp, Ipv6Ecn, TcpFlags, IcmpType, IcmpCode, ICMPv6Type, ICMPv6Code, ArpOpcode, ArpSpa, ArpTpa, Ipv6HopLimit, Ipv6FlowLabel, OuterVlanId, OuterVlanPcp, IpDontFragment, IpMoreFragments, IpFragOffset, RewriteAction with set_src_port/set_dst_port)
+- `src/model.rs` — Data model (Action, MatchCriteria, ByteMatch, Ipv6Prefix, RateLimit, FsmVariable, HSM types, ConntrackConfig, GtpTeid, MplsLabel, IgmpType, MldType, IpDscp, IpEcn, Ipv6Dscp, Ipv6Ecn, TcpFlags, IcmpType, IcmpCode, ICMPv6Type, ICMPv6Code, ArpOpcode, ArpSpa, ArpTpa, Ipv6HopLimit, Ipv6FlowLabel, OuterVlanId, OuterVlanPcp, IpDontFragment, IpMoreFragments, IpFragOffset, GreProtocol, GreKey, RewriteAction with set_src_port/set_dst_port)
 - `src/loader.rs` — YAML loading + validation + CIDR/port overlap detection + HSM/byte_match/conntrack validation
 - `src/verilog_gen.rs` — Tera-based Verilog generation (L2/L3/L4/IPv6/VXLAN/GTP-U/MPLS/IGMP/MLD/byte-match, HSM flattening, multiport)
 - `src/cocotb_gen.rs` — cocotb test harness + AXI tests + property test generation
@@ -250,6 +252,7 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 - Byte-offset matching: global byte counter + per-offset capture registers
 - VXLAN detection: UDP dst port == 4789, then 8-byte VXLAN header, extract 24-bit VNI
 - GTP-U detection: UDP dst port == 2152, then 8-byte GTP header, extract 32-bit TEID
+- GRE detection: IP protocol 47, S_GRE_HDR state extracts 16-bit protocol type + optional 32-bit key (K flag in GRE header)
 - MPLS detection: EtherType 0x8847 (unicast) or 0x8848 (multicast), extract 20-bit label, 3-bit TC, 1-bit BOS
 - IGMP detection: IPv4 protocol == 2, extract type byte from IGMP header
 - MLD detection: ICMPv6 (next_header 58), types 130-132 (query, report v1, done)
@@ -303,3 +306,4 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 - **Phase 22**: Complete — IPv6 Traffic Class + TCP Flags + ICMP Type/Code: 6 new match fields (ipv6_dscp, ipv6_ecn, tcp_flags, tcp_flags_mask, icmp_type, icmp_code), frame parser IPv6 TC extraction + TCP flags at byte 13 + ICMP state machine, mask-aware TCP flags matching, LINT023-025 (IPv6 TC/TCP flags/ICMP prerequisite checks), SVA assertions (IPv6 TC bounds, TCP flags prereq, ICMP covers), 16 mutation types, tcp_flags_icmp.yaml example (7 rules: SYN/established/Xmas/ICMP echo/reply/IPv6 EF/ARP), Python scoreboard + cocotb + formal support, 298 unit + 230 integration = 528 tests
 - **Phase 23**: Complete — ARP matching (arp_opcode/arp_spa/arp_tpa), ICMPv6 type/code (icmpv6_type/icmpv6_code with MLD backward compatibility), IPv6 extension fields (ipv6_hop_limit/ipv6_flow_label), frame parser S_ICMPV6_HDR + S_ARP_HDR states, LINT026-028 (ICMPv6/ARP/IPv6-ext prerequisite checks), SVA assertions, 19 mutation types, arp_security.yaml + icmpv6_firewall.yaml examples, 324 unit + 244 integration = 568 tests
 - **Phase 24**: Complete — QinQ (802.1ad) double VLAN (outer_vlan_id/outer_vlan_pcp with 0x88A8+0x9100), IPv4 fragmentation (ip_dont_fragment/ip_more_fragments/ip_frag_offset), L4 port rewrite (set_src_port/set_dst_port with RFC 1624 L4 checksum), frame parser S_OUTER_VLAN state + frame_byte_cnt + l4_port_offset, rewrite flags 8→16-bit, ip_base 3-way (14/18/22), LINT029-032, SVA assertions (QinQ/frag/port rewrite), 22 mutation types, qinq_provider.yaml + fragment_security.yaml + port_rewrite.yaml examples, 348 unit + 267 integration = 615 tests
+- **Phase 25**: Complete — GRE tunnel support: gre_protocol (16-bit) + gre_key (32-bit) matching for IP protocol 47, frame parser S_GRE_HDR state, full verification (scoreboard, SVA assertions, mutation type 23, cocotb generation), gre_tunnel.yaml example, 366 unit + 274 integration = 640 tests
