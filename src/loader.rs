@@ -382,6 +382,23 @@ fn validate(config: &FilterConfig) -> Result<()> {
         if let Some(ref rw) = rule.rewrite {
             validate_rewrite(rw, rule, &rule.name)?;
         }
+
+        // Validate mirror_port
+        if rule.mirror_port.is_some() && rule.is_stateful() {
+            anyhow::bail!("mirror_port not supported on stateful rules (rule '{}')", rule.name);
+        }
+
+        // Validate redirect_port
+        if rule.redirect_port.is_some() && rule.is_stateful() {
+            anyhow::bail!("redirect_port not supported on stateful rules (rule '{}')", rule.name);
+        }
+
+        // Validate redirect_port requires action: pass
+        if rule.redirect_port.is_some() {
+            if rule.action == Some(crate::model::Action::Drop) {
+                anyhow::bail!("redirect_port requires action: pass (rule '{}')", rule.name);
+            }
+        }
     }
 
     // Check for duplicate priorities
@@ -1473,7 +1490,7 @@ pacgate:
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None,
+                rewrite: None, mirror_port: None, redirect_port: None,
             },
             StatelessRule {
                 name: "allow_ipv4".to_string(),
@@ -1487,7 +1504,7 @@ pacgate:
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None,
+                rewrite: None, mirror_port: None, redirect_port: None,
             },
         ];
         let warnings = check_rule_overlaps(&rules);
@@ -1511,7 +1528,7 @@ pacgate:
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None,
+                rewrite: None, mirror_port: None, redirect_port: None,
             },
             StatelessRule {
                 name: "drop_arp".to_string(),
@@ -1525,7 +1542,7 @@ pacgate:
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None,
+                rewrite: None, mirror_port: None, redirect_port: None,
             },
         ];
         let warnings = check_rule_overlaps(&rules);
@@ -1548,7 +1565,7 @@ pacgate:
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None,
+                rewrite: None, mirror_port: None, redirect_port: None,
             },
             StatelessRule {
                 name: "allow_ipv4".to_string(),
@@ -1562,7 +1579,7 @@ pacgate:
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None,
+                rewrite: None, mirror_port: None, redirect_port: None,
             },
         ];
         let warnings = check_rule_overlaps(&rules);
@@ -1582,7 +1599,7 @@ pacgate:
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None,
+                rewrite: None, mirror_port: None, redirect_port: None,
             },
         ];
         let warnings = check_rule_overlaps(&rules);
@@ -2152,5 +2169,44 @@ pacgate:
         let result = load_rules_from_str(&yaml);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("conntrack_state must be"));
+    }
+
+    // --- Mirror/Redirect validation ---
+
+    #[test]
+    fn accept_mirror_port() {
+        let yaml = valid_yaml(
+            "    - name: mirror_http\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n        ip_protocol: 6\n        dst_port: 80\n      action: pass\n      mirror_port: 1",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn accept_redirect_port() {
+        let yaml = valid_yaml(
+            "    - name: redirect_dns\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n        ip_protocol: 17\n        dst_port: 53\n      action: pass\n      redirect_port: 2",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn reject_redirect_with_drop() {
+        let yaml = valid_yaml(
+            "    - name: bad_redirect\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n      action: drop\n      redirect_port: 2",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("redirect_port requires action: pass"));
+    }
+
+    #[test]
+    fn accept_mirror_and_redirect() {
+        let yaml = valid_yaml(
+            "    - name: both\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n      action: pass\n      mirror_port: 1\n      redirect_port: 3",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_ok());
     }
 }

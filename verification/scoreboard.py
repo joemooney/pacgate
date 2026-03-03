@@ -133,6 +133,9 @@ class Rule:
     gre_key: Optional[int] = None
     # Connection tracking state
     conntrack_state: Optional[str] = None
+    # Egress port actions (informational — do not affect pass/drop matching)
+    mirror_port: Optional[int] = None
+    redirect_port: Optional[int] = None
 
     def matches(self, frame: EthernetFrame, extracted: Optional[dict] = None) -> bool:
         """Check if this rule matches the given frame.

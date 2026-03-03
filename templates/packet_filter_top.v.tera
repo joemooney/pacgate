@@ -16,6 +16,22 @@ module packet_filter_top (
     output wire        decision_pass,
     output wire [{{ idx_bits - 1 }}:0] decision_rule_idx,
     output wire        decision_default
+{% if has_mirror or has_redirect %}
+    ,
+    // Egress mirror/redirect outputs
+{% if has_mirror and has_redirect %}
+    output wire [7:0]  egress_mirror_port,
+    output wire        egress_mirror_valid,
+    output wire [7:0]  egress_redirect_port,
+    output wire        egress_redirect_valid
+{% elif has_mirror %}
+    output wire [7:0]  egress_mirror_port,
+    output wire        egress_mirror_valid
+{% elif has_redirect %}
+    output wire [7:0]  egress_redirect_port,
+    output wire        egress_redirect_valid
+{% endif %}
+{% endif %}
 {% if has_rewrite %}
     ,
     // Parsed fields for rewrite engine
@@ -358,5 +374,27 @@ module packet_filter_top (
         .decision_rule_idx (decision_rule_idx),
         .decision_default  (decision_default)
     );
+
+{% if has_mirror or has_redirect %}
+    // Egress LUT: maps rule_idx to mirror/redirect port parameters
+    egress_lut u_egress_lut (
+        .rule_idx              (decision_rule_idx),
+        .decision_default      (decision_default),
+{% if has_mirror %}
+        .egress_mirror_port    (egress_mirror_port),
+        .egress_mirror_valid   (egress_mirror_valid),
+{% else %}
+        .egress_mirror_port    (),
+        .egress_mirror_valid   (),
+{% endif %}
+{% if has_redirect %}
+        .egress_redirect_port  (egress_redirect_port),
+        .egress_redirect_valid (egress_redirect_valid)
+{% else %}
+        .egress_redirect_port  (),
+        .egress_redirect_valid ()
+{% endif %}
+    );
+{% endif %}
 
 endmodule

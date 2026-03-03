@@ -36,6 +36,7 @@ impl PlatformTarget {
 }
 
 /// Global protocol flags — ensures all rule modules in a design have consistent port lists
+#[allow(dead_code)]
 struct GlobalProtocolFlags {
     has_ipv6: bool,
     has_gtp: bool,
@@ -52,6 +53,8 @@ struct GlobalProtocolFlags {
     has_ip_frag: bool,
     has_gre: bool,
     has_conntrack_state: bool,
+    has_mirror: bool,
+    has_redirect: bool,
 }
 
 fn build_condition_expr(mc: &crate::model::MatchCriteria) -> Result<String> {
@@ -420,6 +423,8 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
     let has_ip_frag = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_ip_frag());
     let has_gre = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_gre());
     let has_conntrack_state = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_conntrack_state());
+    let has_mirror = config.pacgate.rules.iter().any(|r| r.has_mirror());
+    let has_redirect = config.pacgate.rules.iter().any(|r| r.has_redirect());
 
     // Global protocol flags — all rules in a design must have consistent port lists
     let global_protos = GlobalProtocolFlags {
@@ -438,6 +443,8 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         has_ip_frag,
         has_gre,
         has_conntrack_state,
+        has_mirror,
+        has_redirect,
     };
 
     // Generate per-rule matchers (stateless: combinational, stateful: registered FSM)
@@ -462,6 +469,11 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         generate_rewrite_lut(&tera, &rtl_dir, &rules, idx_bits)?;
     }
 
+    // Generate egress LUT if any rule has mirror or redirect port
+    if has_mirror || has_redirect {
+        generate_egress_lut(&tera, &rtl_dir, &rules, idx_bits)?;
+    }
+
     // Generate top-level
     {
         let mut ctx = tera::Context::new();
@@ -483,6 +495,8 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         ctx.insert("has_gre", &has_gre);
         ctx.insert("has_conntrack_state", &has_conntrack_state);
         ctx.insert("has_rewrite", &has_rewrite);
+        ctx.insert("has_mirror", &has_mirror);
+        ctx.insert("has_redirect", &has_redirect);
         ctx.insert("idx_bits", &idx_bits);
 
         let byte_cap_info: Vec<std::collections::HashMap<String, serde_json::Value>> = byte_offsets.iter().map(|(offset, len)| {
@@ -603,6 +617,42 @@ fn generate_rewrite_lut(tera: &Tera, rtl_dir: &Path, rules: &[crate::model::Stat
     let rendered = tera.render("rewrite_lut.v.tera", &ctx)?;
     std::fs::write(rtl_dir.join("rewrite_lut.v"), &rendered)?;
     log::info!("Generated rewrite_lut.v");
+    Ok(())
+}
+
+/// Generate egress LUT: combinational ROM mapping rule_idx → mirror/redirect port parameters
+fn generate_egress_lut(tera: &Tera, rtl_dir: &Path, rules: &[crate::model::StatelessRule], idx_bits: usize) -> Result<()> {
+    let mut ctx = tera::Context::new();
+    ctx.insert("idx_bits", &idx_bits);
+
+    let egress_entries: Vec<std::collections::HashMap<String, serde_json::Value>> = rules.iter().enumerate()
+        .filter(|(_, rule)| rule.has_mirror() || rule.has_redirect())
+        .map(|(idx, rule)| {
+            let mut map = std::collections::HashMap::new();
+            map.insert("index".to_string(), serde_json::json!(idx));
+
+            if let Some(port) = rule.mirror_port {
+                map.insert("has_mirror_port".to_string(), serde_json::json!(true));
+                map.insert("mirror_port".to_string(), serde_json::json!(port));
+            } else {
+                map.insert("has_mirror_port".to_string(), serde_json::json!(false));
+            }
+
+            if let Some(port) = rule.redirect_port {
+                map.insert("has_redirect_port".to_string(), serde_json::json!(true));
+                map.insert("redirect_port".to_string(), serde_json::json!(port));
+            } else {
+                map.insert("has_redirect_port".to_string(), serde_json::json!(false));
+            }
+
+            map
+        })
+        .collect();
+
+    ctx.insert("egress_entries", &egress_entries);
+    let rendered = tera.render("egress_lut.v.tera", &ctx)?;
+    std::fs::write(rtl_dir.join("egress_lut.v"), &rendered)?;
+    log::info!("Generated egress_lut.v");
     Ok(())
 }
 
@@ -856,6 +906,8 @@ pub fn copy_axi_rtl(output_dir: &Path, config: &FilterConfig, templates_dir: &Pa
 
     // Check if any rule has rewrite actions
     let has_rewrite = config.pacgate.rules.iter().any(|r| r.has_rewrite());
+    let has_mirror = config.pacgate.rules.iter().any(|r| r.has_mirror());
+    let has_redirect = config.pacgate.rules.iter().any(|r| r.has_redirect());
 
     if has_rewrite {
         // Copy packet_rewrite.v (hand-written rewrite engine)
@@ -878,6 +930,8 @@ pub fn copy_axi_rtl(output_dir: &Path, config: &FilterConfig, templates_dir: &Pa
 
     let mut ctx = tera::Context::new();
     ctx.insert("has_rewrite", &has_rewrite);
+    ctx.insert("has_mirror", &has_mirror);
+    ctx.insert("has_redirect", &has_redirect);
     ctx.insert("idx_bits", &idx_bits);
     ctx.insert("num_rules", &rules.len());
 
@@ -969,6 +1023,8 @@ pub fn generate_opennic_wrapper(config: &FilterConfig, templates_dir: &Path, out
 
     let rules = &config.pacgate.rules;
     let has_rewrite = rules.iter().any(|r| r.has_rewrite());
+    let has_mirror = rules.iter().any(|r| r.has_mirror());
+    let has_redirect = rules.iter().any(|r| r.has_redirect());
     let idx_bits = if rules.is_empty() { 1 } else {
         ((rules.len() as f64).log2().ceil() as usize).max(1)
     };
@@ -976,6 +1032,8 @@ pub fn generate_opennic_wrapper(config: &FilterConfig, templates_dir: &Path, out
 
     let mut ctx = tera::Context::new();
     ctx.insert("has_rewrite", &has_rewrite);
+    ctx.insert("has_mirror", &has_mirror);
+    ctx.insert("has_redirect", &has_redirect);
     ctx.insert("has_counters", &has_counters);
     ctx.insert("idx_bits", &idx_bits);
     ctx.insert("num_rules", &rules.len());
@@ -998,12 +1056,16 @@ pub fn generate_corundum_wrapper(config: &FilterConfig, templates_dir: &Path, ou
 
     let rules = &config.pacgate.rules;
     let has_rewrite = rules.iter().any(|r| r.has_rewrite());
+    let has_mirror = rules.iter().any(|r| r.has_mirror());
+    let has_redirect = rules.iter().any(|r| r.has_redirect());
     let idx_bits = if rules.is_empty() { 1 } else {
         ((rules.len() as f64).log2().ceil() as usize).max(1)
     };
 
     let mut ctx = tera::Context::new();
     ctx.insert("has_rewrite", &has_rewrite);
+    ctx.insert("has_mirror", &has_mirror);
+    ctx.insert("has_redirect", &has_redirect);
     ctx.insert("idx_bits", &idx_bits);
     ctx.insert("num_rules", &rules.len());
 

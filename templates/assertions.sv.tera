@@ -565,6 +565,38 @@ module packet_filter_assertions (
         decision_valid && rewrite_en && (rewrite_flags[8] || rewrite_flags[9]));
 {% endif %}
 
+{% if has_mirror %}
+    // ── Mirror Port Assertions ─────────────────────────────────────────
+    // Mirror copies the packet to another egress port without affecting the
+    // original pass/drop decision.
+
+    // Cover: mirror output valid
+    cover_egress_mirror_valid: cover property (@(posedge clk) disable iff (!rst_n)
+        egress_mirror_valid);
+
+    // Cover: mirror with pass decision
+    cover_egress_mirror_pass: cover property (@(posedge clk) disable iff (!rst_n)
+        decision_valid && decision_pass && egress_mirror_valid);
+
+    // Cover: mirror with drop decision (mirror still fires even on drop)
+    cover_egress_mirror_drop: cover property (@(posedge clk) disable iff (!rst_n)
+        decision_valid && !decision_pass && egress_mirror_valid);
+{% endif %}
+
+{% if has_redirect %}
+    // ── Redirect Port Assertions ───────────────────────────────────────
+    // Redirect overrides the normal egress port, sending the packet to a
+    // different destination port.
+
+    // Cover: redirect output valid
+    cover_egress_redirect_valid: cover property (@(posedge clk) disable iff (!rst_n)
+        egress_redirect_valid);
+
+    // Cover: redirect with pass decision
+    cover_egress_redirect_pass: cover property (@(posedge clk) disable iff (!rst_n)
+        decision_valid && decision_pass && egress_redirect_valid);
+{% endif %}
+
 {% if has_dynamic %}
     // ── Dynamic Flow Table Assertions ───────────────────────────────
 

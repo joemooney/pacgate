@@ -89,6 +89,8 @@ pub struct SimResult {
     pub is_default: bool,
     pub fields: Vec<FieldMatch>,
     pub rewrite: Option<SimRewrite>,
+    pub mirror_port: Option<u8>,
+    pub redirect_port: Option<u8>,
 }
 
 /// Per-field match breakdown
@@ -338,6 +340,8 @@ pub fn simulate(config: &FilterConfig, packet: &SimPacket) -> SimResult {
                 is_default: false,
                 fields,
                 rewrite,
+                mirror_port: rule.mirror_port,
+                redirect_port: rule.redirect_port,
             };
         }
     }
@@ -349,6 +353,8 @@ pub fn simulate(config: &FilterConfig, packet: &SimPacket) -> SimResult {
         is_default: true,
         fields: Vec::new(),
         rewrite: None,
+        mirror_port: None,
+        redirect_port: None,
     }
 }
 
@@ -425,6 +431,8 @@ pub fn simulate_with_rate_limit(
                         is_default: true,
                         fields: result.fields,
                         rewrite: None,
+                        mirror_port: None,
+                        redirect_port: None,
                     };
                 }
             }
@@ -617,6 +625,8 @@ pub fn simulate_stateful(
             is_default: false,
             fields: Vec::new(),
             rewrite: None,
+            mirror_port: None,
+            redirect_port: None,
         };
     }
 
@@ -1399,7 +1409,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None,
+                rewrite: None, mirror_port: None, redirect_port: None,
             },
             StatelessRule {
                 name: "allow_ipv4".to_string(),
@@ -1413,7 +1423,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None,
+                rewrite: None, mirror_port: None, redirect_port: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1439,7 +1449,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None,
+                rewrite: None, mirror_port: None, redirect_port: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1465,7 +1475,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None,
+                rewrite: None, mirror_port: None, redirect_port: None,
             },
             StatelessRule {
                 name: "high_pri".to_string(),
@@ -1479,7 +1489,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None,
+                rewrite: None, mirror_port: None, redirect_port: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1504,7 +1514,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None,
+                rewrite: None, mirror_port: None, redirect_port: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1531,7 +1541,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None,
+                rewrite: None, mirror_port: None, redirect_port: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1558,7 +1568,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None,
+                rewrite: None, mirror_port: None, redirect_port: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1587,7 +1597,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None,
+                rewrite: None, mirror_port: None, redirect_port: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1621,7 +1631,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None,
+                rewrite: None, mirror_port: None, redirect_port: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1671,7 +1681,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None,
+                rewrite: None, mirror_port: None, redirect_port: None,
             },
         ];
         let config = make_config(rules, Action::Pass);
@@ -1696,7 +1706,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None,
+                rewrite: None, mirror_port: None, redirect_port: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1723,7 +1733,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None,
+                rewrite: None, mirror_port: None, redirect_port: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1750,7 +1760,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None,
+                rewrite: None, mirror_port: None, redirect_port: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1789,7 +1799,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None,
+                rewrite: None, mirror_port: None, redirect_port: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1841,7 +1851,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None,
+                rewrite: None, mirror_port: None, redirect_port: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1868,7 +1878,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None,
+                rewrite: None, mirror_port: None, redirect_port: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1901,7 +1911,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None,
+                rewrite: None, mirror_port: None, redirect_port: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1960,7 +1970,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None,
+                rewrite: None, mirror_port: None, redirect_port: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1989,7 +1999,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None,
+                rewrite: None, mirror_port: None, redirect_port: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -2018,7 +2028,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None,
+                rewrite: None, mirror_port: None, redirect_port: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -2046,7 +2056,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None,
+                rewrite: None, mirror_port: None, redirect_port: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -2073,7 +2083,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: Some(RateLimit { pps: 100, burst: 10 }),
-                rewrite: None,
+                rewrite: None, mirror_port: None, redirect_port: None,
             },
             StatelessRule {
                 name: "allow_arp".to_string(),
@@ -2087,7 +2097,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None,
+                rewrite: None, mirror_port: None, redirect_port: None,
             },
         ];
         make_config(rules, Action::Drop)
@@ -2618,5 +2628,122 @@ pacgate:
         let config: crate::model::FilterConfig = serde_yaml::from_str(yaml).unwrap();
         let result = simulate(&config, &pkt);
         assert_eq!(result.action, Action::Drop);
+    }
+
+    // --- Mirror/Redirect simulation ---
+
+    #[test]
+    fn simulate_mirror_port_returned() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: mirror_http
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 80
+      action: pass
+      mirror_port: 1
+"#;
+        let config: crate::model::FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let pkt = SimPacket {
+            ethertype: Some(0x0800),
+            ip_protocol: Some(6),
+            dst_port: Some(80),
+            ..Default::default()
+        };
+        let result = simulate(&config, &pkt);
+        assert_eq!(result.action, Action::Pass);
+        assert_eq!(result.mirror_port, Some(1));
+        assert_eq!(result.redirect_port, None);
+    }
+
+    #[test]
+    fn simulate_redirect_port_returned() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: redirect_dns
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17
+        dst_port: 53
+      action: pass
+      redirect_port: 2
+"#;
+        let config: crate::model::FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let pkt = SimPacket {
+            ethertype: Some(0x0800),
+            ip_protocol: Some(17),
+            dst_port: Some(53),
+            ..Default::default()
+        };
+        let result = simulate(&config, &pkt);
+        assert_eq!(result.action, Action::Pass);
+        assert_eq!(result.mirror_port, None);
+        assert_eq!(result.redirect_port, Some(2));
+    }
+
+    #[test]
+    fn simulate_mirror_and_redirect_together() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: both
+      priority: 100
+      match:
+        ethertype: "0x0800"
+      action: pass
+      mirror_port: 3
+      redirect_port: 4
+"#;
+        let config: crate::model::FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let pkt = SimPacket {
+            ethertype: Some(0x0800),
+            ..Default::default()
+        };
+        let result = simulate(&config, &pkt);
+        assert_eq!(result.action, Action::Pass);
+        assert_eq!(result.mirror_port, Some(3));
+        assert_eq!(result.redirect_port, Some(4));
+    }
+
+    #[test]
+    fn simulate_no_match_no_egress_actions() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: mirror_http
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        dst_port: 80
+      action: pass
+      mirror_port: 1
+"#;
+        let config: crate::model::FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let pkt = SimPacket {
+            ethertype: Some(0x0806),
+            ..Default::default()
+        };
+        let result = simulate(&config, &pkt);
+        assert_eq!(result.action, Action::Drop);
+        assert!(result.is_default);
+        assert_eq!(result.mirror_port, None);
+        assert_eq!(result.redirect_port, None);
     }
 }

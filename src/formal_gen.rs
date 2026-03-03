@@ -106,6 +106,8 @@ pub fn generate_with_dynamic(config: &FilterConfig, templates_dir: &Path, output
     let has_ip_frag = rules.iter().any(|r| r.match_criteria.uses_ip_frag());
     let has_gre = rules.iter().any(|r| r.match_criteria.uses_gre());
     let has_conntrack_state = rules.iter().any(|r| r.match_criteria.uses_conntrack_state());
+    let has_mirror = rules.iter().any(|r| r.has_mirror());
+    let has_redirect = rules.iter().any(|r| r.has_redirect());
     let icmpv6_rule_indices: Vec<usize> = rules.iter().enumerate()
         .filter(|(_, r)| r.match_criteria.uses_icmpv6())
         .map(|(i, _)| i).collect();
@@ -166,6 +168,8 @@ pub fn generate_with_dynamic(config: &FilterConfig, templates_dir: &Path, output
         ctx.insert("has_gre", &has_gre);
         ctx.insert("gre_rule_indices", &gre_rule_indices);
         ctx.insert("has_conntrack_state", &has_conntrack_state);
+        ctx.insert("has_mirror", &has_mirror);
+        ctx.insert("has_redirect", &has_redirect);
         ctx.insert("has_dynamic", &dynamic);
         ctx.insert("dynamic_num_entries", &num_entries);
 

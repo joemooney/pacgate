@@ -1,0 +1,54 @@
+# mirror_redirect.yaml — Packet mirroring and egress redirect
+# Demonstrates mirror_port and redirect_port egress actions.
+#
+# mirror_port: Copy packet to a monitoring/analysis port (tap)
+# redirect_port: Send packet to a different egress port (policy routing)
+#
+# 5 rules: mirror HTTP, redirect DNS, mirror+redirect SNMP, pass SSH, drop all
+
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: mirror_http_to_ids
+      priority: 200
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 80
+      action: pass
+      mirror_port: 1
+
+    - name: redirect_dns_to_proxy
+      priority: 190
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17
+        dst_port: 53
+      action: pass
+      redirect_port: 2
+
+    - name: mirror_and_redirect_snmp
+      priority: 180
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17
+        dst_port: 161
+      action: pass
+      mirror_port: 3
+      redirect_port: 4
+
+    - name: allow_ssh
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 22
+      action: pass
+
+    - name: allow_arp
+      priority: 50
+      match:
+        ethertype: "0x0806"
+      action: pass

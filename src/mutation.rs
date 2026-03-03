@@ -375,6 +375,34 @@ pub fn generate_mutations(config: &FilterConfig) -> Vec<(Mutation, FilterConfig)
         }
     }
 
+    // Mutation 25: Remove mirror_port
+    for (i, rule) in config.pacgate.rules.iter().enumerate() {
+        if !rule.is_stateful() && rule.mirror_port.is_some() {
+            let mut mutated = config.clone();
+            mutated.pacgate.rules[i].mirror_port = None;
+            mutations.push((Mutation {
+                name: format!("remove_mirror_port_{}", rule.name),
+                description: format!("Remove mirror_port from rule '{}'", rule.name),
+                mutant_index: index,
+            }, mutated));
+            index += 1;
+        }
+    }
+
+    // Mutation 26: Remove redirect_port
+    for (i, rule) in config.pacgate.rules.iter().enumerate() {
+        if !rule.is_stateful() && rule.redirect_port.is_some() {
+            let mut mutated = config.clone();
+            mutated.pacgate.rules[i].redirect_port = None;
+            mutations.push((Mutation {
+                name: format!("remove_redirect_port_{}", rule.name),
+                description: format!("Remove redirect_port from rule '{}'", rule.name),
+                mutant_index: index,
+            }, mutated));
+            index += 1;
+        }
+    }
+
     // Mutation 22: Remove set_src_port from rewrite actions
     for (i, rule) in config.pacgate.rules.iter().enumerate() {
         if !rule.is_stateful() {
@@ -581,7 +609,7 @@ mod tests {
                         fsm: None,
                         ports: None,
                         rate_limit: None,
-                        rewrite: None,
+                        rewrite: None, mirror_port: None, redirect_port: None,
                     },
                     StatelessRule {
                         name: "allow_ipv4".to_string(),
@@ -595,7 +623,7 @@ mod tests {
                         fsm: None,
                         ports: None,
                         rate_limit: None,
-                        rewrite: None,
+                        rewrite: None, mirror_port: None, redirect_port: None,
                     },
                 ],
                 conntrack: None,
@@ -680,7 +708,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None,
                     },
                 ],
                 conntrack: None,
@@ -707,7 +735,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None,
                     },
                 ],
                 conntrack: None,
@@ -733,7 +761,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None,
                     },
                 ],
                 conntrack: None,
@@ -759,7 +787,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None,
                     },
                 ],
                 conntrack: None,
@@ -785,7 +813,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None,
                     },
                 ],
                 conntrack: None,
@@ -811,7 +839,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None,
                     },
                 ],
                 conntrack: None,
@@ -838,7 +866,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None,
                     },
                 ],
                 conntrack: None,
@@ -866,7 +894,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None,
                     },
                 ],
                 conntrack: None,
@@ -893,7 +921,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None,
                     },
                 ],
                 conntrack: None,
@@ -920,7 +948,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None,
                     },
                 ],
                 conntrack: None,
@@ -949,7 +977,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None,
                     },
                 ],
                 conntrack: None,
@@ -978,7 +1006,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None,
                     },
                 ],
                 conntrack: None,
@@ -1006,7 +1034,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None,
                     },
                 ],
                 conntrack: None,
@@ -1035,7 +1063,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None,
                     },
                 ],
                 conntrack: None,
@@ -1064,7 +1092,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None,
                     },
                 ],
                 conntrack: None,
@@ -1091,7 +1119,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None,
                     },
                 ],
                 conntrack: None,
@@ -1132,6 +1160,8 @@ mod tests {
                             set_dscp: None,
                             set_dst_port: None,
                         }),
+                        mirror_port: None,
+                        redirect_port: None,
                     },
                 ],
                 conntrack: None,
@@ -1140,5 +1170,61 @@ mod tests {
         let mutations = generate_mutations(&config);
         let rm = mutations.iter().find(|(m, _)| m.name.starts_with("remove_set_src_port_")).unwrap();
         assert!(rm.1.pacgate.rules[0].rewrite.as_ref().unwrap().set_src_port.is_none());
+    }
+
+    #[test]
+    fn remove_mirror_port_mutation() {
+        let config = FilterConfig {
+            pacgate: PacgateConfig {
+                version: "1.0".to_string(),
+                defaults: Defaults { action: Action::Drop },
+                rules: vec![
+                    StatelessRule {
+                        name: "mirror_rule".to_string(),
+                        priority: 100,
+                        match_criteria: MatchCriteria {
+                            ethertype: Some("0x0800".to_string()),
+                            ..Default::default()
+                        },
+                        action: Some(Action::Pass),
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
+                        mirror_port: Some(2),
+                        redirect_port: None,
+                    },
+                ],
+                conntrack: None,
+            },
+        };
+        let mutations = generate_mutations(&config);
+        let rm = mutations.iter().find(|(m, _)| m.name.starts_with("remove_mirror_port_")).unwrap();
+        assert!(rm.1.pacgate.rules[0].mirror_port.is_none());
+    }
+
+    #[test]
+    fn remove_redirect_port_mutation() {
+        let config = FilterConfig {
+            pacgate: PacgateConfig {
+                version: "1.0".to_string(),
+                defaults: Defaults { action: Action::Drop },
+                rules: vec![
+                    StatelessRule {
+                        name: "redirect_rule".to_string(),
+                        priority: 100,
+                        match_criteria: MatchCriteria {
+                            ethertype: Some("0x0800".to_string()),
+                            ..Default::default()
+                        },
+                        action: Some(Action::Pass),
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
+                        mirror_port: None,
+                        redirect_port: Some(5),
+                    },
+                ],
+                conntrack: None,
+            },
+        };
+        let mutations = generate_mutations(&config);
+        let rm = mutations.iter().find(|(m, _)| m.name.starts_with("remove_redirect_port_")).unwrap();
+        assert!(rm.1.pacgate.rules[0].redirect_port.is_none());
     }
 }

@@ -999,6 +999,12 @@ fn main() -> Result<()> {
                     if let Some(v) = rw.set_dst_port { rw_json.insert("set_dst_port".into(), serde_json::json!(v)); }
                     summary.as_object_mut().unwrap().insert("rewrite".to_string(), serde_json::Value::Object(rw_json));
                 }
+                if let Some(port) = result.mirror_port {
+                    summary.as_object_mut().unwrap().insert("mirror_port".to_string(), serde_json::json!(port));
+                }
+                if let Some(port) = result.redirect_port {
+                    summary.as_object_mut().unwrap().insert("redirect_port".to_string(), serde_json::json!(port));
+                }
                 if stateful {
                     let is_rate_limited = result.rule_name.as_deref() == Some("rate_limited");
                     summary.as_object_mut().unwrap().insert(
@@ -1046,6 +1052,16 @@ fn main() -> Result<()> {
                             if let Some(v) = rw.set_dscp { println!("    set_dscp: {}", v); }
                             if let Some(v) = rw.set_src_port { println!("    set_src_port: {}", v); }
                             if let Some(v) = rw.set_dst_port { println!("    set_dst_port: {}", v); }
+                        }
+                    }
+                    if result.mirror_port.is_some() || result.redirect_port.is_some() {
+                        println!();
+                        println!("  Egress Actions:");
+                        if let Some(port) = result.mirror_port {
+                            println!("    mirror_port: {}", port);
+                        }
+                        if let Some(port) = result.redirect_port {
+                            println!("    redirect_port: {}", port);
                         }
                     }
                 }
@@ -1543,6 +1559,13 @@ fn generate_rule_documentation(
             info["rate_limit"] = serde_json::json!(format!("{} pps, burst {}", rl.pps, rl.burst));
         }
 
+        if let Some(port) = rule.mirror_port {
+            info["mirror_port"] = serde_json::json!(port);
+        }
+        if let Some(port) = rule.redirect_port {
+            info["redirect_port"] = serde_json::json!(port);
+        }
+
         rule_info.push(info);
     }
 
@@ -1819,6 +1842,10 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
         match_field_count.push(count);
     }
 
+    // Egress action counts
+    let uses_mirror = config.pacgate.rules.iter().filter(|r| r.mirror_port.is_some()).count();
+    let uses_redirect = config.pacgate.rules.iter().filter(|r| r.redirect_port.is_some()).count();
+
     // Priority spacing
     let mut priorities: Vec<u32> = rules.iter().map(|r| r.priority).collect();
     priorities.sort();
@@ -1879,6 +1906,10 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
             "gre_protocol": uses_gre_protocol,
             "gre_key": uses_gre_key,
             "conntrack_state": uses_conntrack_state,
+        },
+        "egress_actions": {
+            "mirror_port": uses_mirror,
+            "redirect_port": uses_redirect,
         },
         "match_complexity": {
             "avg_fields_per_rule": format!("{:.1}", avg_fields),
@@ -2039,6 +2070,21 @@ fn print_stats(config: &model::FilterConfig) {
             println!("  ct_state     [{:>2}/{}] |{}|", uses_conntrack_state, stateless, bar(uses_conntrack_state));
         }
     }
+
+    // Egress actions
+    let uses_mirror = config.pacgate.rules.iter().filter(|r| r.mirror_port.is_some()).count();
+    let uses_redirect = config.pacgate.rules.iter().filter(|r| r.redirect_port.is_some()).count();
+    if uses_mirror > 0 || uses_redirect > 0 {
+        let bar = |n: usize| "#".repeat(n).to_string() + &" ".repeat(total.saturating_sub(n));
+        println!();
+        println!("  Egress Actions:");
+        if uses_mirror > 0 {
+            println!("  mirror       [{:>2}/{}] |{}|", uses_mirror, total, bar(uses_mirror));
+        }
+        if uses_redirect > 0 {
+            println!("  redirect     [{:>2}/{}] |{}|", uses_redirect, total, bar(uses_redirect));
+        }
+    }
     println!();
     println!("  Priority Range: {} — {}", priorities.first().unwrap_or(&0), priorities.last().unwrap_or(&0));
     if priorities.len() > 1 {
@@ -2125,6 +2171,8 @@ fn print_dot_graph(config: &model::FilterConfig) {
         } else {
             criteria.push("(FSM states)".to_string());
         }
+        if let Some(port) = rule.mirror_port { criteria.push(format!("mirror→{}", port)); }
+        if let Some(port) = rule.redirect_port { criteria.push(format!("redirect→{}", port)); }
 
         let criteria_str = if criteria.is_empty() { "any".to_string() } else { criteria.join("\\n") };
         let action_str = match &rule.action {
@@ -2371,6 +2419,15 @@ fn diff_rules(old: &model::FilterConfig, new: &model::FilterConfig, json: bool) 
                     let old_rw = old_rule.rewrite.as_ref().map(|r| format!("{:?}", r)).unwrap_or_else(|| "None".to_string());
                     let new_rw = new_rule.rewrite.as_ref().map(|r| format!("{:?}", r)).unwrap_or_else(|| "None".to_string());
                     changes.push(format!("rewrite: {} -> {}", old_rw, new_rw));
+                }
+                // Egress actions
+                if old_rule.mirror_port != new_rule.mirror_port {
+                    changes.push(format!("mirror_port: {:?} -> {:?}",
+                        old_rule.mirror_port, new_rule.mirror_port));
+                }
+                if old_rule.redirect_port != new_rule.redirect_port {
+                    changes.push(format!("redirect_port: {:?} -> {:?}",
+                        old_rule.redirect_port, new_rule.redirect_port));
                 }
 
                 if changes.is_empty() {
@@ -2851,6 +2908,20 @@ fn generate_diff_html(
                         "new_value": format!("{:?}", new_rule.match_criteria.conntrack_state),
                     }));
                 }
+                if old_rule.mirror_port != new_rule.mirror_port {
+                    changes.push(serde_json::json!({
+                        "field": "mirror_port",
+                        "old_value": format!("{:?}", old_rule.mirror_port),
+                        "new_value": format!("{:?}", new_rule.mirror_port),
+                    }));
+                }
+                if old_rule.redirect_port != new_rule.redirect_port {
+                    changes.push(serde_json::json!({
+                        "field": "redirect_port",
+                        "old_value": format!("{:?}", old_rule.redirect_port),
+                        "new_value": format!("{:?}", new_rule.redirect_port),
+                    }));
+                }
 
                 if changes.is_empty() {
                     unchanged_count += 1;
@@ -3013,6 +3084,14 @@ fn compute_resource_estimate(config: &model::FilterConfig) -> serde_json::Value 
             if mc.conntrack_state.is_some() { fields += 1; }  // 1-bit comparator
             rule_luts += 10 + fields * 12;
         }
+    }
+
+    // Egress LUT: +4 LUTs per rule with mirror/redirect (8-bit port + valid per action)
+    let egress_rules = config.pacgate.rules.iter()
+        .filter(|r| r.mirror_port.is_some() || r.redirect_port.is_some())
+        .count();
+    if egress_rules > 0 {
+        rule_luts += egress_rules * 4;
     }
 
     // Rate limiter: +50 LUTs, +64 FFs per rate-limited rule
@@ -3888,6 +3967,31 @@ fn lint_rules(config: &model::FilterConfig, warnings: &[String], dynamic: bool, 
                 "rule": rule.name,
                 "message": format!("Rule '{}' uses conntrack_state — requires --conntrack flag at compile time for RTL support", rule.name),
                 "suggestion": "Use --conntrack flag when compiling to enable connection tracking hardware"
+            }));
+        }
+    }
+
+    // LINT035: redirect_port with action: drop (shouldn't happen due to validation, but check anyway)
+    for rule in &config.pacgate.rules {
+        if rule.redirect_port.is_some() && rule.action == Some(model::Action::Drop) {
+            findings.push(serde_json::json!({
+                "level": "warning",
+                "code": "LINT035",
+                "rule": rule.name,
+                "message": format!("Rule '{}' has redirect_port but action is drop — redirect will not take effect", rule.name),
+            }));
+        }
+    }
+
+    // LINT036: mirror_port or redirect_port require --ports or multiport context (info)
+    for rule in &config.pacgate.rules {
+        if rule.mirror_port.is_some() || rule.redirect_port.is_some() {
+            findings.push(serde_json::json!({
+                "level": "info",
+                "code": "LINT036",
+                "rule": rule.name,
+                "message": format!("Rule '{}' uses egress port actions (mirror/redirect) — requires multi-port or platform target for full functionality", rule.name),
+                "suggestion": "Use --ports N for multi-port deployment to enable cross-port egress actions"
             }));
         }
     }

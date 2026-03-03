@@ -135,6 +135,12 @@
 {% if rule.rate_limit is defined %}
         <p style="font-size: 0.85rem; margin-top: 0.3rem;">Rate limit: {{ rule.rate_limit }}</p>
 {% endif %}
+{% if rule.mirror_port is defined %}
+        <p style="font-size: 0.85rem; margin-top: 0.3rem; color: #1565c0;">Mirror → Port {{ rule.mirror_port }}</p>
+{% endif %}
+{% if rule.redirect_port is defined %}
+        <p style="font-size: 0.85rem; margin-top: 0.3rem; color: #6a1b9a;">Redirect → Port {{ rule.redirect_port }}</p>
+{% endif %}
     </div>
 {% endfor %}
 

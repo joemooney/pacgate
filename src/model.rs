@@ -544,6 +544,12 @@ pub struct StatelessRule {
     /// Packet rewrite actions (applied to passed packets in AXI output path)
     #[serde(default)]
     pub rewrite: Option<RewriteAction>,
+    /// Mirror packet to a specific egress port (0-255). Original pass/drop still applies.
+    #[serde(default)]
+    pub mirror_port: Option<u8>,
+    /// Redirect packet to a different egress port (0-255), overriding normal egress.
+    #[serde(default)]
+    pub redirect_port: Option<u8>,
 }
 
 impl StatelessRule {
@@ -559,6 +565,16 @@ impl StatelessRule {
     /// Returns true if this rule has any rewrite actions
     pub fn has_rewrite(&self) -> bool {
         self.rewrite.as_ref().map(|r| !r.is_empty()).unwrap_or(false)
+    }
+
+    /// Returns true if this rule has mirror port configured
+    pub fn has_mirror(&self) -> bool {
+        self.mirror_port.is_some()
+    }
+
+    /// Returns true if this rule has redirect port configured
+    pub fn has_redirect(&self) -> bool {
+        self.redirect_port.is_some()
     }
 }
 
@@ -966,6 +982,8 @@ mod tests {
             ports: None,
             rate_limit: None,
             rewrite: None,
+            mirror_port: None,
+            redirect_port: None,
         };
         assert_eq!(rule.action(), Action::Drop);
     }
@@ -982,6 +1000,8 @@ mod tests {
             ports: None,
             rate_limit: None,
             rewrite: None,
+            mirror_port: None,
+            redirect_port: None,
         };
         assert_eq!(rule.action(), Action::Pass);
     }
@@ -998,6 +1018,8 @@ mod tests {
             ports: None,
             rate_limit: None,
             rewrite: None,
+            mirror_port: None,
+            redirect_port: None,
         };
         assert!(rule.is_stateful());
     }
@@ -1014,6 +1036,8 @@ mod tests {
             ports: None,
             rate_limit: None,
             rewrite: None,
+            mirror_port: None,
+            redirect_port: None,
         };
         assert!(!rule.is_stateful());
     }
@@ -1435,6 +1459,8 @@ pacgate:
                 set_dst_mac: Some("00:11:22:33:44:55".to_string()),
                 ..Default::default()
             }),
+            mirror_port: None,
+            redirect_port: None,
         };
         assert!(rule.has_rewrite());
     }
@@ -1451,6 +1477,8 @@ pacgate:
             ports: None,
             rate_limit: None,
             rewrite: None,
+            mirror_port: None,
+            redirect_port: None,
         };
         assert!(!rule.has_rewrite());
     }
@@ -1924,5 +1952,132 @@ pacgate:
         let config: FilterConfig = serde_yaml::from_str(yaml).unwrap();
         let rule = &config.pacgate.rules[0];
         assert_eq!(rule.match_criteria.conntrack_state, Some("new".to_string()));
+    }
+
+    // --- Mirror/Redirect ---
+
+    #[test]
+    fn has_mirror_true() {
+        let rule = StatelessRule {
+            name: "test".to_string(),
+            priority: 100,
+            match_criteria: MatchCriteria::default(),
+            action: Some(Action::Pass),
+            rule_type: None,
+            fsm: None,
+            ports: None,
+            rate_limit: None,
+            rewrite: None,
+            mirror_port: Some(1),
+            redirect_port: None,
+        };
+        assert!(rule.has_mirror());
+        assert!(!rule.has_redirect());
+    }
+
+    #[test]
+    fn has_redirect_true() {
+        let rule = StatelessRule {
+            name: "test".to_string(),
+            priority: 100,
+            match_criteria: MatchCriteria::default(),
+            action: Some(Action::Pass),
+            rule_type: None,
+            fsm: None,
+            ports: None,
+            rate_limit: None,
+            rewrite: None,
+            mirror_port: None,
+            redirect_port: Some(2),
+        };
+        assert!(!rule.has_mirror());
+        assert!(rule.has_redirect());
+    }
+
+    #[test]
+    fn has_mirror_and_redirect() {
+        let rule = StatelessRule {
+            name: "test".to_string(),
+            priority: 100,
+            match_criteria: MatchCriteria::default(),
+            action: Some(Action::Pass),
+            rule_type: None,
+            fsm: None,
+            ports: None,
+            rate_limit: None,
+            rewrite: None,
+            mirror_port: Some(3),
+            redirect_port: Some(4),
+        };
+        assert!(rule.has_mirror());
+        assert!(rule.has_redirect());
+    }
+
+    #[test]
+    fn deserialize_mirror_port() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: mirror_http
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 80
+      action: pass
+      mirror_port: 1
+"#;
+        let config: FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let rule = &config.pacgate.rules[0];
+        assert_eq!(rule.mirror_port, Some(1));
+        assert_eq!(rule.redirect_port, None);
+    }
+
+    #[test]
+    fn deserialize_redirect_port() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: redirect_dns
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17
+        dst_port: 53
+      action: pass
+      redirect_port: 2
+"#;
+        let config: FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let rule = &config.pacgate.rules[0];
+        assert_eq!(rule.mirror_port, None);
+        assert_eq!(rule.redirect_port, Some(2));
+    }
+
+    #[test]
+    fn deserialize_mirror_and_redirect() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: mirror_and_redirect
+      priority: 100
+      match:
+        ethertype: "0x0800"
+      action: pass
+      mirror_port: 1
+      redirect_port: 3
+"#;
+        let config: FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let rule = &config.pacgate.rules[0];
+        assert_eq!(rule.mirror_port, Some(1));
+        assert_eq!(rule.redirect_port, Some(3));
     }
 }

@@ -32,6 +32,22 @@ module packet_filter_axi_top #(
     output wire        decision_pass,
     output wire        fifo_overflow,
     output wire        fifo_empty
+{% if has_mirror or has_redirect %}
+    ,
+    // Egress mirror/redirect outputs
+{% if has_mirror and has_redirect %}
+    output wire [7:0]  egress_mirror_port,
+    output wire        egress_mirror_valid,
+    output wire [7:0]  egress_redirect_port,
+    output wire        egress_redirect_valid
+{% elif has_mirror %}
+    output wire [7:0]  egress_mirror_port,
+    output wire        egress_mirror_valid
+{% elif has_redirect %}
+    output wire [7:0]  egress_redirect_port,
+    output wire        egress_redirect_valid
+{% endif %}
+{% endif %}
 );
 
     // Internal signals: adapter -> filter
@@ -99,6 +115,16 @@ module packet_filter_axi_top #(
         .l4_port_offset (filter_l4_port_offset),
         .l4_port_offset_valid (filter_l4_port_offset_valid),
         .ip_protocol    (filter_ip_protocol)
+{% if has_mirror %}
+        ,
+        .egress_mirror_port  (egress_mirror_port),
+        .egress_mirror_valid (egress_mirror_valid)
+{% endif %}
+{% if has_redirect %}
+        ,
+        .egress_redirect_port  (egress_redirect_port),
+        .egress_redirect_valid (egress_redirect_valid)
+{% endif %}
     );
 
     // FIFO output (intermediate, before rewrite)
@@ -206,6 +232,16 @@ module packet_filter_axi_top #(
         .pkt_eof        (pkt_eof),
         .decision_valid (decision_valid),
         .decision_pass  (decision_pass)
+{% if has_mirror %}
+        ,
+        .egress_mirror_port  (egress_mirror_port),
+        .egress_mirror_valid (egress_mirror_valid)
+{% endif %}
+{% if has_redirect %}
+        ,
+        .egress_redirect_port  (egress_redirect_port),
+        .egress_redirect_valid (egress_redirect_valid)
+{% endif %}
     );
 
     // Store-and-forward FIFO: buffers frame, forwards or discards based on decision

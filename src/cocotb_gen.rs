@@ -205,6 +205,15 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
             tc.insert("conntrack_state".to_string(), state.clone());
             tc.insert("has_conntrack_state".to_string(), "true".to_string());
         }
+        // Mirror/redirect port (informational)
+        if let Some(mp) = rule.mirror_port {
+            tc.insert("mirror_port".to_string(), mp.to_string());
+            tc.insert("has_mirror".to_string(), "true".to_string());
+        }
+        if let Some(rp) = rule.redirect_port {
+            tc.insert("redirect_port".to_string(), rp.to_string());
+            tc.insert("has_redirect".to_string(), "true".to_string());
+        }
         test_cases.push(tc);
     }
 
@@ -487,6 +496,8 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         ctx.insert("has_ip_frag_rules", &rules.iter().any(|r| r.match_criteria.uses_ip_frag()));
         ctx.insert("has_gre_rules", &rules.iter().any(|r| r.match_criteria.uses_gre()));
         ctx.insert("has_conntrack_state_rules", &rules.iter().any(|r| r.match_criteria.uses_conntrack_state()));
+        ctx.insert("has_mirror_rules", &rules.iter().any(|r| r.has_mirror()));
+        ctx.insert("has_redirect_rules", &rules.iter().any(|r| r.has_redirect()));
 
         let rendered = tera.render("test_properties.py.tera", &ctx)?;
         std::fs::write(tb_dir.join("test_properties.py"), &rendered)?;
@@ -1013,6 +1024,8 @@ mod tests {
                         ports: None,
                         rate_limit: None,
                         rewrite: None,
+                        mirror_port: None,
+                        redirect_port: None,
                     },
                 ],
                 conntrack: None,
