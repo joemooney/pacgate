@@ -99,6 +99,11 @@ pub struct MatchCriteria {
     pub gre_protocol: Option<u16>,        // GRE Protocol Type (e.g., 0x0800, 0x86DD, 0x6558)
     #[serde(default)]
     pub gre_key: Option<u32>,             // GRE Key (32-bit, present when K flag set)
+    // OAM/CFM fields (EtherType 0x8902 — IEEE 802.1ag / Y.1731)
+    #[serde(default)]
+    pub oam_level: Option<u8>,            // 0-7 (Maintenance Domain Level)
+    #[serde(default)]
+    pub oam_opcode: Option<u8>,           // CFM OpCode (1=CCM, 3=LBR, 47=DMM, 48=DMR)
     // Connection tracking state (requires --conntrack)
     #[serde(default)]
     pub conntrack_state: Option<String>,  // "new", "established" (TCP state-aware)
@@ -369,6 +374,11 @@ impl MatchCriteria {
     /// Returns true if this criteria uses GRE tunnel fields
     pub fn uses_gre(&self) -> bool {
         self.gre_protocol.is_some() || self.gre_key.is_some()
+    }
+
+    /// Returns true if this criteria uses OAM/CFM fields
+    pub fn uses_oam(&self) -> bool {
+        self.oam_level.is_some() || self.oam_opcode.is_some()
     }
 
     /// Returns true if this criteria uses connection tracking state matching
@@ -2067,6 +2077,48 @@ pacgate:
         let rule = &config.pacgate.rules[0];
         assert_eq!(rule.mirror_port, None);
         assert_eq!(rule.redirect_port, Some(2));
+    }
+
+    // --- OAM/CFM ---
+
+    #[test]
+    fn uses_oam_true() {
+        let mc = MatchCriteria { oam_level: Some(3), ..Default::default() };
+        assert!(mc.uses_oam());
+    }
+
+    #[test]
+    fn uses_oam_opcode_true() {
+        let mc = MatchCriteria { oam_opcode: Some(1), ..Default::default() };
+        assert!(mc.uses_oam());
+    }
+
+    #[test]
+    fn uses_oam_false() {
+        let mc = MatchCriteria::default();
+        assert!(!mc.uses_oam());
+    }
+
+    #[test]
+    fn deserialize_oam_rule() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_ccm
+      priority: 100
+      match:
+        ethertype: "0x8902"
+        oam_level: 3
+        oam_opcode: 1
+      action: pass
+"#;
+        let config: FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let rule = &config.pacgate.rules[0];
+        assert_eq!(rule.match_criteria.oam_level, Some(3));
+        assert_eq!(rule.match_criteria.oam_opcode, Some(1));
     }
 
     // --- Flow counters ---

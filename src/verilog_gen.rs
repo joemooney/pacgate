@@ -52,6 +52,7 @@ struct GlobalProtocolFlags {
     has_qinq: bool,
     has_ip_frag: bool,
     has_gre: bool,
+    has_oam: bool,
     has_conntrack_state: bool,
     has_flow_counters: bool,
     has_mirror: bool,
@@ -293,6 +294,14 @@ fn build_condition_expr(mc: &crate::model::MatchCriteria) -> Result<String> {
         conditions.push(format!("(gre_key == 32'd{})", key));
     }
 
+    // OAM/CFM fields
+    if let Some(level) = mc.oam_level {
+        conditions.push(format!("(oam_valid && oam_level == 3'd{})", level));
+    }
+    if let Some(opcode) = mc.oam_opcode {
+        conditions.push(format!("(oam_valid && oam_opcode == 8'd{})", opcode));
+    }
+
     // Connection tracking state
     if let Some(ref state) = mc.conntrack_state {
         match state.as_str() {
@@ -423,6 +432,7 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
     let has_qinq = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_qinq());
     let has_ip_frag = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_ip_frag());
     let has_gre = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_gre());
+    let has_oam = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_oam());
     let has_conntrack_state = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_conntrack_state());
     let has_flow_counters = config.pacgate.conntrack.as_ref().and_then(|c| c.enable_flow_counters).unwrap_or(false);
     let has_mirror = config.pacgate.rules.iter().any(|r| r.has_mirror());
@@ -444,6 +454,7 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         has_qinq,
         has_ip_frag,
         has_gre,
+        has_oam,
         has_conntrack_state,
         has_flow_counters,
         has_mirror,
@@ -496,6 +507,7 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         ctx.insert("has_qinq", &has_qinq);
         ctx.insert("has_ip_frag", &has_ip_frag);
         ctx.insert("has_gre", &has_gre);
+        ctx.insert("has_oam", &has_oam);
         ctx.insert("has_conntrack_state", &has_conntrack_state);
         ctx.insert("has_flow_counters", &has_flow_counters);
         ctx.insert("has_rewrite", &has_rewrite);
@@ -1149,6 +1161,7 @@ fn generate_stateless_rule(
     ctx.insert("has_qinq", &global_protos.has_qinq);
     ctx.insert("has_ip_frag", &global_protos.has_ip_frag);
     ctx.insert("has_gre", &global_protos.has_gre);
+    ctx.insert("has_oam", &global_protos.has_oam);
     ctx.insert("has_conntrack_state", &global_protos.has_conntrack_state);
     let byte_cap_info: Vec<std::collections::HashMap<String, serde_json::Value>> = byte_offsets.iter().map(|(offset, len)| {
         let mut map = std::collections::HashMap::new();
@@ -1486,6 +1499,7 @@ fn generate_fsm_rule(
     ctx.insert("has_qinq", &global_protos.has_qinq);
     ctx.insert("has_ip_frag", &global_protos.has_ip_frag);
     ctx.insert("has_gre", &global_protos.has_gre);
+    ctx.insert("has_oam", &global_protos.has_oam);
     ctx.insert("has_conntrack_state", &global_protos.has_conntrack_state);
 
     let rendered = tera.render("rule_fsm.v.tera", &ctx)

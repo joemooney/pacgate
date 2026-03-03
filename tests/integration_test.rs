@@ -5887,3 +5887,168 @@ fn formal_flow_counters_rules() {
     assert!(output.status.success(), "formal failed: {}", String::from_utf8_lossy(&output.stderr));
     assert!(tmp.path().join("formal").exists(), "formal/ directory should exist");
 }
+
+// ── Phase 25.5: OAM/CFM Matching Tests ──────────────────────────
+
+#[test]
+fn validate_oam_monitoring_rules() {
+    let output = pacgate_bin()
+        .args(["validate", "rules/examples/oam_monitoring.yaml"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "validate failed: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn compile_oam_monitoring_rules() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/oam_monitoring.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(tmp.path().join("rtl/packet_filter_top.v").exists(), "top-level Verilog missing");
+}
+
+#[test]
+fn simulate_oam_ccm_match() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/oam_monitoring.yaml",
+               "--packet", "ethertype=0x8902,oam_level=3,oam_opcode=1"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "simulate failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("allow_ccm_level3"), "Should match allow_ccm_level3: {}", stdout);
+}
+
+#[test]
+fn simulate_oam_dmm_match() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/oam_monitoring.yaml",
+               "--packet", "ethertype=0x8902,oam_level=5,oam_opcode=47"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "simulate failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("allow_dmm"), "Should match allow_dmm: {}", stdout);
+}
+
+#[test]
+fn simulate_oam_dmr_match() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/oam_monitoring.yaml",
+               "--packet", "ethertype=0x8902,oam_opcode=48"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "simulate failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("allow_dmr"), "Should match allow_dmr: {}", stdout);
+}
+
+#[test]
+fn simulate_oam_no_match() {
+    let output = pacgate_bin()
+        .args(["simulate", "rules/examples/oam_monitoring.yaml",
+               "--packet", "ethertype=0x8902,oam_opcode=99"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "simulate failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("DROP") || stdout.contains("drop"), "Should drop unrecognized OAM: {}", stdout);
+}
+
+#[test]
+fn reject_oam_level_out_of_range() {
+    let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: bad_oam
+      priority: 100
+      match:
+        ethertype: "0x8902"
+        oam_level: 8
+      action: pass
+"#;
+    let tmp = std::env::temp_dir().join("test_oam_bad.yaml");
+    std::fs::write(&tmp, yaml).unwrap();
+    let output = pacgate_bin()
+        .args(["validate", &tmp.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "Should reject oam_level > 7");
+}
+
+#[test]
+fn estimate_oam_monitoring_rules() {
+    let output = pacgate_bin()
+        .args(["estimate", "rules/examples/oam_monitoring.yaml"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "estimate failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("LUT") || stdout.contains("lut"), "Should show LUT estimate: {}", stdout);
+}
+
+#[test]
+fn lint_oam_without_ethertype() {
+    let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: bad_oam
+      priority: 100
+      match:
+        oam_level: 3
+      action: pass
+"#;
+    let tmp = std::env::temp_dir().join("test_oam_no_etype.yaml");
+    std::fs::write(&tmp, yaml).unwrap();
+    let output = pacgate_bin()
+        .args(["lint", &tmp.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "lint failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("LINT") && (stdout.contains("OAM") || stdout.contains("oam") || stdout.contains("8902")),
+            "Should warn about OAM without 0x8902: {}", stdout);
+}
+
+#[test]
+fn stats_oam_monitoring_rules() {
+    let output = pacgate_bin()
+        .args(["stats", "rules/examples/oam_monitoring.yaml"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "stats failed: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn formal_oam_monitoring_rules() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["formal", "rules/examples/oam_monitoring.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "formal failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(tmp.path().join("formal").exists(), "formal/ directory should exist");
+}
+
+#[test]
+fn doc_oam_monitoring_rules() {
+    let tmp = tempfile::tempdir().unwrap();
+    let out = tmp.path().join("oam_doc.html");
+    let output = pacgate_bin()
+        .args(["doc", "rules/examples/oam_monitoring.yaml", "-o", &out.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "doc failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(out.exists(), "HTML doc should be generated");
+    let html = std::fs::read_to_string(&out).unwrap();
+    assert!(html.contains("allow_ccm_level3"), "Doc should contain rule name");
+}

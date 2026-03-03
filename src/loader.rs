@@ -190,6 +190,13 @@ fn validate_match_criteria(mc: &crate::model::MatchCriteria, rule_name: &str) ->
         anyhow::bail!("gre_key requires gre_protocol in rule '{}'", rule_name);
     }
 
+    // OAM validation
+    if let Some(level) = mc.oam_level {
+        if level > 7 {
+            anyhow::bail!("oam_level must be 0-7, got {} in rule '{}'", level, rule_name);
+        }
+    }
+
     // Connection tracking state validation
     if let Some(ref state) = mc.conntrack_state {
         match state.as_str() {
@@ -994,6 +1001,20 @@ pub fn criteria_shadows(a: &crate::model::MatchCriteria, b: &crate::model::Match
         }
     }
 
+    // OAM shadow check
+    if let Some(a_level) = a.oam_level {
+        match b.oam_level {
+            Some(b_level) if a_level == b_level => {},
+            _ => return false,
+        }
+    }
+    if let Some(a_opcode) = a.oam_opcode {
+        match b.oam_opcode {
+            Some(b_opcode) if a_opcode == b_opcode => {},
+            _ => return false,
+        }
+    }
+
     // Connection tracking state shadow check
     if let Some(ref a_state) = a.conntrack_state {
         match &b.conntrack_state {
@@ -1183,6 +1204,14 @@ fn criteria_overlaps(a: &crate::model::MatchCriteria, b: &crate::model::MatchCri
     }
     if let (Some(a_key), Some(b_key)) = (a.gre_key, b.gre_key) {
         if a_key != b_key { return false; }
+    }
+
+    // OAM overlap checks
+    if let (Some(a_level), Some(b_level)) = (a.oam_level, b.oam_level) {
+        if a_level != b_level { return false; }
+    }
+    if let (Some(a_opcode), Some(b_opcode)) = (a.oam_opcode, b.oam_opcode) {
+        if a_opcode != b_opcode { return false; }
     }
 
     // Connection tracking state overlap checks
@@ -2199,6 +2228,36 @@ pacgate:
         let result = load_rules_from_str(&yaml);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("redirect_port requires action: pass"));
+    }
+
+    // --- OAM validation ---
+
+    #[test]
+    fn accept_oam_rule() {
+        let yaml = valid_yaml(
+            "    - name: ccm\n      priority: 100\n      match:\n        ethertype: \"0x8902\"\n        oam_level: 3\n        oam_opcode: 1\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn reject_oam_level_out_of_range() {
+        let yaml = valid_yaml(
+            "    - name: bad_oam\n      priority: 100\n      match:\n        ethertype: \"0x8902\"\n        oam_level: 8\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("oam_level must be 0-7"));
+    }
+
+    #[test]
+    fn accept_oam_opcode_only() {
+        let yaml = valid_yaml(
+            "    - name: dmm\n      priority: 100\n      match:\n        ethertype: \"0x8902\"\n        oam_opcode: 47\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_ok());
     }
 
     // --- Flow counter validation ---

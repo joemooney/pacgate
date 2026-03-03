@@ -14,6 +14,7 @@
 //           mpls_label, mpls_tc, mpls_bos (MPLS label stack)
 //           igmp_type (IGMP message type), mld_type (MLD message type)
 //           arp_opcode, arp_spa, arp_tpa (ARP header fields)
+//           oam_level, oam_opcode (IEEE 802.1ag CFM OAM fields)
 //           l4_port_offset (absolute byte position of L4 src_port MSB)
 // Handles 802.1Q VLAN-tagged frames (EtherType 0x8100)
 // Handles 802.1ad QinQ double-tagged frames (EtherType 0x88A8 / 0x9100)
@@ -28,6 +29,7 @@
 // Handles MPLS label stack parsing (EtherType 0x8847/0x8848)
 // Handles IGMP (IPv4 protocol 2) and MLD (ICMPv6 type 130-132)
 // Handles ARP header parsing (EtherType 0x0806)
+// Handles OAM/CFM parsing (EtherType 0x8902, IEEE 802.1ag)
 // Handles GRE tunnel detection (IP protocol 47) with optional key
 //
 // Interface: simple byte-stream (not AXI-Stream)
@@ -138,6 +140,11 @@ module frame_parser (
     output reg  [7:0]  ipv6_hop_limit,  // IPv6 hop limit (byte 7)
     output reg  [19:0] ipv6_flow_label, // IPv6 flow label (bytes 1-3, lower 20 bits)
 
+    // OAM/CFM fields (IEEE 802.1ag, EtherType 0x8902)
+    output reg  [2:0]  oam_level,       // Maintenance Domain Level (MEL, 0-7)
+    output reg  [7:0]  oam_opcode,      // CFM OpCode (1=CCM, 3=LBR, 47=DMM, 48=DMR)
+    output reg         oam_valid,       // OAM fields extracted
+
     // GRE tunnel fields (IP protocol 47)
     output reg  [15:0] gre_protocol,    // GRE Protocol Type (bytes 2-3)
     output reg  [31:0] gre_key,         // GRE Key (bytes 4-7, if K flag set)
@@ -166,6 +173,7 @@ module frame_parser (
     localparam S_ARP_HDR    = 5'd16; // ARP header (28 bytes)
     localparam S_OUTER_VLAN = 5'd17; // QinQ outer VLAN (802.1ad)
     localparam S_GRE_HDR    = 5'd18; // GRE header (4-8 bytes)
+    localparam S_OAM_HDR    = 5'd19; // OAM/CFM header (EtherType 0x8902)
 
     reg [4:0] state;
     reg [5:0] byte_cnt;  // counts bytes within current state (up to 39 for IPv6)
@@ -210,6 +218,9 @@ module frame_parser (
             vxlan_valid  <= 1'b0;
             gtp_teid     <= 32'd0;
             gtp_valid    <= 1'b0;
+            oam_level    <= 3'd0;
+            oam_opcode   <= 8'd0;
+            oam_valid    <= 1'b0;
             gre_protocol <= 16'd0;
             gre_key      <= 32'd0;
             gre_valid    <= 1'b0;
@@ -309,6 +320,9 @@ module frame_parser (
                 arp_valid   <= 1'b0;
                 ipv6_hop_limit  <= 8'd0;
                 ipv6_flow_label <= 20'd0;
+                oam_level       <= 3'd0;
+                oam_opcode      <= 8'd0;
+                oam_valid       <= 1'b0;
                 gre_protocol    <= 16'd0;
                 gre_key         <= 32'd0;
                 gre_valid       <= 1'b0;
@@ -376,6 +390,11 @@ module frame_parser (
                             else if (ethertype[15:8] == 8'h08 && pkt_data == 8'h06) begin
                                 state    <= S_ARP_HDR;
                                 byte_cnt <= 6'd0;
+                            end
+                            // Check for OAM/CFM (0x8902)
+                            else if (ethertype[15:8] == 8'h89 && pkt_data == 8'h02) begin
+                                state    <= S_OAM_HDR;
+                                byte_cnt <= 6'd0;
                             end else begin
                                 state        <= S_PAYLOAD;
                                 fields_valid <= 1'b1;
@@ -427,6 +446,11 @@ module frame_parser (
                                 else if (ethertype[15:8] == 8'h08 && pkt_data == 8'h06) begin
                                     state    <= S_ARP_HDR;
                                     byte_cnt <= 6'd0;
+                                end
+                                // Inner is OAM/CFM (0x8902)
+                                else if (ethertype[15:8] == 8'h89 && pkt_data == 8'h02) begin
+                                    state    <= S_OAM_HDR;
+                                    byte_cnt <= 6'd0;
                                 end else begin
                                     state        <= S_PAYLOAD;
                                     fields_valid <= 1'b1;
@@ -473,6 +497,11 @@ module frame_parser (
                             // Check for ARP after VLAN (0x0806)
                             else if (ethertype[15:8] == 8'h08 && pkt_data == 8'h06) begin
                                 state    <= S_ARP_HDR;
+                                byte_cnt <= 6'd0;
+                            end
+                            // Check for OAM/CFM after VLAN (0x8902)
+                            else if (ethertype[15:8] == 8'h89 && pkt_data == 8'h02) begin
+                                state    <= S_OAM_HDR;
                                 byte_cnt <= 6'd0;
                             end else begin
                                 state        <= S_PAYLOAD;
@@ -912,6 +941,26 @@ module frame_parser (
                         if (byte_cnt != 6'd3 && byte_cnt != 6'd7 && !gre_key_present) begin
                             // handled in case above
                         end
+                    end
+
+                    S_OAM_HDR: begin
+                        // OAM/CFM header (IEEE 802.1ag):
+                        // Byte 0: MEL[7:5] (3-bit level) + Version[4:0]
+                        // Byte 1: OpCode
+                        // Bytes 2-3: Flags + First TLV Offset
+                        case (byte_cnt)
+                            6'd0: begin
+                                oam_level <= pkt_data[7:5];
+                                byte_cnt  <= 6'd1;
+                            end
+                            6'd1: begin
+                                oam_opcode   <= pkt_data;
+                                oam_valid    <= 1'b1;
+                                state        <= S_PAYLOAD;
+                                fields_valid <= 1'b1;
+                            end
+                            default: ;
+                        endcase
                     end
 
                     S_PAYLOAD: begin

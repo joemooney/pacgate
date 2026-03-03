@@ -1,0 +1,38 @@
+# OAM Monitoring — Ethernet CFM/Y.1731 frame classification
+# Use with: pacgate compile oam_monitoring.yaml
+# Matches IEEE 802.1ag CFM and ITU-T Y.1731 OAM frames
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_ccm_level3
+      priority: 100
+      match:
+        ethertype: "0x8902"
+        oam_level: 3
+        oam_opcode: 1
+      action: pass
+    - name: allow_dmm
+      priority: 90
+      match:
+        ethertype: "0x8902"
+        oam_opcode: 47
+      action: pass
+    - name: allow_dmr
+      priority: 80
+      match:
+        ethertype: "0x8902"
+        oam_opcode: 48
+      action: pass
+    - name: allow_lbr
+      priority: 70
+      match:
+        ethertype: "0x8902"
+        oam_opcode: 3
+      action: pass
+    - name: allow_arp
+      priority: 60
+      match:
+        ethertype: "0x0806"
+      action: pass

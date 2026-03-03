@@ -48,6 +48,8 @@ pub struct SimPacket {
     pub ip_frag_offset: Option<u16>,
     pub gre_protocol: Option<u16>,
     pub gre_key: Option<u32>,
+    pub oam_level: Option<u8>,
+    pub oam_opcode: Option<u8>,
     pub conntrack_state: Option<String>,
 }
 
@@ -284,6 +286,14 @@ pub fn parse_packet_spec(spec: &str) -> Result<SimPacket> {
             "gre_key" => {
                 let v: u32 = value.parse().map_err(|e| anyhow::anyhow!("Bad gre_key '{}': {}", value, e))?;
                 pkt.gre_key = Some(v);
+            }
+            "oam_level" => {
+                let v: u8 = value.parse().map_err(|e| anyhow::anyhow!("Bad oam_level '{}': {}", value, e))?;
+                pkt.oam_level = Some(v);
+            }
+            "oam_opcode" => {
+                let v: u8 = value.parse().map_err(|e| anyhow::anyhow!("Bad oam_opcode '{}': {}", value, e))?;
+                pkt.oam_opcode = Some(v);
             }
             "conntrack_state" => {
                 pkt.conntrack_state = Some(value.to_string());
@@ -1247,6 +1257,32 @@ pub fn match_criteria_against_packet(mc: &MatchCriteria, pkt: &SimPacket) -> (bo
         fields.push(FieldMatch {
             field: "gre_key".to_string(),
             rule_value: rule_key.to_string(),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // oam_level
+    if let Some(rule_level) = mc.oam_level {
+        let pkt_val = pkt.oam_level.map(|v| v.to_string()).unwrap_or_else(|| "none".to_string());
+        let matches = pkt.oam_level.map(|v| v == rule_level).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "oam_level".to_string(),
+            rule_value: rule_level.to_string(),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // oam_opcode
+    if let Some(rule_opcode) = mc.oam_opcode {
+        let pkt_val = pkt.oam_opcode.map(|v| v.to_string()).unwrap_or_else(|| "none".to_string());
+        let matches = pkt.oam_opcode.map(|v| v == rule_opcode).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "oam_opcode".to_string(),
+            rule_value: rule_opcode.to_string(),
             packet_value: pkt_val,
             matches,
         });
@@ -2776,6 +2812,83 @@ pacgate:
         assert_eq!(result.action, Action::Pass);
         assert_eq!(result.mirror_port, Some(3));
         assert_eq!(result.redirect_port, Some(4));
+    }
+
+    // --- OAM/CFM tests ---
+
+    #[test]
+    fn parse_oam_fields() {
+        let pkt = parse_packet_spec("ethertype=0x8902,oam_level=3,oam_opcode=1").unwrap();
+        assert_eq!(pkt.ethertype, Some(0x8902));
+        assert_eq!(pkt.oam_level, Some(3));
+        assert_eq!(pkt.oam_opcode, Some(1));
+    }
+
+    #[test]
+    fn simulate_oam_ccm_match() {
+        let pkt = parse_packet_spec("ethertype=0x8902,oam_level=3,oam_opcode=1").unwrap();
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_ccm
+      priority: 100
+      match:
+        ethertype: "0x8902"
+        oam_level: 3
+        oam_opcode: 1
+      action: pass
+"#;
+        let config: crate::model::FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let result = simulate(&config, &pkt);
+        assert_eq!(result.action, Action::Pass);
+        assert_eq!(result.rule_name.as_deref(), Some("allow_ccm"));
+    }
+
+    #[test]
+    fn simulate_oam_level_mismatch() {
+        let pkt = parse_packet_spec("ethertype=0x8902,oam_level=5,oam_opcode=1").unwrap();
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_ccm_level3
+      priority: 100
+      match:
+        ethertype: "0x8902"
+        oam_level: 3
+        oam_opcode: 1
+      action: pass
+"#;
+        let config: crate::model::FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let result = simulate(&config, &pkt);
+        assert_eq!(result.action, Action::Drop);
+    }
+
+    #[test]
+    fn simulate_oam_dmm_match() {
+        let pkt = parse_packet_spec("ethertype=0x8902,oam_level=5,oam_opcode=47").unwrap();
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_dmm
+      priority: 100
+      match:
+        ethertype: "0x8902"
+        oam_opcode: 47
+      action: pass
+"#;
+        let config: crate::model::FilterConfig = serde_yaml::from_str(yaml).unwrap();
+        let result = simulate(&config, &pkt);
+        assert_eq!(result.action, Action::Pass);
+        assert_eq!(result.rule_name.as_deref(), Some("allow_dmm"));
     }
 
     // --- Flow counter tests ---

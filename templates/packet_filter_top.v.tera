@@ -166,6 +166,11 @@ module packet_filter_top (
     wire [31:0] gre_key;
     wire        gre_valid;
 
+    // Frame parser outputs — OAM/CFM
+    wire [2:0]  oam_level;
+    wire [7:0]  oam_opcode;
+    wire        oam_valid;
+
 {% if has_conntrack_state %}
     // Connection tracking state (driven by conntrack_table when --conntrack is used)
     wire        conntrack_established;
@@ -242,6 +247,9 @@ module packet_filter_top (
         .gre_protocol    (gre_protocol),
         .gre_key         (gre_key),
         .gre_valid       (gre_valid),
+        .oam_level       (oam_level),
+        .oam_opcode      (oam_opcode),
+        .oam_valid       (oam_valid),
         .fields_valid (fields_valid)
     );
 
@@ -344,6 +352,11 @@ module packet_filter_top (
 {% if has_gre %}
         .gre_protocol      (gre_protocol),
         .gre_key           (gre_key),
+{% endif %}
+{% if has_oam %}
+        .oam_level         (oam_level),
+        .oam_opcode        (oam_opcode),
+        .oam_valid         (oam_valid),
 {% endif %}
 {% if has_conntrack_state %}
         .conntrack_established (conntrack_established),

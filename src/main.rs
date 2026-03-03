@@ -1540,6 +1540,8 @@ fn generate_rule_documentation(
         if let Some(fo) = rule.match_criteria.ip_frag_offset { match_fields.push(format!("ip_frag_offset: {}", fo)); }
         if let Some(gp) = rule.match_criteria.gre_protocol { match_fields.push(format!("gre_protocol: 0x{:04X}", gp)); }
         if let Some(gk) = rule.match_criteria.gre_key { match_fields.push(format!("gre_key: {}", gk)); }
+        if let Some(ol) = rule.match_criteria.oam_level { match_fields.push(format!("oam_level: {}", ol)); }
+        if let Some(oo) = rule.match_criteria.oam_opcode { match_fields.push(format!("oam_opcode: {}", oo)); }
         if let Some(ref state) = rule.match_criteria.conntrack_state { match_fields.push(format!("conntrack_state: {}", state)); }
         if let Some(ref bms) = rule.match_criteria.byte_match {
             for bm in bms {
@@ -1805,6 +1807,8 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
     let mut uses_ip_frag_offset = 0;
     let mut uses_gre_protocol = 0;
     let mut uses_gre_key = 0;
+    let mut uses_oam_level = 0;
+    let mut uses_oam_opcode = 0;
     let mut uses_conntrack_state = 0;
     let mut match_field_count = Vec::new();
 
@@ -1849,6 +1853,8 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
         if mc.ip_frag_offset.is_some() { uses_ip_frag_offset += 1; count += 1; }
         if mc.gre_protocol.is_some() { uses_gre_protocol += 1; count += 1; }
         if mc.gre_key.is_some() { uses_gre_key += 1; count += 1; }
+        if mc.oam_level.is_some() { uses_oam_level += 1; count += 1; }
+        if mc.oam_opcode.is_some() { uses_oam_opcode += 1; count += 1; }
         if mc.conntrack_state.is_some() { uses_conntrack_state += 1; count += 1; }
         match_field_count.push(count);
     }
@@ -1916,6 +1922,8 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
             "ip_frag_offset": uses_ip_frag_offset,
             "gre_protocol": uses_gre_protocol,
             "gre_key": uses_gre_key,
+            "oam_level": uses_oam_level,
+            "oam_opcode": uses_oam_opcode,
             "conntrack_state": uses_conntrack_state,
         },
         "egress_actions": {
@@ -1975,6 +1983,8 @@ fn print_stats(config: &model::FilterConfig) {
     let mut uses_ip_frag_offset = 0usize;
     let mut uses_gre_protocol = 0usize;
     let mut uses_gre_key = 0usize;
+    let mut uses_oam_level = 0usize;
+    let mut uses_oam_opcode = 0usize;
     let mut uses_conntrack_state = 0usize;
 
     for rule in rules.iter().filter(|r| !r.is_stateful()) {
@@ -2002,6 +2012,8 @@ fn print_stats(config: &model::FilterConfig) {
         if mc.ip_frag_offset.is_some() { uses_ip_frag_offset += 1; }
         if mc.gre_protocol.is_some() { uses_gre_protocol += 1; }
         if mc.gre_key.is_some() { uses_gre_key += 1; }
+        if mc.oam_level.is_some() { uses_oam_level += 1; }
+        if mc.oam_opcode.is_some() { uses_oam_opcode += 1; }
         if mc.conntrack_state.is_some() { uses_conntrack_state += 1; }
     }
 
@@ -2079,6 +2091,12 @@ fn print_stats(config: &model::FilterConfig) {
         }
         if uses_gre_key > 0 {
             println!("  gre_key      [{:>2}/{}] |{}|", uses_gre_key, stateless, bar(uses_gre_key));
+        }
+        if uses_oam_level > 0 {
+            println!("  oam_level    [{:>2}/{}] |{}|", uses_oam_level, stateless, bar(uses_oam_level));
+        }
+        if uses_oam_opcode > 0 {
+            println!("  oam_opcode   [{:>2}/{}] |{}|", uses_oam_opcode, stateless, bar(uses_oam_opcode));
         }
         if uses_conntrack_state > 0 {
             println!("  ct_state     [{:>2}/{}] |{}|", uses_conntrack_state, stateless, bar(uses_conntrack_state));
@@ -2192,6 +2210,8 @@ fn print_dot_graph(config: &model::FilterConfig) {
             if let Some(fo) = mc.ip_frag_offset { criteria.push(format!("ip_frag_offset={}", fo)); }
             if let Some(gp) = mc.gre_protocol { criteria.push(format!("gre_protocol=0x{:04X}", gp)); }
             if let Some(gk) = mc.gre_key { criteria.push(format!("gre_key={}", gk)); }
+            if let Some(ol) = mc.oam_level { criteria.push(format!("oam_level={}", ol)); }
+            if let Some(oo) = mc.oam_opcode { criteria.push(format!("oam_opcode={}", oo)); }
             if let Some(ref state) = mc.conntrack_state { criteria.push(format!("ct_state={}", state)); }
         } else {
             criteria.push("(FSM states)".to_string());
@@ -2430,6 +2450,14 @@ fn diff_rules(old: &model::FilterConfig, new: &model::FilterConfig, json: bool) 
                     changes.push(format!("gre_key: {:?} -> {:?}",
                         old_rule.match_criteria.gre_key, new_rule.match_criteria.gre_key));
                 }
+                if old_rule.match_criteria.oam_level != new_rule.match_criteria.oam_level {
+                    changes.push(format!("oam_level: {:?} -> {:?}",
+                        old_rule.match_criteria.oam_level, new_rule.match_criteria.oam_level));
+                }
+                if old_rule.match_criteria.oam_opcode != new_rule.match_criteria.oam_opcode {
+                    changes.push(format!("oam_opcode: {:?} -> {:?}",
+                        old_rule.match_criteria.oam_opcode, new_rule.match_criteria.oam_opcode));
+                }
                 if old_rule.match_criteria.conntrack_state != new_rule.match_criteria.conntrack_state {
                     changes.push(format!("conntrack_state: {:?} -> {:?}",
                         old_rule.match_criteria.conntrack_state, new_rule.match_criteria.conntrack_state));
@@ -2636,6 +2664,8 @@ fn generate_diff_html(
         if let Some(fo) = mc.ip_frag_offset { parts.push(format!("ip_frag_offset={}", fo)); }
         if let Some(gp) = mc.gre_protocol { parts.push(format!("gre_protocol=0x{:04X}", gp)); }
         if let Some(gk) = mc.gre_key { parts.push(format!("gre_key={}", gk)); }
+        if let Some(ol) = mc.oam_level { parts.push(format!("oam_level={}", ol)); }
+        if let Some(oo) = mc.oam_opcode { parts.push(format!("oam_opcode={}", oo)); }
         if let Some(ref state) = mc.conntrack_state { parts.push(format!("ct_state={}", state)); }
         if parts.is_empty() { "any".to_string() } else { parts.join(", ") }
     };
@@ -2962,6 +2992,20 @@ fn generate_diff_html(
                         "new_value": format!("{:?}", new_rule.match_criteria.gre_key),
                     }));
                 }
+                if old_rule.match_criteria.oam_level != new_rule.match_criteria.oam_level {
+                    changes.push(serde_json::json!({
+                        "field": "oam_level",
+                        "old_value": format!("{:?}", old_rule.match_criteria.oam_level),
+                        "new_value": format!("{:?}", new_rule.match_criteria.oam_level),
+                    }));
+                }
+                if old_rule.match_criteria.oam_opcode != new_rule.match_criteria.oam_opcode {
+                    changes.push(serde_json::json!({
+                        "field": "oam_opcode",
+                        "old_value": format!("{:?}", old_rule.match_criteria.oam_opcode),
+                        "new_value": format!("{:?}", new_rule.match_criteria.oam_opcode),
+                    }));
+                }
                 if old_rule.match_criteria.conntrack_state != new_rule.match_criteria.conntrack_state {
                     changes.push(serde_json::json!({
                         "field": "conntrack_state",
@@ -3142,9 +3186,17 @@ fn compute_resource_estimate(config: &model::FilterConfig) -> serde_json::Value 
             if mc.ip_frag_offset.is_some() { fields += 1; }   // 13-bit comparator
             if mc.gre_protocol.is_some() { fields += 1; }     // 16-bit comparator
             if mc.gre_key.is_some() { fields += 2; }          // 32-bit comparator
+            if mc.oam_level.is_some() { fields += 1; }        // 3-bit comparator
+            if mc.oam_opcode.is_some() { fields += 1; }       // 8-bit comparator
             if mc.conntrack_state.is_some() { fields += 1; }  // 1-bit comparator
             rule_luts += 10 + fields * 12;
         }
+    }
+
+    // OAM: +8 LUTs per rule with OAM fields (3-bit level + 8-bit opcode comparators)
+    let num_oam = rules.iter().filter(|r| r.match_criteria.uses_oam()).count();
+    if num_oam > 0 {
+        rule_luts += num_oam * 8;
     }
 
     // Egress LUT: +4 LUTs per rule with mirror/redirect (8-bit port + valid per action)
@@ -3290,9 +3342,17 @@ fn print_resource_estimate(config: &model::FilterConfig) {
             if mc.ip_frag_offset.is_some() { fields += 1; }
             if mc.gre_protocol.is_some() { fields += 1; }
             if mc.gre_key.is_some() { fields += 2; }
+            if mc.oam_level.is_some() { fields += 1; }
+            if mc.oam_opcode.is_some() { fields += 1; }
             if mc.conntrack_state.is_some() { fields += 1; }
             rule_luts += 10 + fields * 12;
         }
+    }
+
+    // OAM: +8 LUTs per rule with OAM fields (3-bit level + 8-bit opcode comparators)
+    let num_oam = rules.iter().filter(|r| r.match_criteria.uses_oam()).count();
+    if num_oam > 0 {
+        rule_luts += num_oam * 8;
     }
 
     // Rate limiter: +50 LUTs, +64 FFs per rate-limited rule
@@ -4073,6 +4133,23 @@ fn lint_rules(config: &model::FilterConfig, warnings: &[String], dynamic: bool, 
                 "message": format!("Rule '{}' uses egress port actions (mirror/redirect) — requires multi-port or platform target for full functionality", rule.name),
                 "suggestion": "Use --ports N for multi-port deployment to enable cross-port egress actions"
             }));
+        }
+    }
+
+    // LINT038: OAM fields without ethertype 0x8902
+    for rule in &config.pacgate.rules {
+        if rule.match_criteria.uses_oam() {
+            let has_oam_ethertype = rule.match_criteria.ethertype.as_ref()
+                .map(|et| et == "0x8902" || et == "0x8902")
+                .unwrap_or(false);
+            if !has_oam_ethertype {
+                findings.push(serde_json::json!({
+                    "level": "warning",
+                    "code": "LINT038",
+                    "message": format!("Rule '{}' uses oam_level/oam_opcode without ethertype: 0x8902 — OAM/CFM requires EtherType 0x8902", rule.name),
+                    "suggestion": "Add 'ethertype: \"0x8902\"' to ensure OAM matching only applies to CFM/Y.1731 frames"
+                }));
+            }
         }
     }
 

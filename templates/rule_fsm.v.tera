@@ -73,6 +73,11 @@ module rule_match_{{ rule_index }} (
     input  wire [15:0] gre_protocol,
     input  wire [31:0] gre_key,
 {% endif %}
+{% if has_oam %}
+    input  wire [2:0]  oam_level,
+    input  wire [7:0]  oam_opcode,
+    input  wire        oam_valid,
+{% endif %}
 {% if has_conntrack_state %}
     input  wire        conntrack_established,
 {% endif %}
