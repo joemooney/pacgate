@@ -14,6 +14,7 @@ mod reachability;
 mod pcap_writer;
 mod benchmark;
 mod mcy_gen;
+mod scenario;
 
 use std::path::{Path, PathBuf};
 use clap::{CommandFactory, Parser, Subcommand};
@@ -424,6 +425,35 @@ enum Commands {
         #[arg(short, long, default_value = "templates")]
         templates: PathBuf,
     },
+    /// Manage scenario files (validate, import, export)
+    Scenario {
+        #[command(subcommand)]
+        action: ScenarioAction,
+    },
+    /// Run packet regression against a scenario
+    Regress {
+        /// Path to the scenario JSON file
+        #[arg(long)]
+        scenario: PathBuf,
+
+        /// Number of packets to simulate
+        #[arg(long, default_value = "1000")]
+        count: usize,
+
+        /// Output JSON instead of human-readable text
+        #[arg(long)]
+        json: bool,
+    },
+    /// Run topology simulation against a scenario
+    Topology {
+        /// Path to the scenario JSON file
+        #[arg(long)]
+        scenario: PathBuf,
+
+        /// Output JSON instead of human-readable text
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -455,6 +485,43 @@ enum TemplateAction {
         /// Set template variables (key=value)
         #[arg(long = "set", value_name = "KEY=VALUE")]
         set: Vec<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum ScenarioAction {
+    /// Validate scenario JSON files
+    Validate {
+        /// Scenario files to validate
+        files: Vec<PathBuf>,
+
+        /// Output JSON instead of human-readable text
+        #[arg(long)]
+        json: bool,
+    },
+    /// Import scenario files into a store
+    Import {
+        /// Directory containing scenario JSON files
+        #[arg(long)]
+        in_dir: PathBuf,
+
+        /// Path to the scenario store file
+        #[arg(long, default_value = "examples/custom_scenarios.json")]
+        store: PathBuf,
+
+        /// Replace entire store instead of merging
+        #[arg(long)]
+        replace: bool,
+    },
+    /// Export scenarios from a store to individual files
+    Export {
+        /// Path to the scenario store file
+        #[arg(long)]
+        store: PathBuf,
+
+        /// Output directory for exported files
+        #[arg(long, default_value = "examples/scenarios")]
+        out_dir: PathBuf,
     },
 }
 
@@ -1315,6 +1382,66 @@ fn main() -> Result<()> {
             let (config, warnings) = loader::load_rules_with_warnings(&rules)?;
             generate_rule_documentation(&config, &warnings, &rules, &templates, &output)?;
             println!("  Generated rule documentation: {}", output.display());
+        }
+        Commands::Scenario { action } => {
+            match action {
+                ScenarioAction::Validate { files, json } => {
+                    let summary = scenario::validate_files(&files);
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&summary)?);
+                    } else {
+                        if let Some(results) = summary["results"].as_array() {
+                            for r in results {
+                                println!("OK  {}  id={} events={}",
+                                    r["file"].as_str().unwrap_or(""),
+                                    r["id"].as_str().unwrap_or(""),
+                                    r["events"]);
+                            }
+                        }
+                        if let Some(errors) = summary["errors"].as_array() {
+                            for e in errors {
+                                println!("ERR {}  {}",
+                                    e["file"].as_str().unwrap_or(""),
+                                    e["error"].as_str().unwrap_or(""));
+                            }
+                        }
+                    }
+                    let failed = summary["failed"].as_u64().unwrap_or(0);
+                    if failed > 0 {
+                        std::process::exit(1);
+                    }
+                }
+                ScenarioAction::Import { in_dir, store, replace } => {
+                    let result = scenario::import_scenarios(&in_dir, &store, replace)?;
+                    println!("{}", serde_json::to_string_pretty(&result)?);
+                }
+                ScenarioAction::Export { store, out_dir } => {
+                    let result = scenario::export_scenarios(&store, &out_dir)?;
+                    println!("{}", serde_json::to_string_pretty(&result)?);
+                }
+            }
+        }
+        Commands::Regress { scenario: scenario_path, count, json } => {
+            let s = scenario::load_scenario(&scenario_path)?;
+            let output = scenario::run_regress(&s, count, json)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&output)?);
+            }
+            let mismatches = output["mismatches"].as_u64().unwrap_or(0);
+            if mismatches > 0 {
+                std::process::exit(1);
+            }
+        }
+        Commands::Topology { scenario: scenario_path, json } => {
+            let s = scenario::load_scenario(&scenario_path)?;
+            let output = scenario::run_topology(&s, json)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&output)?);
+            }
+            let mismatches = output["mismatch_count"].as_u64().unwrap_or(0);
+            if mismatches > 0 {
+                std::process::exit(1);
+            }
         }
     }
 

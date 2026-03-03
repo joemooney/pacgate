@@ -155,6 +155,27 @@ impl Ipv4Prefix {
         Ok(Ipv4Prefix { addr, prefix_len, mask })
     }
 
+    /// Check if a host IP address (dotted-quad, no prefix) falls within this CIDR prefix
+    pub fn contains(&self, ip_str: &str) -> bool {
+        let parts: Vec<&str> = ip_str.split('.').collect();
+        if parts.len() != 4 {
+            return false;
+        }
+        let mut ip = [0u8; 4];
+        for (i, part) in parts.iter().enumerate() {
+            match part.parse::<u8>() {
+                Ok(v) => ip[i] = v,
+                Err(_) => return false,
+            }
+        }
+        for i in 0..4 {
+            if (ip[i] & self.mask[i]) != (self.addr[i] & self.mask[i]) {
+                return false;
+            }
+        }
+        true
+    }
+
     pub fn to_verilog_value(&self) -> String {
         format!("32'h{:02x}{:02x}{:02x}{:02x}",
             self.addr[0], self.addr[1], self.addr[2], self.addr[3])

@@ -148,6 +148,11 @@ UVM-inspired Python verification environment with:
 - `pacgate bench rules.yaml` — Benchmark compile time, simulation throughput (pkts/sec), and LUT/FF scaling curves across 10-500 synthetic rule sets; ASCII bar chart + JSON output
 - `pacgate diff old.yaml new.yaml --html report.html` — Generate styled HTML diff report with color-coded additions/removals/modifications and side-by-side comparison
 - `pacgate reachability rules.yaml` — Analyze rule reachability (shadowed, unreachable, redundant rules)
+- `pacgate scenario validate *.json` — Validate scenario JSON files (v1/v2)
+- `pacgate scenario import --in-dir dir/ --store store.json` — Import scenarios to store
+- `pacgate scenario export --store store.json --out-dir dir/` — Export scenarios from store
+- `pacgate regress --scenario file.json --count 1000` — Run packet regression (direct simulate, ~600K pps)
+- `pacgate topology --scenario file.json` — Run topology simulation (RMAC/L3 switch, subnet gating)
 - All commands except `init`, `graph`, `report` support `--json` for machine-readable output
 
 ## Examples

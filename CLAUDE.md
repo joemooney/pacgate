@@ -54,6 +54,10 @@
 - **Coverage-directed closure**: CoverageDirector wired into test loop with XML export
 - **Boundary test generation**: auto-derived CIDR/port boundary tests + formally-derived negative tests
 - **Enhanced property tests**: 9 Hypothesis-based tests including CIDR/port/IPv6 boundary checks
+- **Scenario validation**: validate scenario JSON files (v1 basic + v2 topology-aware) with strict key checking
+- **Packet regression**: high-volume regression testing against scenarios using direct `simulate()` calls (~600K pps)
+- **Topology simulation**: 2-port RMAC/L3 switch topology simulation with subnet gating, ingress validation, egress routing
+- **Scenario store**: import/export scenario files to/from JSON store (merge or replace modes)
 - `lint` subcommand for best-practice analysis and security checks (32 lint rules)
 - FPGA resource estimation (LUTs/FFs for Artix-7) + timing/pipeline analysis
 - `--json` flag on compile/validate/estimate/diff/formal/lint for CI/scripting integration
@@ -180,6 +184,15 @@ pacgate doc rules.yaml                 # Generate HTML rule documentation
 pacgate bench rules.yaml               # Benchmark compile time + simulation throughput + LUT/FF scaling
 pacgate bench rules.yaml --json        # JSON benchmark report
 pacgate diff old.yaml new.yaml --html report.html  # Generate HTML diff visualization report
+pacgate scenario validate *.json       # Validate scenario JSON files
+pacgate scenario validate --json *.json # JSON validation output
+pacgate scenario import --in-dir scenarios/ --store store.json  # Import scenarios to store
+pacgate scenario import --in-dir scenarios/ --store store.json --replace  # Replace store
+pacgate scenario export --store store.json --out-dir out/  # Export store to individual files
+pacgate regress --scenario scenario.json --count 1000       # Run packet regression
+pacgate regress --scenario scenario.json --count 1000 --json # JSON regression output
+pacgate topology --scenario scenario.json                   # Run topology simulation
+pacgate topology --scenario scenario.json --json            # JSON topology output
 cargo test                             # 464 tests (260 unit + 204 integration)
 pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 ```
@@ -200,7 +213,8 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 - `src/pcap_writer.rs` — PCAP file writer for simulation output (Wireshark-compatible)
 - `src/benchmark.rs` — Performance benchmarking engine (compile time, sim throughput, LUT/FF scaling)
 - `src/mcy_gen.rs` — MCY (Mutation Cover with Yosys) config generation
-- `src/main.rs` — clap CLI (29 subcommands)
+- `src/scenario.rs` — Scenario validation, regression testing, topology simulation (migrated from pacilab)
+- `src/main.rs` — clap CLI (32 subcommands)
 - `rtl/frame_parser.v` — Hand-written Ethernet/IPv4/IPv6/TCP/UDP/VXLAN/GTP-U/MPLS/IGMP/MLD/ICMP/ICMPv6/ARP/QinQ parser FSM with TCP flags + IPv6 TC + hop_limit + flow_label + fragmentation + L4 port offset extraction
 - `rtl/rule_counters.v` — Per-rule 64-bit packet/byte counters
 - `rtl/axi_lite_csr.v` — AXI4-Lite register interface for counters
