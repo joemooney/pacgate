@@ -267,7 +267,7 @@ pytest verification/test_scoreboard.py # 47 Python scoreboard unit tests
 - ARP detection: EtherType 0x0806, S_ARP_HDR state extracts opcode (bytes 6-7), sender protocol address (bytes 14-17), target protocol address (bytes 24-27)
 - IPv6 hop_limit: extracted from IPv6 header byte 7; flow_label: extracted from IPv6 header bytes 1-3 (lower 20 bits)
 - Multi-port: N independent filter instances sharing same rule set
-- Connection tracking: CRC-based hash, open-addressing linear probing, timestamp-based timeout, per-entry TCP state machine (NEW→ESTABLISHED→FIN_WAIT→CLOSED)
+- Connection tracking: CRC-based hash, open-addressing linear probing, timestamp-based timeout, per-entry TCP state machine (NEW→ESTABLISHED→FIN_WAIT→CLOSED), optional per-flow 64-bit pkt/byte counters with registered read-back interface (enable_flow_counters)
 - Rate limiting: token-bucket per rule (parameterized PPS/BURST, 16-bit tokens, 32-bit refill counter)
 - Packet simulation: software reference model evaluates rules without hardware toolchain
 - Overlap detection: CIDR prefix containment + port range analysis (not just string equality)
