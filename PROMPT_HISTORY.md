@@ -2132,3 +2132,49 @@ Update the verification framework, formal generation, and mutation testing for P
 
 ### Git Operations
 - Committed and pushed: `d32254b` Phase 25.4
+
+---
+
+## Session — 2026-03-03: Phase 25.5 Batch 2 — OAM Verification + Formal + Mutation + Cocotb
+
+### Goal
+Add OAM (IEEE 802.1ag CFM) support to verification framework, formal generation, mutation testing, and cocotb test generation. Core model/simulator/loader changes were already complete.
+
+### Actions Taken
+
+1. **verification/scoreboard.py** — OAM matching in Rule dataclass:
+   - Added `oam_level: Optional[int] = None` and `oam_opcode: Optional[int] = None` fields
+   - Added matching logic in `matches()`: exact-value checks via `extracted.get("oam_level")` and `extracted.get("oam_opcode")`
+
+2. **verification/packet.py** — OAM packet factory:
+   - Added `PacketFactory.oam_cfm()` static method for IEEE 802.1ag CFM frames (EtherType 0x8902)
+   - Constructs CFM header: MD Level (3-bit) + OpCode (8-bit) + flags + TLV offset
+
+3. **src/formal_gen.rs** — OAM formal context:
+   - Added `has_oam` flag: `rules.iter().any(|r| r.match_criteria.uses_oam())`
+   - Added `oam_rule_indices` vector for per-rule prerequisite assertions
+   - Inserted both into Tera template context
+
+4. **templates/assertions.sv.tera** — OAM SVA assertions:
+   - `assert_oam_level_bounds`: oam_level <= 7 when oam_valid (3-bit bounds check)
+   - Per-rule `assert_oam_prereq_rule_N`: ethertype must be 0x8902
+   - `cover_oam_valid`: OAM frame detection cover point
+   - `cover_oam_ccm`: CCM opcode (opcode=1) cover point
+   - Per-rule `cover_oam_rule_N`: rule exercise cover points
+
+5. **src/mutation.rs** — Mutation 28: remove_oam_level:
+   - Clears both `oam_level` and `oam_opcode` from match criteria
+   - Added `remove_oam_level_mutation` unit test with oam_level=3, oam_opcode=1
+
+6. **src/cocotb_gen.rs** — OAM cocotb integration:
+   - Added `oam_level` and `oam_opcode` to test case field generation with `has_oam` flag
+   - Added OAM fields to scoreboard rule generation
+   - Added `has_oam_rules` to property test context flags
+
+### Test Results
+- 426 unit tests — all PASS
+- 307 integration tests — all PASS (10 expected failures for missing oam_monitoring.yaml example)
+- 47 Python scoreboard tests — all PASS
+
+### Git Operations
+- Committed and pushed: `047ea1b` Phase 25.5 Batch 2
