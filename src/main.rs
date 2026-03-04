@@ -16,6 +16,7 @@ mod pcap_writer;
 mod benchmark;
 mod mcy_gen;
 mod scenario;
+mod p4_gen;
 
 use std::path::{Path, PathBuf};
 use clap::{CommandFactory, Parser, Subcommand};
@@ -456,6 +457,23 @@ enum Commands {
         scenario: PathBuf,
 
         /// Output JSON instead of human-readable text
+        #[arg(long)]
+        json: bool,
+    },
+    /// Export YAML rules as a P4_16 PSA program
+    P4Export {
+        /// Path to the YAML rules file
+        rules: PathBuf,
+
+        /// Output directory for generated P4 files
+        #[arg(short, long, default_value = "gen")]
+        output: PathBuf,
+
+        /// Templates directory
+        #[arg(short, long, default_value = "templates")]
+        templates: PathBuf,
+
+        /// Output JSON summary instead of P4 code
         #[arg(long)]
         json: bool,
     },
@@ -1504,6 +1522,31 @@ fn main() -> Result<()> {
             let mismatches = output["mismatch_count"].as_u64().unwrap_or(0);
             if mismatches > 0 {
                 std::process::exit(1);
+            }
+        }
+        Commands::P4Export { rules, output, templates, json } => {
+            let (config, warnings) = loader::load_rules_with_warnings(&rules)?;
+            if json {
+                let mut summary = p4_gen::generate_p4_summary(&config);
+                summary.as_object_mut().unwrap().insert("rules_file".to_string(),
+                    serde_json::Value::String(rules.to_string_lossy().to_string()));
+                summary.as_object_mut().unwrap().insert("warnings".to_string(),
+                    serde_json::json!(warnings));
+                println!("{}", serde_json::to_string_pretty(&summary)?);
+            } else {
+                for w in &warnings {
+                    eprintln!("Warning: {}", w);
+                }
+                p4_gen::generate_p4(&config, &templates, &output)?;
+                let has_stateful = config.pacgate.rules.iter().any(|r| r.is_stateful());
+                let stateless = config.pacgate.rules.iter().filter(|r| !r.is_stateful()).count();
+                println!("Exported {} stateless rules as P4_16 PSA program", stateless);
+                println!("  Output: {}/p4/pacgate_filter.p4", output.display());
+                if has_stateful {
+                    println!("  Note: {} stateful (FSM) rules skipped — require manual P4 Register extern adaptation",
+                        config.pacgate.rules.iter().filter(|r| r.is_stateful()).count());
+                }
+                println!("  Target: PSA (Portable Switch Architecture)");
             }
         }
     }

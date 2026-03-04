@@ -6289,3 +6289,129 @@ fn width_with_rewrite() {
     assert!(axi_top.contains("u_width_up"), "Should have width-up converter");
     assert!(axi_top.contains("u_rewrite"), "Should have rewrite engine");
 }
+
+// === Phase 27.2: P4 Export tests ===
+
+#[test]
+fn p4_export_basic() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["p4-export", "rules/examples/allow_arp.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "p4-export failed: {}", String::from_utf8_lossy(&output.stderr));
+    let p4_file = tmp.path().join("p4/pacgate_filter.p4");
+    assert!(p4_file.exists(), "P4 file should be generated");
+    let p4_content = std::fs::read_to_string(&p4_file).unwrap();
+    assert!(p4_content.contains("#include <psa.p4>"), "Should include PSA header");
+    assert!(p4_content.contains("filter_table"), "Should have filter table");
+}
+
+#[test]
+fn p4_export_enterprise() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["p4-export", "rules/examples/l3l4_firewall.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "p4-export failed: {}", String::from_utf8_lossy(&output.stderr));
+    let p4_content = std::fs::read_to_string(tmp.path().join("p4/pacgate_filter.p4")).unwrap();
+    assert!(p4_content.contains("ipv4_t"), "Should have IPv4 header");
+    assert!(p4_content.contains("tcp_t"), "Should have TCP header");
+    assert!(p4_content.contains("parse_ipv4"), "Should have IPv4 parser state");
+}
+
+#[test]
+fn p4_export_json() {
+    let output = pacgate_bin()
+        .args(["p4-export", "rules/examples/enterprise.yaml", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["status"], "ok");
+    assert!(json["stateless_rules"].as_u64().unwrap() > 0);
+    assert!(json["protocols"]["ipv4"].as_bool().unwrap());
+}
+
+#[test]
+fn p4_export_vxlan() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["p4-export", "rules/examples/vxlan_datacenter.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "p4-export failed: {}", String::from_utf8_lossy(&output.stderr));
+    let p4_content = std::fs::read_to_string(tmp.path().join("p4/pacgate_filter.p4")).unwrap();
+    assert!(p4_content.contains("vxlan_t"), "Should have VXLAN header");
+    assert!(p4_content.contains("parse_vxlan"), "Should have VXLAN parser state");
+}
+
+#[test]
+fn p4_export_ipv6() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["p4-export", "rules/examples/ipv6_firewall.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "p4-export failed: {}", String::from_utf8_lossy(&output.stderr));
+    let p4_content = std::fs::read_to_string(tmp.path().join("p4/pacgate_filter.p4")).unwrap();
+    assert!(p4_content.contains("ipv6_t"), "Should have IPv6 header");
+    assert!(p4_content.contains("parse_ipv6"), "Should have IPv6 parser state");
+}
+
+#[test]
+fn p4_export_rewrite() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["p4-export", "rules/examples/rewrite_actions.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "p4-export failed: {}", String::from_utf8_lossy(&output.stderr));
+    let p4_content = std::fs::read_to_string(tmp.path().join("p4/pacgate_filter.p4")).unwrap();
+    assert!(p4_content.contains("rewrite_"), "Should have rewrite actions");
+}
+
+#[test]
+fn p4_export_tcp_flags() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["p4-export", "rules/examples/tcp_flags_icmp.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "p4-export failed: {}", String::from_utf8_lossy(&output.stderr));
+    let p4_content = std::fs::read_to_string(tmp.path().join("p4/pacgate_filter.p4")).unwrap();
+    assert!(p4_content.contains("hdr.tcp.flags"), "Should have TCP flags key");
+}
+
+#[test]
+fn p4_export_arp() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["p4-export", "rules/examples/arp_security.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "p4-export failed: {}", String::from_utf8_lossy(&output.stderr));
+    let p4_content = std::fs::read_to_string(tmp.path().join("p4/pacgate_filter.p4")).unwrap();
+    assert!(p4_content.contains("arp_t"), "Should have ARP header");
+    assert!(p4_content.contains("parse_arp"), "Should have ARP parser");
+}
+
+#[test]
+fn p4_export_all_examples() {
+    // P4 export should succeed for all stateless-only examples
+    let examples = [
+        "allow_arp", "enterprise", "industrial_ot", "automotive_gateway",
+        "qos_classification", "ttl_security",
+    ];
+    for ex in &examples {
+        let tmp = tempfile::tempdir().unwrap();
+        let yaml_path = format!("rules/examples/{}.yaml", ex);
+        let output = pacgate_bin()
+            .args(["p4-export", &yaml_path, "-o", tmp.path().to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "p4-export failed for {}: {}", ex, String::from_utf8_lossy(&output.stderr));
+    }
+}
