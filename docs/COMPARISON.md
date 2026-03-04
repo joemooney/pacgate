@@ -194,6 +194,191 @@
 
 ---
 
+### 5. AMD/Xilinx Vitis Networking P4 (formerly SDNet)
+
+**What it does**: Compiles P4_16 programs into synthesizable FPGA RTL. Programs are compiled through the P4C frontend into a proprietary Xilinx Switch Architecture (XSA) — a 3-stage pipeline of Parser Engine, Match-Action Engine, and Deparser Engine. The generated IP block integrates into Vivado IP Integrator designs.
+
+**P4 language support**:
+- P4_16 (restricted subset compliant with XSA architecture — not full P4_16)
+- **Not** standard V1Model or PSA — uses proprietary XSA architecture; P4 code is not portable to BMv2, Tofino, or DPDK without modification
+- Table match types: exact (BCAM, up to 64K entries), LPM (STCAM), ternary (soft TCAM, expensive: 60-80K LUTs for 4K x 128-bit entries), direct RAM, HBM-backed BCAM for large tables
+- Built-in externs: InternetChecksum, Register, Counter, Stateful Atoms (R/W, RAW, PRAW, ifElseRAW, Sub), Timestamp, LRC
+- User externs: custom Verilog, SystemVerilog, or HLS C++ logic integrated via vitisnetp4_igr/egr_extern interfaces
+
+**FPGA targets**: Kintex/Virtex UltraScale(+), Zynq UltraScale+ (MPSoC, RFSoC), Versal (AI Core, AI Edge, HBM, Premium, Prime). Verified on Alveo U25, U50, U55C, U200, U250, U280, and SN1000/SN1022 SmartNICs.
+
+**Throughput**:
+
+| Configuration | Bus Width | Clock | Throughput |
+|---|---|---|---|
+| Standard 100G | 320-bit | ~312 MHz | 100 Gbps |
+| Recommended | 512-bit | ~450 MHz | ~230 Gbps |
+| High-performance | 1024-bit | ~400 MHz | ~400 Gbps |
+| Ultra-wide | 2048-bit | 384 MHz | ~786 Gbps peak |
+
+Line rate scaling is GUI-driven — change bus width and clock frequency without modifying P4 code. Real-world 100G demonstrated at line rate for 512-byte packets. Parser latency: 19 cycles for Eth/IPv4/IPv6/TCP/UDP at 100G; 25.6 cycles including MPLS/VLAN.
+
+**Verification**: Proprietary behavioral model (p4bm-vitisnet, similar to BMv2) for fast software simulation. Standard Vivado RTL simulation flow (ModelSim, Questa, Xcelium). No built-in formal verification, cocotb support, or automated test generation. Wireshark `.lua` dissector files generated as build artifacts.
+
+**Tooling**: Deep Vivado integration with GUI-based configuration of bus widths, clock domains, and engine types. Auto-generated control-plane SDK (host drivers, AXI-Lite register maps). Works with OpenNIC Shell and Corundum via ESnet SmartNIC reference design. Current version: 2025.2.
+
+**Licensing**: Commercial IP license, separate from (and in addition to) Vivado Design Suite license. Pricing not publicly disclosed — requires direct AMD sales engagement. Industry estimates: tens of thousands of dollars annually.
+
+**Key limitations**:
+- AMD/Xilinx FPGAs only (vendor lock-in)
+- P4 subset only, not portable to other P4 targets
+- Soft-TCAM scaling is very expensive in FPGA resources
+- P4 is stateless by default; stateful processing requires HLS/RTL externs
+- No automated test generation, formal verification, or coverage models
+- Expensive license stack (Vivado + VNP4 + hardware)
+- Requires P4, Vivado, AXI, and potentially HLS C++ expertise
+
+**Resource example**: Eth/IPv4/IPv6/TCP/UDP parser at 100G: 4,270 LUTs, 6,163 FFs, 19-cycle latency.
+
+**Sources**: [UG1308 - VNP4 User Guide](https://docs.amd.com/r/en-US/ug1308-vitis-p4-user-guide), [AMD Product Page](https://www.amd.com/en/products/adaptive-socs-and-fpgas/intellectual-property/ef-di-vitisnetp4.html), [WP555 Whitepaper](https://www.xilinx.com/content/dam/xilinx/publications/white-papers/wp555-vitis-networking-p4.pdf), [ESnet SmartNIC](https://github.com/esnet/esnet-smartnic-hw)
+
+---
+
+### 6. Corundum (Open-Source FPGA NIC)
+
+**What it does**: A complete, open-source FPGA-based NIC and in-network compute platform developed at UC San Diego by Alex Forencich et al. Provides a full NIC datapath (DMA, queues, scheduling, timestamping) with a pluggable application block for custom packet processing. Published at FCCM 2020.
+
+**Architecture**:
+- `fpga_core` (board-specific top) → `mqnic_core` (NIC core)
+  - `mqnic_ptp` / `mqnic_ptp_clock` / `mqnic_ptp_perout` — PTP subsystem
+  - `mqnic_app_block` — **pluggable custom application logic** (PacGate's `--target corundum` replaces this)
+  - `mqnic_interface` (one per OS network interface)
+    - TX: `tx_engine`, `tx_checksum`, `tx_scheduler_rr`, TDMA scheduler
+    - RX: `rx_engine`, `rx_checksum`, `rx_hash` (Toeplitz RSS)
+    - `queue_manager`, `cpl_queue_manager`, `desc_fetch`, `cpl_write`
+- Custom segmented memory interface for DMA (double PCIe AXI stream width)
+- AXI-Lite control path, AXI-Stream packet data
+- 40+ Verilog RTL modules in common library
+
+**Supported boards** (25 officially supported):
+- **Xilinx**: Alveo U50/U200/U250/U280, VCU108/VCU118/VCU1525, ZCU102/ZCU106, KR260
+- **Intel**: Stratix 10 MX/DX (Gen3/Gen4 x16), Agilex F (Gen4 x16)
+- **Third-party**: Alpha Data ADM-PCIE-9V3, BittWare XUP-P3R/250-SoC, Cisco Nexus K35-S/K3P-S/K3P-Q, Dini Group DNPCIe_40G_KU, Silicom fb2CG@KU15P, Terasic DE10-Agilex, Digilent NetFPGA SUME
+
+**Throughput**: 10G/25G (open-source MAC/PHY from `verilog-ethernet`), 100G (using Xilinx CMAC hard IP, free license). Demonstrated ~94 Gbps in published results. ~58 Mpps max for 64-byte frames (PCIe descriptor overhead limited). Multiple ports per board (up to 4x QSFP28).
+
+**DMA/PCIe**: Custom high-performance DMA engine (not Xilinx DMA IP). PCIe Gen3 x8/x16 on most boards; Gen4 x16 on Intel Stratix 10 DX, Agilex F. Scatter/gather DMA, MSI interrupts, dedicated application BAR.
+
+**Key features**: IEEE 1588 PTP hardware timestamping (nanosecond precision), TDMA scheduling, Toeplitz RSS hashing, TX/RX checksum offload, 1000+ individually-controllable queues (BRAM/URAM), multiple OS-level interfaces per NIC.
+
+**Verification**: Full-system cocotb simulation with PCIe/Ethernet/AXI simulation models (`cocotbext-pcie`, `cocotbext-eth`, `cocotbext-axi` — all by Forencich). Icarus Verilog as primary simulator. No formal verification, SVA assertions, or mutation testing.
+
+**Extensibility** (`mqnic_app_block`): Three streaming interfaces — Direct (MAC-synchronous, lowest latency), Sync (datapath-synchronous), Interface (highest-level with queue integration). Plus AXI-Lite registers and DMA access. User logic replaces the default app block via build system.
+
+**What Corundum does NOT include**: No packet parser/classifier, no TCAM/LPM/exact-match tables, no packet filtering or firewall rules, no packet rewrite/NAT, no connection tracking, no rate limiting. These must be implemented in the application block.
+
+**License**: BSD-2-Clause-Views (very permissive). 10G/25G MAC/PHY is also open-source. 100G CMAC requires free Xilinx license.
+
+**Community**: ~2.2K GitHub stars, ~514 forks. BittWare offers commercial support. Used as base platform in numerous academic papers. CERN White Rabbit PTP integration (2024).
+
+**Sources**: [GitHub](https://github.com/corundum/corundum), [Documentation](https://docs.corundum.io/), [FCCM 2020 Paper](https://cseweb.ucsd.edu/~snoeren/papers/corundum-fccm20.pdf), [FOSDEM 2022](https://archive.fosdem.org/2022/schedule/event/corundum/)
+
+---
+
+### 7. FlowBlaze (Stateful FPGA Packet Processor)
+
+**What it does**: FlowBlaze implements an Extended Finite State Machine (EFSM) abstraction for stateful packet processing on FPGA. It provides a pipeline of stateless and stateful match-action elements, enabling per-flow state tracking directly in the FPGA data plane. Published at NSDI 2019.
+
+**Architecture**: Each stateful element contains:
+- **Flow Context Table**: per-flow state in BRAM (128-bit key + 146-bit value: 16-bit state label + 4x 32-bit registers + flags). Scales to hundreds of thousands of flows on Virtex-7.
+- **EFSM Table**: 32-entry x 160-bit TCAM mapping (current_state, conditions) → (next_state, actions). The 32-entry limit reflects TCAM cost on FPGAs.
+- **Update Function**: crossbar-based operand selection from registers, header fields, and constants for state transitions.
+
+Pipeline provides 1, 2, or 5 configurable stages. A round-robin PHV scheduler ensures flow state consistency. Stateless elements are equivalent to standard match-action tables (like P4/RMT).
+
+**Demonstrated use cases**: Port knocking (multi-step firewall), stateful firewall (connection tracking), heavy hitter detection (flow volume monitoring), MAC learning (dynamic L2 forwarding).
+
+**FPGA target**: NetFPGA SUME only (Xilinx Virtex-7 XC7VX690T). No ports to Alveo, UltraScale+, or any other platform.
+
+**Throughput**: 40 Gbps aggregate (4x 10G ports at line rate). 156.25 MHz clock. Performance independent of active flow count.
+
+**Programming**: Three interfaces — XL Toolchain (Java CLI compiler for `.xl` files), FlowBlaze.p4 GUI (Python visual EFSM editor → P4 table entries), ONOS SDN controller integration.
+
+**Verification**: Minimal — live traffic testing only. No automated tests, formal verification, assertions, or coverage models. Described as research prototype.
+
+**Status (2025)**: **Effectively abandoned** — last commit February 2019 (27 total commits). Requires Vivado 2016.4 (9 years old). No license file in repository. NetFPGA SUME hardware is discontinued.
+
+**Key limitations**: Discontinued hardware, stale codebase (7 years), 32-entry EFSM table limit, limited actions, no verification infrastructure, single FPGA target, 10G per port, research prototype only.
+
+**Sources**: [GitHub](https://github.com/axbryd/FlowBlaze), [NSDI 2019 Paper](https://www.usenix.org/conference/nsdi19/presentation/pontarelli), [FlowBlaze.p4](https://github.com/ANTLab-polimi/flowblaze.p4)
+
+---
+
+### 8. OpenNIC Shell (AMD/Xilinx)
+
+**What it does**: An FPGA-based NIC platform providing a complete shell design with PCIe host interface (QDMA) and dual 100G Ethernet (CMAC), consuming only ~5% of FPGA resources (LUTs/BRAMs on U250) and leaving ~95% for user logic.
+
+**Architecture**: Three clock domains:
+- **322 MHz** (`cmac_clk`): CMAC Ethernet subsystem — dual 100G MACs with RS-FEC, jumbo frames up to 9600 bytes, 150 Mpps worst-case
+- **250 MHz** (`axis_clk`): QDMA PCIe subsystem — up to 4 physical functions, 2048 total queues
+- **125 MHz** (`axil_clk`): AXI-Lite control registers via BAR2
+
+Packet Adapter bridges 250↔322 MHz clock domains with FIFO buffering and back-pressure.
+
+**Supported boards**: Alveo U45N, U50, U55N, U55C, U200, U250, U280.
+
+**Throughput**: 2x 100 Gbps Ethernet (200 Gbps aggregate). QDMA cannot sustain full 150 Mpps at minimum packet size. Kernel driver limited to ~10-20 Gbps; DPDK driver achieves near 100 Gbps.
+
+**User plugin model**: Two user logic boxes — `box_322mhz` (network-side, line-rate) and `box_250mhz` (host-side). Each provides AXI-Stream TX/RX pairs, AXI-Lite registers, and TUSER metadata (packet size, source/destination port ID). Users supply plugins via `-user_plugin` build argument.
+
+**DMA/PCIe**: Xilinx QDMA IP with multi-queue architecture. Up to 4 physical functions. 4 KB max DMA packet size. No SR-IOV or virtual functions in v1.0.
+
+**Verification**: cocotb + ModelSim behavioral simulation. No formal verification, SVA assertions, or automated test generation.
+
+**ESnet SmartNIC fork**: Actively maintained fork adding P4-programmable processing via Vitis Networking P4, DPDK-pktgen integration, probe counters, Docker-based toolchain. Supports Vivado 2023.2.2.
+
+**License**: Apache 2.0 (shell), GPL 2.0 (kernel driver). Requires Vivado (commercial).
+
+**Key limitations**: Vivado-only (no Yosys), 4 KB DMA packet size limit, no partial reconfiguration, no virtual functions, no on-board memory access, last shell commit February 2023, Vivado version compatibility issues reported with 2024.2.
+
+**Sources**: [GitHub - open-nic-shell](https://github.com/Xilinx/open-nic-shell), [OpenNIC Project](https://github.com/Xilinx/open-nic), [ESnet SmartNIC](https://github.com/esnet/esnet-smartnic-hw), [FAQ](https://github.com/Xilinx/open-nic/blob/main/FAQ.md)
+
+---
+
+### 9. EDA Verification Tools
+
+PacGate generates verification artifacts (tests, assertions, coverage) automatically. Commercial EDA tools provide far more powerful verification engines but require manual effort to create verification environments.
+
+**Siemens Questa One** (formerly Mentor ModelSim/Questa):
+- ParallelSim: smart auto-partitioning for multi-core simulation (8x DFT speedup)
+- Questa Formal: SVA/PSL assertion-based formal verification with IP-level signoff
+- AI/ML suite: **Property Assist** (LLM converts English → SVA), Smart Creation (auto-generates testbenches/assertions), Regression Navigator (AI test prioritization), Smart Debug (ML root cause analysis), Agentic AI Toolkit (Feb 2026, NVIDIA Llama-based)
+- Unified coverage merging simulation + formal + emulation metrics
+- Cost: ~$50K-$150K+/seat/year
+
+**Synopsys VCS**:
+- Fine-Grained Parallelism (FGP): native multi-core simulation; add cores at runtime
+- VC Formal: exhaustive formal with ML-driven solver selection (10x speedup)
+- **VSO.ai**: industry's first AI-driven verification — NVIDIA case study showed 33% more coverage in same test runs, 5x regression reduction
+- Intelligent Coverage Optimization (ICO): reinforcement learning for coverage closure
+- Xpropagation for security verification
+- Cost: ~$50K-$200K+/seat/year
+
+**Cadence Xcelium + JasperGold**:
+- First production-proven parallel simulator (3x RTL, 5x gate-level, 10x DFT speedup)
+- Distributed multi-machine simulation (Xcelium 25.09)
+- Xcelium ML: iterative learning over regressions for 5x faster verification closure
+- JasperGold: ML-driven Smart Proof Technology, 2x compilation capacity
+- SimAI: "cousin bug hunting" using failure patterns to find similar bugs
+- Cost: ~$50K-$150K+/seat/year
+
+**Agnisys IDS** (spec-driven register verification):
+- IDS-Verify: takes register specs (natural language, spreadsheet, IP-XACT, SystemRDL) and generates complete UVM testbenches, SVA assertions, Makefiles — claims 100% register coverage "out of the box"
+- IDS-Validate: extends to functional tests for custom design blocks
+- **iSpec.ai**: LLM converts natural language → SVA using fine-tuned models
+- Closest philosophical match to PacGate's "single-spec, dual-output" approach — but for register verification, not packet processing
+
+**Key comparison with PacGate**: EDA tools are horizontal platforms for any ASIC/SoC, costing $50K-$200K+/year per seat. PacGate is a vertical tool specialized for packet filtering — it generates both the design AND verification from YAML, at zero per-seat cost for open-source simulators (Icarus + Yosys). The trade-off: EDA tools offer vastly more powerful simulation/formal engines but require manual testbench creation; PacGate auto-generates everything but relies on simpler simulation infrastructure.
+
+**Sources**: [Siemens Questa One](https://news.siemens.com/en-us/siemens-questa-one/), [Synopsys VCS](https://www.synopsys.com/verification/simulation/vcs.html), [Synopsys VSO.ai](https://www.synopsys.com/ai/ai-powered-eda/vso-ai.html), [Cadence Xcelium](https://www.cadence.com/en_US/home/tools/system-design-and-verification/simulation-and-testbench-verification/xcelium-simulator.html), [JasperGold](https://www.cadence.com/en_US/home/tools/system-design-and-verification/formal-and-static-verification/jasper-verification-platform.html), [Agnisys IDS](https://www.agnisys.com/products/ids-verify/), [Agnisys iSpec.ai](https://www.agnisys.com/blog/unlocking-the-power-of-system-verilog-assertions-with-ispec-ai/)
+
+---
+
 ## Core Feature Comparison
 
 ### Input & Output
