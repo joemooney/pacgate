@@ -158,6 +158,8 @@ class Rule:
     rss_queue: Optional[int] = None
     # Flow counters (hardware feature — does not affect pass/drop matching)
     enable_flow_counters: bool = False
+    # INT telemetry (sideband — does not affect pass/drop matching)
+    int_insert: bool = False
 
     def matches(self, frame: EthernetFrame, extracted: Optional[dict] = None) -> bool:
         """Check if this rule matches the given frame.
@@ -557,6 +559,19 @@ class PacketFilterScoreboard:
         dst_port = ext.get("dst_port", 0)
         ip_protocol = ext.get("ip_protocol", 0)
         return compute_rss_queue(src_ip, dst_ip, src_port, dst_port, ip_protocol, num_queues)
+
+    def predict_int(self, frame: EthernetFrame, extracted: Optional[dict] = None) -> bool:
+        """Predict whether INT metadata insertion is enabled for a frame.
+
+        Returns True if the matched rule has int_insert=True, False otherwise.
+        """
+        _, matched_rule_name = self.predict(frame, extracted)
+        if matched_rule_name == "__default__":
+            return False
+        for rule in self.rules:
+            if rule.name == matched_rule_name:
+                return rule.int_insert
+        return False
 
     def report(self) -> str:
         """Generate scoreboard summary report."""

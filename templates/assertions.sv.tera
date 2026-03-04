@@ -691,6 +691,35 @@ module packet_filter_assertions (
 {% endfor %}
 {% endif %}
 
+{% if has_int %}
+    // ── INT (In-band Network Telemetry) Assertions ──────────────────────
+    // INT metadata is sideband output; int_valid must only assert when
+    // a matching rule has int_insert enabled and the packet is passed.
+
+    // INT metadata valid implies a pass decision
+    assert_int_implies_pass: assert property (@(posedge clk) disable iff (!rst_n)
+        (int_valid |-> decision_pass))
+        else $error("ASSERT FAIL: int_valid asserted but decision is not pass");
+
+    // INT metadata valid implies decision valid
+    assert_int_implies_decision: assert property (@(posedge clk) disable iff (!rst_n)
+        (int_valid |-> decision_valid))
+        else $error("ASSERT FAIL: int_valid asserted without decision_valid");
+
+    // Cover: INT metadata output seen
+    cover_int_valid: cover property (@(posedge clk) disable iff (!rst_n) int_valid);
+
+    // Cover: INT with non-zero switch_id
+    cover_int_switch_id: cover property (@(posedge clk) disable iff (!rst_n)
+        int_valid && (int_switch_id != 16'd0));
+
+    // Cover: each INT rule exercised
+{% for idx in int_rule_indices %}
+    cover_int_rule_{{ idx }}: cover property (@(posedge clk) disable iff (!rst_n)
+        match_hit_{{ idx }});
+{% endfor %}
+{% endif %}
+
 {% if has_conntrack_state %}
     // ── Connection Tracking State Cover Properties ──────────────────────
     // conntrack_established is a 1-bit signal from the conntrack table.

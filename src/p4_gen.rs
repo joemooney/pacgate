@@ -72,6 +72,7 @@ pub struct P4Protocols {
     pub has_conntrack: bool,
     pub has_rate_limit: bool,
     pub has_rss: bool,
+    pub has_int: bool,
 }
 
 /// Rewrite action for P4 generation
@@ -182,6 +183,7 @@ pub fn generate_p4_summary(config: &FilterConfig) -> serde_json::Value {
             "ptp": protocols.has_ptp,
             "qinq": protocols.has_qinq,
             "rss": protocols.has_rss,
+            "int": protocols.has_int,
         },
         "unsupported_features": unsupported,
     })
@@ -205,6 +207,7 @@ fn detect_protocols(config: &FilterConfig) -> P4Protocols {
     let mut has_icmpv6 = false;
     let mut has_oam = false;
     let mut has_rss = false;
+    let mut has_int = false;
     let mut has_nsh = false;
     let mut has_ptp = false;
     let mut has_qinq = false;
@@ -248,6 +251,7 @@ fn detect_protocols(config: &FilterConfig) -> P4Protocols {
 
         if rule.rate_limit.is_some() { has_rate_limit = true; }
         if rule.rss_queue.is_some() { has_rss = true; }
+        if rule.has_int_insert() { has_int = true; }
 
         // L4 protocol detection from ip_protocol
         if let Some(proto) = mc.ip_protocol {
@@ -262,6 +266,7 @@ fn detect_protocols(config: &FilterConfig) -> P4Protocols {
         has_ipv4, has_ipv6, has_tcp, has_udp, has_vlan, has_vxlan,
         has_gtp, has_mpls, has_gre, has_geneve, has_arp, has_icmp,
         has_icmpv6, has_oam, has_nsh, has_ptp, has_qinq, has_conntrack, has_rate_limit, has_rss,
+        has_int,
     }
 }
 

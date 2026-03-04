@@ -264,6 +264,11 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
             tc.insert("redirect_port".to_string(), rp.to_string());
             tc.insert("has_redirect".to_string(), "true".to_string());
         }
+        // INT telemetry (informational)
+        if rule.has_int_insert() {
+            tc.insert("int_insert".to_string(), "true".to_string());
+            tc.insert("has_int".to_string(), "true".to_string());
+        }
         test_cases.push(tc);
     }
 
@@ -549,6 +554,10 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         if let Some(q) = rule.rss_queue {
             sr.insert("rss_queue".to_string(), q.to_string());
         }
+        // INT telemetry scoreboard field
+        if rule.has_int_insert() {
+            sr.insert("int_insert".to_string(), "true".to_string());
+        }
         scoreboard_rules.push(sr);
     }
 
@@ -592,6 +601,7 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         ctx.insert("has_mirror_rules", &rules.iter().any(|r| r.has_mirror()));
         ctx.insert("has_redirect_rules", &rules.iter().any(|r| r.has_redirect()));
         ctx.insert("has_rss_rules", &rules.iter().any(|r| r.has_rss_queue()));
+        ctx.insert("has_int_rules", &rules.iter().any(|r| r.has_int_insert()));
         ctx.insert("has_flow_counters", &config.pacgate.conntrack.as_ref()
             .and_then(|c| c.enable_flow_counters)
             .unwrap_or(false));

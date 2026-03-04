@@ -632,6 +632,35 @@ pub fn generate_mutations(config: &FilterConfig) -> Vec<(Mutation, FilterConfig)
         }
     }
 
+    // Mutation 40: Remove int_insert
+    for (i, rule) in config.pacgate.rules.iter().enumerate() {
+        if rule.has_int_insert() {
+            let mut mutated = config.clone();
+            mutated.pacgate.rules[i].int_insert = None;
+            mutations.push((Mutation {
+                name: format!("remove_int_insert_{}", rule.name),
+                description: format!("Remove int_insert from rule '{}'", rule.name),
+                mutant_index: index,
+            }, mutated));
+            index += 1;
+        }
+    }
+
+    // Mutation 41: Toggle int_insert
+    for (i, rule) in config.pacgate.rules.iter().enumerate() {
+        if rule.int_insert.is_some() {
+            let new_val = !rule.has_int_insert();
+            let mut mutated = config.clone();
+            mutated.pacgate.rules[i].int_insert = Some(new_val);
+            mutations.push((Mutation {
+                name: format!("toggle_int_insert_{}", rule.name),
+                description: format!("Toggle int_insert to {} in rule '{}'", new_val, rule.name),
+                mutant_index: index,
+            }, mutated));
+            index += 1;
+        }
+    }
+
     mutations
 }
 

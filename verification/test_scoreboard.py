@@ -622,6 +622,51 @@ class TestRssQueueAssignment:
         assert 0 <= q < 4
 
 
+class TestINTScoreboard:
+    """Tests for INT (In-band Network Telemetry) prediction."""
+
+    def test_int_insert_true(self):
+        rule = Rule(name="int_web", priority=100, action="pass",
+                    ethertype=0x0800, int_insert=True)
+        sb = PacketFilterScoreboard(rules=[rule], default_action="drop")
+        frame = _make_frame(ethertype=0x0800)
+        assert sb.predict_int(frame) is True
+
+    def test_int_insert_false(self):
+        rule = Rule(name="no_int", priority=100, action="pass",
+                    ethertype=0x0800, int_insert=False)
+        sb = PacketFilterScoreboard(rules=[rule], default_action="drop")
+        frame = _make_frame(ethertype=0x0800)
+        assert sb.predict_int(frame) is False
+
+    def test_int_insert_default(self):
+        rule = Rule(name="plain", priority=100, action="pass",
+                    ethertype=0x0800)
+        sb = PacketFilterScoreboard(rules=[rule], default_action="drop")
+        frame = _make_frame(ethertype=0x0800)
+        assert sb.predict_int(frame) is False
+
+    def test_int_insert_no_match(self):
+        rule = Rule(name="int_web", priority=100, action="pass",
+                    ethertype=0x0800, int_insert=True)
+        sb = PacketFilterScoreboard(rules=[rule], default_action="drop")
+        frame = _make_frame(ethertype=0x86DD)
+        assert sb.predict_int(frame) is False
+
+    def test_int_insert_mixed_rules(self):
+        rules = [
+            Rule(name="int_rule", priority=200, action="pass",
+                 ethertype=0x0800, int_insert=True),
+            Rule(name="no_int_rule", priority=100, action="pass",
+                 ethertype=0x86DD, int_insert=False),
+        ]
+        sb = PacketFilterScoreboard(rules=rules, default_action="drop")
+        frame_v4 = _make_frame(ethertype=0x0800)
+        frame_v6 = _make_frame(ethertype=0x86DD)
+        assert sb.predict_int(frame_v4) is True
+        assert sb.predict_int(frame_v6) is False
+
+
 if __name__ == "__main__":
     import pytest
     pytest.main([__file__, "-v"])

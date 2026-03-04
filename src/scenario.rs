@@ -5,7 +5,7 @@
 //! Calls `simulator::simulate()` directly instead of shelling out to the binary.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 use anyhow::{bail, Context, Result};
@@ -458,16 +458,13 @@ pub fn export_scenarios(store_path: &Path, out_dir: &Path) -> Result<serde_json:
 
 pub fn run_regress(
     scenario: &Scenario,
+    scenario_path: Option<&Path>,
     count: usize,
     json_output: bool,
 ) -> Result<serde_json::Value> {
-    let rules_file = scenario
-        .default_rules_file
-        .as_deref()
-        .unwrap_or("rules/examples/allow_arp.yaml");
-
-    let config = loader::load_rules(Path::new(rules_file))
-        .with_context(|| format!("Failed to load rules: {}", rules_file))?;
+    let rules_path = resolve_rules_path(scenario, scenario_path)?;
+    let config = loader::load_rules(&rules_path)
+        .with_context(|| format!("Failed to load rules: {}", rules_path.display()))?;
 
     let events = &scenario.events;
     let mut mismatches = 0;
@@ -603,7 +600,11 @@ fn lookup_egress(ports: &[PortCfg], ingress: u32, dst_ip: Option<&str>) -> Optio
     None
 }
 
-pub fn run_topology(scenario: &Scenario, json_output: bool) -> Result<serde_json::Value> {
+pub fn run_topology(
+    scenario: &Scenario,
+    scenario_path: Option<&Path>,
+    json_output: bool,
+) -> Result<serde_json::Value> {
     let topo = scenario
         .topology
         .as_ref()
@@ -622,13 +623,9 @@ pub fn run_topology(scenario: &Scenario, json_output: bool) -> Result<serde_json
     }
     let by_id: HashMap<u32, usize> = ports.iter().enumerate().map(|(i, p)| (p.id, i)).collect();
 
-    let rules_file = scenario
-        .default_rules_file
-        .as_deref()
-        .unwrap_or("rules/examples/allow_arp.yaml");
-
-    let config = loader::load_rules(Path::new(rules_file))
-        .with_context(|| format!("Failed to load rules: {}", rules_file))?;
+    let rules_path = resolve_rules_path(scenario, scenario_path)?;
+    let config = loader::load_rules(&rules_path)
+        .with_context(|| format!("Failed to load rules: {}", rules_path.display()))?;
 
     // Set up stateful state if needed
     let mut rate_state = simulator::SimRateLimitState::new(&config);
@@ -839,6 +836,73 @@ fn inc_drop_reason(stats: &mut serde_json::Value, reason: &str) {
     stats["switch_drop_reasons"][reason] = serde_json::json!(val);
 }
 
+fn resolve_rules_path(scenario: &Scenario, scenario_path: Option<&Path>) -> Result<PathBuf> {
+    let configured = scenario
+        .default_rules_file
+        .as_deref()
+        .unwrap_or("rules/examples/allow_arp.yaml");
+    let configured_path = Path::new(configured);
+    if configured_path.is_absolute() {
+        if configured_path.exists() {
+            return Ok(configured_path.to_path_buf());
+        }
+        bail!("Rules file not found: {}", configured_path.display());
+    }
+
+    let mut tried = Vec::new();
+
+    if let Some(sp) = scenario_path {
+        if let Some(parent) = sp.parent() {
+            let candidate = parent.join(configured_path);
+            if candidate.exists() {
+                return Ok(candidate);
+            }
+            tried.push(candidate);
+        }
+    }
+
+    let cwd_candidate = PathBuf::from(configured_path);
+    if cwd_candidate.exists() {
+        return Ok(cwd_candidate);
+    }
+    tried.push(cwd_candidate);
+
+    if let Ok(root) = std::env::var("PACGATE_ROOT") {
+        let candidate = Path::new(&root).join(configured_path);
+        if candidate.exists() {
+            return Ok(candidate);
+        }
+        tried.push(candidate);
+    }
+
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(bin_dir) = exe.parent() {
+            let candidate = bin_dir
+                .join("..")
+                .join("..")
+                .join(configured_path);
+            if candidate.exists() {
+                return Ok(candidate);
+            }
+            tried.push(candidate);
+        }
+    }
+
+    let mut tried_text = String::new();
+    for (idx, path) in tried.iter().enumerate() {
+        if idx > 0 {
+            tried_text.push_str(", ");
+        }
+        tried_text.push_str(&path.display().to_string());
+    }
+
+    bail!(
+        "Rules file '{}' not found (tried: {})",
+        configured,
+        tried_text
+    );
+}
+
 // ── Unit tests ─────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -975,6 +1039,62 @@ mod tests {
         assert_eq!(parsed.id, "test_store");
         assert_eq!(parsed.events.len(), 1);
         assert_eq!(parsed.tags, vec!["test"]);
+    }
+
+    #[test]
+    fn test_resolve_rules_path_prefers_scenario_relative() {
+        let tmp = tempfile::tempdir().unwrap();
+        let scenario_dir = tmp.path().join("scenarios");
+        let rules_dir = scenario_dir.join("rules/examples");
+        std::fs::create_dir_all(&rules_dir).unwrap();
+        let rules_file = rules_dir.join("allow_arp.yaml");
+        std::fs::write(
+            &rules_file,
+            "pacgate:\n  version: \"1.0\"\n  defaults:\n    action: drop\n  rules:\n    - name: allow_arp\n      priority: 100\n      match:\n        ethertype: \"0x0806\"\n      action: pass\n",
+        )
+        .unwrap();
+        let scenario_file = scenario_dir.join("scenario.json");
+
+        let scenario = Scenario {
+            id: "s".into(),
+            name: "Scenario".into(),
+            schema_version: None,
+            description: None,
+            default_rules_file: Some("rules/examples/allow_arp.yaml".into()),
+            stateful: false,
+            tags: vec![],
+            events: vec![],
+            topology: None,
+        };
+
+        let resolved = resolve_rules_path(&scenario, Some(&scenario_file)).unwrap();
+        assert_eq!(resolved, rules_file);
+    }
+
+    #[test]
+    fn test_resolve_rules_path_uses_pacgate_root_env() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rules_dir = tmp.path().join("custom_rules");
+        std::fs::create_dir_all(&rules_dir).unwrap();
+        let rules_file = rules_dir.join("allow_arp.yaml");
+        std::fs::write(&rules_file, "dummy").unwrap();
+
+        std::env::set_var("PACGATE_ROOT", tmp.path());
+        let scenario = Scenario {
+            id: "s".into(),
+            name: "Scenario".into(),
+            schema_version: None,
+            description: None,
+            default_rules_file: Some("custom_rules/allow_arp.yaml".into()),
+            stateful: false,
+            tags: vec![],
+            events: vec![],
+            topology: None,
+        };
+        let resolved = resolve_rules_path(&scenario, None).unwrap();
+        std::env::remove_var("PACGATE_ROOT");
+
+        assert_eq!(resolved, rules_file);
     }
 
     #[test]

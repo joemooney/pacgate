@@ -1818,6 +1818,7 @@ fn generate_rule_documentation(
         if let Some(dom) = rule.match_criteria.ptp_domain { match_fields.push(format!("ptp_domain: {}", dom)); }
         if let Some(ver) = rule.match_criteria.ptp_version { match_fields.push(format!("ptp_version: {}", ver)); }
         if let Some(q) = rule.rss_queue { match_fields.push(format!("rss_queue: {}", q)); }
+        if rule.has_int_insert() { match_fields.push("int_insert: true".to_string()); }
         if let Some(ref bms) = rule.match_criteria.byte_match {
             for bm in bms {
                 match_fields.push(format!("byte_match: offset={}, value={}, mask={}", bm.offset, bm.value, bm.mask.as_deref().unwrap_or("FF")));
@@ -2157,6 +2158,9 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
     // RSS queue stats
     let uses_rss_queue = config.pacgate.rules.iter().filter(|r| r.rss_queue.is_some()).count();
 
+    // INT stats
+    let uses_int_insert = config.pacgate.rules.iter().filter(|r| r.has_int_insert()).count();
+
     // Priority spacing
     let mut priorities: Vec<u32> = all_rules.iter().map(|r| r.priority).collect();
     priorities.sort();
@@ -2234,6 +2238,9 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
         },
         "rss": {
             "rules_with_rss_queue": uses_rss_queue,
+        },
+        "int": {
+            "rules_with_int_insert": uses_int_insert,
         },
         "flow_counters": {
             "enabled": model::StatelessRule::has_flow_counters(&config.pacgate),
@@ -2474,6 +2481,15 @@ fn print_stats(config: &model::FilterConfig) {
         println!("  rss_queue    [{:>2}/{}] |{}|", uses_rss_queue_txt, total, bar(uses_rss_queue_txt));
     }
 
+    // INT stats
+    let uses_int_insert_txt = config.pacgate.rules.iter().filter(|r| r.has_int_insert()).count();
+    if uses_int_insert_txt > 0 {
+        let bar = |n: usize| "#".repeat(n).to_string() + &" ".repeat(total.saturating_sub(n));
+        println!();
+        println!("  INT Telemetry:");
+        println!("  int_insert   [{:>2}/{}] |{}|", uses_int_insert_txt, total, bar(uses_int_insert_txt));
+    }
+
     // Flow counters
     if model::StatelessRule::has_flow_counters(&config.pacgate) {
         println!();
@@ -2605,6 +2621,7 @@ fn print_dot_graph(config: &model::FilterConfig) {
         if let Some(port) = rule.mirror_port { criteria.push(format!("mirror→{}", port)); }
         if let Some(port) = rule.redirect_port { criteria.push(format!("redirect→{}", port)); }
         if let Some(q) = rule.rss_queue { criteria.push(format!("rss_q={}", q)); }
+        if rule.has_int_insert() { criteria.push("INT".to_string()); }
 
         let criteria_str = if criteria.is_empty() { "any".to_string() } else { criteria.join("\\n") };
         let action_str = match &rule.action {
@@ -2906,6 +2923,10 @@ fn diff_rules(old: &model::FilterConfig, new: &model::FilterConfig, json: bool) 
                 if old_rule.rss_queue != new_rule.rss_queue {
                     changes.push(format!("rss_queue: {:?} -> {:?}",
                         old_rule.rss_queue, new_rule.rss_queue));
+                }
+                if old_rule.int_insert != new_rule.int_insert {
+                    changes.push(format!("int_insert: {:?} -> {:?}",
+                        old_rule.int_insert, new_rule.int_insert));
                 }
 
                 if changes.is_empty() {
@@ -3716,6 +3737,13 @@ fn compute_resource_estimate(config: &model::FilterConfig) -> serde_json::Value 
         rule_ffs += 64;
     }
 
+    // INT: +150 LUTs for metadata capture + 96 FFs for timestamp/state + 5 LUTs per INT-enabled rule
+    let int_rules = all_rules.iter().filter(|r| r.has_int_insert()).count();
+    if int_rules > 0 {
+        rule_luts += 150 + int_rules * 5;
+        rule_ffs += 96;
+    }
+
     // Egress LUT: +4 LUTs per rule with mirror/redirect (8-bit port + valid per action)
     let egress_rules = all_rules.iter()
         .filter(|r| r.mirror_port.is_some() || r.redirect_port.is_some())
@@ -3900,6 +3928,13 @@ fn print_resource_estimate(config: &model::FilterConfig) {
     if rss_override_rules_txt > 0 {
         rule_luts += 200 + rss_override_rules_txt * 10;
         rule_ffs += 64;
+    }
+
+    // INT: +150 LUTs for metadata capture + 96 FFs for timestamp/state + 5 LUTs per INT-enabled rule
+    let int_rules_txt = rules.iter().filter(|r| r.has_int_insert()).count();
+    if int_rules_txt > 0 {
+        rule_luts += 150 + int_rules_txt * 5;
+        rule_ffs += 96;
     }
 
     // Rate limiter: +50 LUTs, +64 FFs per rate-limited rule
@@ -4900,6 +4935,32 @@ fn lint_rules(config: &model::FilterConfig, warnings: &[String], dynamic: bool, 
             "code": "LINT055",
             "message": "RSS queue assignment requires --axi flag (RSS indirection table uses AXI-Lite CSR interface)",
             "suggestion": "Use --axi --rss flags together when compiling"
+        }));
+    }
+
+    // LINT056: int_insert without --int flag
+    let has_any_int_insert = config.pacgate.rules.iter().any(|r| r.has_int_insert());
+    if has_any_int_insert {
+        for rule in &config.pacgate.rules {
+            if rule.has_int_insert() {
+                findings.push(serde_json::json!({
+                    "level": "warning",
+                    "code": "LINT056",
+                    "rule": rule.name,
+                    "message": format!("Rule '{}' has int_insert: true — requires --int flag at compile time", rule.name),
+                    "suggestion": "Use --int flag when compiling to enable INT metadata capture"
+                }));
+            }
+        }
+    }
+
+    // LINT057: --int requires --axi (INT metadata uses AXI output ports)
+    if has_any_int_insert {
+        findings.push(serde_json::json!({
+            "level": "info",
+            "code": "LINT057",
+            "message": "INT telemetry requires --axi flag (INT metadata module uses AXI-Lite CSR interface)",
+            "suggestion": "Use --axi --int flags together when compiling"
         }));
     }
 
