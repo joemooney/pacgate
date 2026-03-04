@@ -68,6 +68,8 @@ pub struct P4Protocols {
     pub has_oam: bool,
     pub has_nsh: bool,
     pub has_qinq: bool,
+    pub has_conntrack: bool,
+    pub has_rate_limit: bool,
 }
 
 /// Rewrite action for P4 generation
@@ -103,12 +105,18 @@ pub fn generate_p4(config: &FilterConfig, templates_dir: &Path, output_dir: &Pat
     // Default action
     let default_pass = config.pacgate.defaults.action == Action::Pass;
     ctx.insert("default_pass", &default_pass);
-    ctx.insert("num_rules", &config.pacgate.rules.len());
+    ctx.insert("num_rules", &config.all_rules().len());
 
     // Rewrite actions
     let rewrite_actions = build_rewrite_actions(config);
     ctx.insert("has_rewrite", &!rewrite_actions.is_empty());
     ctx.insert("rewrite_actions", &rewrite_actions);
+
+    // Stateful P4 externs
+    ctx.insert("has_conntrack", &protocols.has_conntrack);
+    ctx.insert("has_rate_limit", &protocols.has_rate_limit);
+    ctx.insert("is_pipeline", &config.is_pipeline());
+    ctx.insert("stage_count", &config.stage_count());
 
     // Generate P4 program
     let rendered = tera.render("p4_program.p4.tera", &ctx)?;
@@ -122,9 +130,10 @@ pub fn generate_p4(config: &FilterConfig, templates_dir: &Path, output_dir: &Pat
 pub fn generate_p4_summary(config: &FilterConfig) -> serde_json::Value {
     let protocols = detect_protocols(config);
     let keys = collect_table_keys(config).unwrap_or_default();
-    let has_stateful = config.pacgate.rules.iter().any(|r| r.is_stateful());
-    let has_rewrite = config.pacgate.rules.iter().any(|r| r.has_rewrite());
-    let has_byte_match = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_byte_match());
+    let all_rules = config.all_rules();
+    let has_stateful = all_rules.iter().any(|r| r.is_stateful());
+    let has_rewrite = all_rules.iter().any(|r| r.has_rewrite());
+    let has_byte_match = all_rules.iter().any(|r| r.match_criteria.uses_byte_match());
 
     let mut unsupported: Vec<String> = Vec::new();
     if has_stateful {
@@ -134,13 +143,24 @@ pub fn generate_p4_summary(config: &FilterConfig) -> serde_json::Value {
         unsupported.push("byte_match requires custom P4 extern or header field mapping".to_string());
     }
 
+    let mut p4_externs: Vec<String> = Vec::new();
+    if protocols.has_conntrack {
+        p4_externs.push("Register (conntrack state tracking)".to_string());
+    }
+    if protocols.has_rate_limit {
+        p4_externs.push("Meter (per-rule rate limiting)".to_string());
+    }
+
     serde_json::json!({
         "status": "ok",
-        "rules_count": config.pacgate.rules.len(),
-        "stateless_rules": config.pacgate.rules.iter().filter(|r| !r.is_stateful()).count(),
-        "stateful_rules": config.pacgate.rules.iter().filter(|r| r.is_stateful()).count(),
+        "rules_count": all_rules.len(),
+        "stateless_rules": all_rules.iter().filter(|r| !r.is_stateful()).count(),
+        "stateful_rules": all_rules.iter().filter(|r| r.is_stateful()).count(),
         "table_keys": keys.len(),
         "has_rewrite": has_rewrite,
+        "is_pipeline": config.is_pipeline(),
+        "stage_count": config.stage_count(),
+        "p4_externs": p4_externs,
         "protocols": {
             "ipv4": protocols.has_ipv4,
             "ipv6": protocols.has_ipv6,
@@ -163,9 +183,9 @@ pub fn generate_p4_summary(config: &FilterConfig) -> serde_json::Value {
     })
 }
 
-/// Detect which protocols are used across all rules
+/// Detect which protocols are used across all rules (pipeline-aware)
 fn detect_protocols(config: &FilterConfig) -> P4Protocols {
-    let rules = &config.pacgate.rules;
+    let all_rules = config.all_rules();
     let mut has_ipv4 = false;
     let mut has_ipv6 = false;
     let mut has_tcp = false;
@@ -182,8 +202,10 @@ fn detect_protocols(config: &FilterConfig) -> P4Protocols {
     let mut has_oam = false;
     let mut has_nsh = false;
     let mut has_qinq = false;
+    let mut has_conntrack = false;
+    let mut has_rate_limit = false;
 
-    for rule in rules {
+    for rule in &all_rules {
         let mc = &rule.match_criteria;
 
         if mc.src_ip.is_some() || mc.dst_ip.is_some() || mc.ip_protocol.is_some()
@@ -197,6 +219,7 @@ fn detect_protocols(config: &FilterConfig) -> P4Protocols {
         if mc.ethertype.as_deref() == Some("0x86DD") { has_ipv6 = true; }
 
         if mc.tcp_flags.is_some() || mc.conntrack_state.is_some() { has_tcp = true; }
+        if mc.conntrack_state.is_some() { has_conntrack = true; }
         if mc.src_port.is_some() || mc.dst_port.is_some() {
             has_tcp = true;
             has_udp = true;
@@ -216,6 +239,8 @@ fn detect_protocols(config: &FilterConfig) -> P4Protocols {
         if mc.igmp_type.is_some() { has_ipv4 = true; }
         if mc.mld_type.is_some() { has_ipv6 = true; has_icmpv6 = true; }
 
+        if rule.rate_limit.is_some() { has_rate_limit = true; }
+
         // L4 protocol detection from ip_protocol
         if let Some(proto) = mc.ip_protocol {
             if proto == 6 { has_tcp = true; }
@@ -228,16 +253,16 @@ fn detect_protocols(config: &FilterConfig) -> P4Protocols {
     P4Protocols {
         has_ipv4, has_ipv6, has_tcp, has_udp, has_vlan, has_vxlan,
         has_gtp, has_mpls, has_gre, has_geneve, has_arp, has_icmp,
-        has_icmpv6, has_oam, has_nsh, has_qinq,
+        has_icmpv6, has_oam, has_nsh, has_qinq, has_conntrack, has_rate_limit,
     }
 }
 
-/// Collect the union of all match fields used across rules as P4 table keys
+/// Collect the union of all match fields used across rules as P4 table keys (pipeline-aware)
 fn collect_table_keys(config: &FilterConfig) -> Result<Vec<P4Key>> {
     let mut keys: Vec<P4Key> = Vec::new();
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-    for rule in &config.pacgate.rules {
+    for rule in config.all_rules() {
         if rule.is_stateful() { continue; }
         let mc = &rule.match_criteria;
 
@@ -313,6 +338,9 @@ fn collect_table_keys(config: &FilterConfig) -> Result<Vec<P4Key>> {
         // QinQ
         add_key_if_present(&mut keys, &mut seen, mc.outer_vlan_id.is_some(), "hdr.outer_vlan.vid", "exact", 12);
         add_key_if_present(&mut keys, &mut seen, mc.outer_vlan_pcp.is_some(), "hdr.outer_vlan.pcp", "exact", 3);
+
+        // Conntrack state (P4 Register extern)
+        add_key_if_present(&mut keys, &mut seen, mc.conntrack_state.is_some(), "meta.conntrack_state", "exact", 2);
     }
 
     Ok(keys)
@@ -329,11 +357,11 @@ fn add_key_if_present(keys: &mut Vec<P4Key>, seen: &mut std::collections::HashSe
     }
 }
 
-/// Build table entries from rules
+/// Build table entries from rules (pipeline-aware)
 fn build_table_entries(config: &FilterConfig) -> Result<Vec<P4Entry>> {
     let mut entries = Vec::new();
 
-    let mut rules = config.pacgate.rules.clone();
+    let mut rules: Vec<_> = config.all_rules().into_iter().cloned().collect();
     rules.sort_by(|a, b| b.priority.cmp(&a.priority));
 
     for rule in &rules {
@@ -543,6 +571,16 @@ fn build_key_values(mc: &MatchCriteria) -> Result<Vec<P4KeyValue>> {
         kvs.push(P4KeyValue { header_field: "hdr.outer_vlan.pcp".to_string(), value: pcp.to_string(), mask: None });
     }
 
+    // Conntrack state
+    if let Some(ref state) = mc.conntrack_state {
+        let val = match state.as_str() {
+            "new" => "0",
+            "established" => "1",
+            _ => "0",
+        };
+        kvs.push(P4KeyValue { header_field: "meta.conntrack_state".to_string(), value: val.to_string(), mask: None });
+    }
+
     // Fragment fields
     if let Some(df) = mc.ip_dont_fragment {
         kvs.push(P4KeyValue { header_field: "hdr.ipv4.flags_df".to_string(), value: if df { "1" } else { "0" }.to_string(), mask: None });
@@ -557,10 +595,10 @@ fn build_key_values(mc: &MatchCriteria) -> Result<Vec<P4KeyValue>> {
     Ok(kvs)
 }
 
-/// Build per-rule rewrite actions for P4
+/// Build per-rule rewrite actions for P4 (pipeline-aware)
 fn build_rewrite_actions(config: &FilterConfig) -> Vec<P4RewriteAction> {
     let mut actions = Vec::new();
-    for rule in &config.pacgate.rules {
+    for rule in config.all_rules() {
         if rule.is_stateful() { continue; }
         if let Some(ref rw) = rule.rewrite {
             if !rw.is_empty() {
@@ -846,5 +884,124 @@ mod tests {
         let config = make_config(vec![rule]);
         let entries = build_table_entries(&config).unwrap();
         assert!(entries.is_empty(), "Stateful rules should be skipped");
+    }
+
+    #[test]
+    fn detect_conntrack_state() {
+        let rule = StatelessRule {
+            name: "test".to_string(), priority: 100,
+            match_criteria: MatchCriteria {
+                conntrack_state: Some("established".to_string()),
+                ..Default::default()
+            },
+            action: Some(Action::Pass), rule_type: None, fsm: None, ports: None,
+            rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None,
+        };
+        let config = make_config(vec![rule]);
+        let protos = detect_protocols(&config);
+        assert!(protos.has_conntrack);
+        assert!(protos.has_tcp);
+    }
+
+    #[test]
+    fn detect_rate_limit() {
+        let rule = StatelessRule {
+            name: "test".to_string(), priority: 100,
+            match_criteria: MatchCriteria { dst_port: Some(PortMatch::Exact(80)), ..Default::default() },
+            action: Some(Action::Pass), rule_type: None, fsm: None, ports: None,
+            rate_limit: Some(crate::model::RateLimit { pps: 1000, burst: 100 }),
+            rewrite: None, mirror_port: None, redirect_port: None,
+        };
+        let config = make_config(vec![rule]);
+        let protos = detect_protocols(&config);
+        assert!(protos.has_rate_limit);
+    }
+
+    #[test]
+    fn conntrack_key_in_table() {
+        let rule = StatelessRule {
+            name: "ct_rule".to_string(), priority: 100,
+            match_criteria: MatchCriteria {
+                conntrack_state: Some("new".to_string()),
+                ..Default::default()
+            },
+            action: Some(Action::Pass), rule_type: None, fsm: None, ports: None,
+            rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None,
+        };
+        let config = make_config(vec![rule]);
+        let keys = collect_table_keys(&config).unwrap();
+        assert!(keys.iter().any(|k| k.header_field == "meta.conntrack_state"));
+    }
+
+    #[test]
+    fn conntrack_key_value() {
+        let mc = MatchCriteria {
+            conntrack_state: Some("established".to_string()),
+            ..Default::default()
+        };
+        let kvs = build_key_values(&mc).unwrap();
+        assert!(kvs.iter().any(|kv| kv.header_field == "meta.conntrack_state" && kv.value == "1"));
+    }
+
+    #[test]
+    fn p4_summary_conntrack_extern() {
+        let rule = StatelessRule {
+            name: "ct_rule".to_string(), priority: 100,
+            match_criteria: MatchCriteria {
+                conntrack_state: Some("established".to_string()),
+                ..Default::default()
+            },
+            action: Some(Action::Pass), rule_type: None, fsm: None, ports: None,
+            rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None,
+        };
+        let config = make_config(vec![rule]);
+        let summary = generate_p4_summary(&config);
+        let externs = summary["p4_externs"].as_array().unwrap();
+        assert!(externs.iter().any(|e| e.as_str().unwrap().contains("Register")));
+    }
+
+    #[test]
+    fn p4_summary_rate_limit_extern() {
+        let rule = StatelessRule {
+            name: "rl_rule".to_string(), priority: 100,
+            match_criteria: MatchCriteria { dst_port: Some(PortMatch::Exact(80)), ..Default::default() },
+            action: Some(Action::Pass), rule_type: None, fsm: None, ports: None,
+            rate_limit: Some(crate::model::RateLimit { pps: 1000, burst: 100 }),
+            rewrite: None, mirror_port: None, redirect_port: None,
+        };
+        let config = make_config(vec![rule]);
+        let summary = generate_p4_summary(&config);
+        let externs = summary["p4_externs"].as_array().unwrap();
+        assert!(externs.iter().any(|e| e.as_str().unwrap().contains("Meter")));
+    }
+
+    #[test]
+    fn p4_summary_not_pipeline() {
+        let rule = StatelessRule {
+            name: "test".to_string(), priority: 100,
+            match_criteria: MatchCriteria { ethertype: Some("0x0800".to_string()), ..Default::default() },
+            action: Some(Action::Pass), rule_type: None, fsm: None, ports: None,
+            rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None,
+        };
+        let config = make_config(vec![rule]);
+        let summary = generate_p4_summary(&config);
+        assert_eq!(summary["is_pipeline"], false);
+        assert_eq!(summary["stage_count"], 1);
+    }
+
+    #[test]
+    fn rewrite_hop_limit_ops() {
+        let rw = RewriteAction {
+            dec_hop_limit: Some(true),
+            set_ecn: Some(1),
+            set_vlan_pcp: Some(5),
+            set_outer_vlan_id: Some(100),
+            ..Default::default()
+        };
+        let ops = rewrite_to_p4_ops(&rw);
+        assert!(ops.iter().any(|o| o.contains("hopLimit")));
+        assert!(ops.iter().any(|o| o.contains("ecn = 1")));
+        assert!(ops.iter().any(|o| o.contains("pcp = 5")));
+        assert!(ops.iter().any(|o| o.contains("outer_vlan.vid = 100")));
     }
 }

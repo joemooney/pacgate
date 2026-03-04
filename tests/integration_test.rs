@@ -6797,3 +6797,128 @@ fn width_platform_opennic_128_parameterized_converters() {
     assert!(rtl_dir.join("axis_128_to_8.v").exists(), "Expected parameterized 128→8 converter");
     assert!(rtl_dir.join("axis_8_to_128.v").exists(), "Expected parameterized 8→128 converter");
 }
+
+// ========================== P4 Export Full Coverage Tests ==========================
+
+#[test]
+fn p4_export_conntrack_json() {
+    let output = pacgate_bin()
+        .args(["p4-export", "rules/examples/conntrack_firewall.yaml", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "p4-export conntrack failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let externs = json["p4_externs"].as_array().unwrap();
+    assert!(externs.iter().any(|e| e.as_str().unwrap().contains("Register")),
+        "Expected Register extern for conntrack");
+}
+
+#[test]
+fn p4_export_conntrack_generates_p4() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["p4-export", "rules/examples/conntrack_firewall.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "p4-export failed: {}", String::from_utf8_lossy(&output.stderr));
+    let p4_file = tmp.path().join("p4/pacgate_filter.p4");
+    assert!(p4_file.exists());
+    let content = std::fs::read_to_string(&p4_file).unwrap();
+    assert!(content.contains("conntrack_register"), "P4 should contain conntrack Register");
+    assert!(content.contains("conntrack_state"), "P4 should contain conntrack_state metadata");
+}
+
+#[test]
+fn p4_export_gre_tunnel() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["p4-export", "rules/examples/gre_tunnel.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "p4-export GRE failed: {}", String::from_utf8_lossy(&output.stderr));
+    let content = std::fs::read_to_string(tmp.path().join("p4/pacgate_filter.p4")).unwrap();
+    assert!(content.contains("gre_t"), "P4 should contain GRE header");
+}
+
+#[test]
+fn p4_export_geneve() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["p4-export", "rules/examples/geneve_datacenter.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "p4-export Geneve failed: {}", String::from_utf8_lossy(&output.stderr));
+    let content = std::fs::read_to_string(tmp.path().join("p4/pacgate_filter.p4")).unwrap();
+    assert!(content.contains("geneve_t"), "P4 should contain Geneve header");
+}
+
+#[test]
+fn p4_export_pipeline_rules() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("pipeline.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules: []
+  tables:
+    - name: classify
+      default_action: pass
+      next_table: enforce
+      rules:
+        - name: mark_web
+          priority: 100
+          match:
+            ethertype: "0x0800"
+            dst_port: 80
+          action: pass
+    - name: enforce
+      default_action: drop
+      rules:
+        - name: allow_web
+          priority: 100
+          match:
+            dst_port: 80
+          action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["p4-export", yaml.to_str().unwrap(), "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "p4-export pipeline failed: {}", String::from_utf8_lossy(&output.stderr));
+    let content = std::fs::read_to_string(tmp.path().join("p4/pacgate_filter.p4")).unwrap();
+    assert!(content.contains("2 stages"), "P4 should mention pipeline stages");
+}
+
+#[test]
+fn p4_export_pipeline_json() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("pipeline.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules: []
+  tables:
+    - name: classify
+      default_action: pass
+      rules:
+        - name: mark_web
+          priority: 100
+          match:
+            dst_port: 80
+          action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["p4-export", yaml.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["is_pipeline"], true);
+    assert_eq!(json["stage_count"], 1);
+}

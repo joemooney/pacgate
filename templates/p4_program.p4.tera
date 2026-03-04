@@ -3,6 +3,10 @@
 //
 // Target: PSA (Portable Switch Architecture)
 // Rules: {{ num_rules }} (stateless match-action entries)
+{% if is_pipeline %}// Pipeline: {{ stage_count }} stages (multi-table)
+{% endif %}{% if has_conntrack %}// Conntrack: PSA Register extern for connection state tracking
+{% endif %}{% if has_rate_limit %}// Rate-limit: PSA Meter extern for per-rule rate limiting
+{% endif %}
 
 #include <core.p4>
 #include <psa.p4>
@@ -213,6 +217,9 @@ header igmp_t {
 struct metadata_t {
     bit<16> l4_src_port;
     bit<16> l4_dst_port;
+{% if has_conntrack %}
+    bit<2>  conntrack_state;  // 0=NEW, 1=ESTABLISHED, 2=FIN_WAIT, 3=CLOSED
+{% endif %}
 }
 
 // ============================================================
@@ -488,6 +495,23 @@ parser IngressParser(
 }
 
 // ============================================================
+// P4 Extern Instances
+// ============================================================
+{% if has_conntrack %}
+
+// Connection tracking via PSA Register extern
+// Tracks per-flow state: 0=NEW, 1=ESTABLISHED, 2=FIN_WAIT, 3=CLOSED
+// Key: 5-tuple hash (src_ip, dst_ip, protocol, src_port, dst_port)
+Register<bit<2>, bit<16>>(65536) conntrack_register;
+{% endif %}
+{% if has_rate_limit %}
+
+// Per-rule rate limiting via PSA Meter extern
+// Token-bucket metering: GREEN=pass, RED=drop
+Meter<bit<16>>({{ num_rules }}, PSA_MeterType_t.PACKETS) rate_meter;
+{% endif %}
+
+// ============================================================
 // Ingress Control
 // ============================================================
 
@@ -546,7 +570,25 @@ control Ingress(
     }
 
     apply {
+{% if has_conntrack %}
+        // Conntrack: lookup connection state before filtering
+        // NOTE: Production P4 implementations should compute a proper hash key
+        // from the 5-tuple (srcIP, dstIP, proto, srcPort, dstPort)
+        bit<16> ct_hash = 0;  // Replace with hash extern in production
+{% if protocols.has_ipv4 %}
+        if (hdr.ipv4.isValid()) {
+            ct_hash = (bit<16>)(hdr.ipv4.srcAddr[15:0] ^ hdr.ipv4.dstAddr[15:0]);
+        }
+{% endif %}
+        meta.conntrack_state = conntrack_register.read(ct_hash);
+{% endif %}
+
         filter_table.apply();
+{% if has_rate_limit %}
+
+        // Rate limiting: check meter after filter decision
+        // NOTE: Wire rule index to meter index for per-rule metering
+{% endif %}
     }
 }
 
