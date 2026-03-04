@@ -1344,3 +1344,111 @@
 - REQ-2613: 42 YAML examples [IMPLEMENTED]
 - REQ-2614: 46 lint rules (LINT001-046) [IMPLEMENTED]
 - REQ-2615: 33 mutation types [IMPLEMENTED]
+
+## Phase 27 Requirements — Parameterized Data Path Width + P4 Export + Multi-Table Pipeline
+
+### Phase 27.1: Parameterized Data Path Width
+
+#### CLI Flag
+- REQ-2700: `--width` CLI flag on `compile` command accepting values 8, 64, 128, 256, 512
+- REQ-2701: Default width remains 8-bit (backward compatible with existing builds)
+- REQ-2702: `--width` validation rejects non-power-of-2 or unsupported widths
+
+#### Width Converters
+- REQ-2710: `axis_wide_to_8.v` — parameterized wide-to-narrow AXI-Stream deserializer (replaces fixed axis_512_to_8.v for non-512 widths)
+- REQ-2711: `axis_8_to_wide.v` — parameterized narrow-to-wide AXI-Stream serializer (replaces fixed axis_8_to_512.v for non-512 widths)
+- REQ-2712: Width converters parameterized by DATA_WIDTH (8/64/128/256/512)
+- REQ-2713: Width converters pass iverilog lint for all supported widths
+- REQ-2714: Platform targets (OpenNIC/Corundum) use width-aware converters based on `--width` setting
+- REQ-2715: Width 8 bypasses converters entirely (no width conversion needed)
+
+#### Resource Estimation
+- REQ-2720: `estimate --width` adjusts LUT/FF resource estimates based on data path width
+- REQ-2721: Width-proportional FIFO and adapter resource scaling in estimates
+
+#### Lint Rules
+- REQ-2730: LINT047 — width > 8 without `--axi` flag (width conversion requires AXI-Stream wrapper)
+- REQ-2731: LINT048 — width mismatch with platform target (e.g., OpenNIC expects 512-bit, Corundum expects 512-bit)
+
+### Phase 27.2: P4 Export
+
+#### CLI Subcommand
+- REQ-2740: `p4-export` subcommand generating P4_16 PSA (Portable Switch Architecture) programs from YAML rules
+- REQ-2741: Generated P4 program includes headers, parser, ingress control, deparser
+- REQ-2742: `--json` flag on `p4-export` for structured P4 export metadata
+- REQ-2743: `-o` output path flag for P4 file destination (default stdout)
+
+#### Match Field Mapping
+- REQ-2750: All 55 match fields mapped to P4 match kinds (exact, lpm, ternary, range)
+- REQ-2751: L2 fields (dst_mac, src_mac, ethertype, vlan_id, vlan_pcp) mapped as exact/ternary
+- REQ-2752: L3 fields (src_ip, dst_ip) mapped as lpm (CIDR → prefix length)
+- REQ-2753: L4 fields (src_port, dst_port) mapped as range when port range specified, exact otherwise
+- REQ-2754: IPv6 fields (src_ipv6, dst_ipv6) mapped as lpm
+- REQ-2755: Tunnel fields (vxlan_vni, gtp_teid, geneve_vni, gre_protocol, gre_key, mpls_label) mapped as exact
+- REQ-2756: Protocol fields (ip_protocol, ipv6_next_header, tcp_flags, icmp_type, icmp_code, etc.) mapped as exact/ternary
+- REQ-2757: QoS fields (ip_dscp, ip_ecn, ipv6_dscp, ipv6_ecn) mapped as exact
+- REQ-2758: Stateful/advanced fields (conntrack_state, byte_match) generate comments noting P4 limitations
+
+#### Rewrite Action Mapping
+- REQ-2760: set_dst_mac, set_src_mac mapped to P4 header field assignment actions
+- REQ-2761: set_src_ip, set_dst_ip, set_ttl, dec_ttl mapped to P4 IPv4 header actions
+- REQ-2762: set_src_port, set_dst_port mapped to P4 L4 header actions
+- REQ-2763: set_dscp, set_ecn mapped to P4 QoS rewrite actions
+- REQ-2764: set_vlan_id, set_vlan_pcp mapped to P4 VLAN tag modification actions
+- REQ-2765: dec_hop_limit, set_hop_limit mapped to P4 IPv6 header actions
+
+#### Extern Support
+- REQ-2770: Conntrack mapped to P4 Register extern with hash-based lookup in control block
+- REQ-2771: Rate limiting mapped to P4 Meter extern (color-based token bucket)
+- REQ-2772: Per-rule counters mapped to P4 Counter extern (packets and bytes)
+
+#### Pipeline-Aware Export
+- REQ-2780: Multi-table YAML rules (Phase 27.3) exported as multi-table P4 pipeline
+- REQ-2781: Single-table YAML rules exported as single ingress table
+- REQ-2782: P4 table entries generated as const entries or separate table-add commands
+
+### Phase 27.3: Multi-Table Pipeline
+
+#### YAML Schema
+- REQ-2800: Optional `tables:` top-level YAML key for multi-table pipeline definition
+- REQ-2801: Each table entry has `name`, `rules`, `default_action`, and optional `next_table`
+- REQ-2802: `next_table` field specifies the next stage to evaluate (DAG structure)
+- REQ-2803: Backward compatible — YAML without `tables:` key uses single implicit table (existing behavior preserved)
+- REQ-2804: Tables key and rules key are mutually exclusive at the top level (validation error if both present)
+
+#### Data Model
+- REQ-2810: PipelineStage struct with fields: name (String), rules (Vec<Rule>), default_action (Action), next_table (Option<String>)
+- REQ-2811: Pipeline struct containing ordered Vec<PipelineStage> with stage name uniqueness validation
+- REQ-2812: DAG cycle detection for stage graph validation (reject cycles at load time)
+- REQ-2813: next_table references validated against declared stage names (reject dangling references)
+
+#### Verilog Generation
+- REQ-2820: Shared single frame_parser instance across all pipeline stages
+- REQ-2821: Per-stage rule matchers generated independently (rule_match_stageN_ruleM naming)
+- REQ-2822: Per-stage decision logic (priority encoder per stage)
+- REQ-2823: AND-combined final decision across all stages (packet passes only if all stages pass)
+- REQ-2824: Pipeline top-level module wiring all stages with shared parser outputs
+- REQ-2825: Stage evaluation order follows DAG topology (topological sort)
+
+#### Simulation
+- REQ-2830: Pipeline simulation evaluates stages sequentially in topological order
+- REQ-2831: AND semantics — packet passes only if all evaluated stages return pass
+- REQ-2832: Per-stage match results in simulation output (which rule matched in each stage)
+- REQ-2833: `--json` simulation output includes per-stage breakdown
+
+#### Tool Support
+- REQ-2840: `stats` command reports per-stage rule counts and field usage
+- REQ-2841: LINT049 — pipeline stage with no rules (empty stage warning)
+- REQ-2842: LINT050 — unreachable pipeline stage (not referenced by any next_table and not the first stage)
+- REQ-2843: `estimate` computes per-stage and total LUT/FF resource usage
+- REQ-2844: `graph` outputs per-stage DOT subgraphs with inter-stage edges
+- REQ-2845: `diff` compares pipeline structures (stage added/removed/modified)
+- REQ-2846: Mutation type 34: remove_pipeline_stage — removes a non-first stage from the pipeline
+- REQ-2847: Mutation type 35: swap_stage_order — swaps two adjacent stages in the pipeline
+
+### Phase 27 Test Counts
+- REQ-2900: 896 Rust tests (569 unit + 327 integration) through Phase 27
+- REQ-2901: 73 Python scoreboard unit tests through Phase 27
+- REQ-2902: 45 YAML examples (42 existing + width_demo + p4_export_demo + multi_table_pipeline)
+- REQ-2903: 50 lint rules (LINT001-050)
+- REQ-2904: 35 mutation types
