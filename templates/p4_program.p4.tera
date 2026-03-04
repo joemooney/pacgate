@@ -202,6 +202,18 @@ header nsh_t {
 }
 {% endif %}
 
+{% if protocols.has_ptp %}
+header ptp_t {
+    bit<4>  transportSpecific;
+    bit<4>  messageType;
+    bit<4>  reserved1;
+    bit<4>  versionPTP;
+    bit<16> messageLength;
+    bit<8>  domainNumber;
+    bit<8>  reserved2;
+}
+{% endif %}
+
 {% if protocols.has_igmp %}
 header igmp_t {
     bit<8>  type_;
@@ -276,6 +288,9 @@ struct headers_t {
 {% if protocols.has_nsh %}
     nsh_t      nsh;
 {% endif %}
+{% if protocols.has_ptp %}
+    ptp_t      ptp;
+{% endif %}
 }
 
 // ============================================================
@@ -318,6 +333,9 @@ parser IngressParser(
 {% endif %}
 {% if protocols.has_nsh %}
             0x894F: parse_nsh;
+{% endif %}
+{% if protocols.has_ptp %}
+            0x88F7: parse_ptp;
 {% endif %}
             default: accept;
         }
@@ -418,6 +436,10 @@ parser IngressParser(
 {% if protocols.has_geneve %}
             6081: parse_geneve;
 {% endif %}
+{% if protocols.has_ptp %}
+            319: parse_ptp;
+            320: parse_ptp;
+{% endif %}
             default: accept;
         }
     }
@@ -489,6 +511,13 @@ parser IngressParser(
 {% if protocols.has_nsh %}
     state parse_nsh {
         pkt.extract(hdr.nsh);
+        transition accept;
+    }
+{% endif %}
+
+{% if protocols.has_ptp %}
+    state parse_ptp {
+        pkt.extract(hdr.ptp);
         transition accept;
     }
 {% endif %}

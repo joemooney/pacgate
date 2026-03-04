@@ -1684,6 +1684,9 @@ fn generate_rule_documentation(
         if let Some(ref state) = rule.match_criteria.conntrack_state { match_fields.push(format!("conntrack_state: {}", state)); }
         if let Some(vni) = rule.match_criteria.geneve_vni { match_fields.push(format!("geneve_vni: {}", vni)); }
         if let Some(ttl) = rule.match_criteria.ip_ttl { match_fields.push(format!("ip_ttl: {}", ttl)); }
+        if let Some(mt) = rule.match_criteria.ptp_message_type { match_fields.push(format!("ptp_message_type: {}", mt)); }
+        if let Some(dom) = rule.match_criteria.ptp_domain { match_fields.push(format!("ptp_domain: {}", dom)); }
+        if let Some(ver) = rule.match_criteria.ptp_version { match_fields.push(format!("ptp_version: {}", ver)); }
         if let Some(ref bms) = rule.match_criteria.byte_match {
             for bm in bms {
                 match_fields.push(format!("byte_match: offset={}, value={}, mask={}", bm.offset, bm.value, bm.mask.as_deref().unwrap_or("FF")));
@@ -1956,6 +1959,9 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
     let mut uses_conntrack_state = 0;
     let mut uses_geneve_vni = 0;
     let mut uses_ip_ttl = 0;
+    let mut uses_ptp_message_type = 0;
+    let mut uses_ptp_domain = 0;
+    let mut uses_ptp_version = 0;
     let mut match_field_count = Vec::new();
 
     for rule in all_rules.iter().filter(|r| !r.is_stateful()) {
@@ -2007,6 +2013,9 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
         if mc.conntrack_state.is_some() { uses_conntrack_state += 1; count += 1; }
         if mc.geneve_vni.is_some() { uses_geneve_vni += 1; count += 1; }
         if mc.ip_ttl.is_some() { uses_ip_ttl += 1; count += 1; }
+        if mc.ptp_message_type.is_some() { uses_ptp_message_type += 1; count += 1; }
+        if mc.ptp_domain.is_some() { uses_ptp_domain += 1; count += 1; }
+        if mc.ptp_version.is_some() { uses_ptp_version += 1; count += 1; }
         match_field_count.push(count);
     }
 
@@ -2081,6 +2090,9 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
             "conntrack_state": uses_conntrack_state,
             "geneve_vni": uses_geneve_vni,
             "ip_ttl": uses_ip_ttl,
+            "ptp_message_type": uses_ptp_message_type,
+            "ptp_domain": uses_ptp_domain,
+            "ptp_version": uses_ptp_version,
         },
         "egress_actions": {
             "mirror_port": uses_mirror,
@@ -2438,6 +2450,9 @@ fn print_dot_graph(config: &model::FilterConfig) {
             if let Some(ref state) = mc.conntrack_state { criteria.push(format!("ct_state={}", state)); }
             if let Some(vni) = mc.geneve_vni { criteria.push(format!("geneve_vni={}", vni)); }
             if let Some(ttl) = mc.ip_ttl { criteria.push(format!("ip_ttl={}", ttl)); }
+            if let Some(mt) = mc.ptp_message_type { criteria.push(format!("ptp_msg_type={}", mt)); }
+            if let Some(dom) = mc.ptp_domain { criteria.push(format!("ptp_domain={}", dom)); }
+            if let Some(ver) = mc.ptp_version { criteria.push(format!("ptp_version={}", ver)); }
         } else {
             criteria.push("(FSM states)".to_string());
         }
@@ -2708,6 +2723,18 @@ fn diff_rules(old: &model::FilterConfig, new: &model::FilterConfig, json: bool) 
                 if old_rule.match_criteria.ip_ttl != new_rule.match_criteria.ip_ttl {
                     changes.push(format!("ip_ttl: {:?} -> {:?}",
                         old_rule.match_criteria.ip_ttl, new_rule.match_criteria.ip_ttl));
+                }
+                if old_rule.match_criteria.ptp_message_type != new_rule.match_criteria.ptp_message_type {
+                    changes.push(format!("ptp_message_type: {:?} -> {:?}",
+                        old_rule.match_criteria.ptp_message_type, new_rule.match_criteria.ptp_message_type));
+                }
+                if old_rule.match_criteria.ptp_domain != new_rule.match_criteria.ptp_domain {
+                    changes.push(format!("ptp_domain: {:?} -> {:?}",
+                        old_rule.match_criteria.ptp_domain, new_rule.match_criteria.ptp_domain));
+                }
+                if old_rule.match_criteria.ptp_version != new_rule.match_criteria.ptp_version {
+                    changes.push(format!("ptp_version: {:?} -> {:?}",
+                        old_rule.match_criteria.ptp_version, new_rule.match_criteria.ptp_version));
                 }
                 if old_rule.is_stateful() != new_rule.is_stateful() {
                     changes.push(format!("type: {} -> {}",
@@ -3506,6 +3533,9 @@ fn compute_resource_estimate(config: &model::FilterConfig) -> serde_json::Value 
             if mc.conntrack_state.is_some() { fields += 1; }  // 1-bit comparator
             if mc.geneve_vni.is_some() { fields += 2; }       // 24-bit comparator
             if mc.ip_ttl.is_some() { fields += 1; }           // 8-bit comparator
+            if mc.ptp_message_type.is_some() { fields += 1; } // 4-bit comparator
+            if mc.ptp_domain.is_some() { fields += 1; }       // 8-bit comparator
+            if mc.ptp_version.is_some() { fields += 1; }      // 4-bit comparator
             rule_luts += 10 + fields * 12;
         }
     }
@@ -3520,6 +3550,12 @@ fn compute_resource_estimate(config: &model::FilterConfig) -> serde_json::Value 
     let num_nsh = all_rules.iter().filter(|r| r.match_criteria.uses_nsh()).count();
     if num_nsh > 0 {
         rule_luts += num_nsh * 8;
+    }
+
+    // PTP: +30 LUTs per rule with PTP fields (4-bit msgType + 8-bit domain + 4-bit version comparators)
+    let num_ptp = all_rules.iter().filter(|r| r.match_criteria.uses_ptp()).count();
+    if num_ptp > 0 {
+        rule_luts += num_ptp * 6;
     }
 
     // Egress LUT: +4 LUTs per rule with mirror/redirect (8-bit port + valid per action)
@@ -3676,6 +3712,9 @@ fn print_resource_estimate(config: &model::FilterConfig) {
             if mc.conntrack_state.is_some() { fields += 1; }
             if mc.geneve_vni.is_some() { fields += 2; }       // 24-bit comparator
             if mc.ip_ttl.is_some() { fields += 1; }           // 8-bit comparator
+            if mc.ptp_message_type.is_some() { fields += 1; } // 4-bit comparator
+            if mc.ptp_domain.is_some() { fields += 1; }       // 8-bit comparator
+            if mc.ptp_version.is_some() { fields += 1; }      // 4-bit comparator
             rule_luts += 10 + fields * 12;
         }
     }
@@ -3690,6 +3729,12 @@ fn print_resource_estimate(config: &model::FilterConfig) {
     let num_nsh = rules.iter().filter(|r| r.match_criteria.uses_nsh()).count();
     if num_nsh > 0 {
         rule_luts += num_nsh * 8;
+    }
+
+    // PTP: +6 LUTs per rule with PTP fields (4-bit msgType + 8-bit domain + 4-bit version comparators)
+    let num_ptp = rules.iter().filter(|r| r.match_criteria.uses_ptp()).count();
+    if num_ptp > 0 {
+        rule_luts += num_ptp * 6;
     }
 
     // Rate limiter: +50 LUTs, +64 FFs per rate-limited rule
@@ -4619,6 +4664,40 @@ fn lint_rules(config: &model::FilterConfig, warnings: &[String], dynamic: bool, 
                         "suggestion": "Add 'outer_vlan_id' match or 'ethertype: \"0x88A8\"' to ensure outer VLAN rewrite only applies to QinQ frames"
                     }));
                 }
+            }
+        }
+    }
+
+    // LINT051: PTP fields without appropriate transport (EtherType 0x88F7 or UDP 319/320)
+    for rule in &config.pacgate.rules {
+        if rule.match_criteria.uses_ptp() {
+            let has_ptp_ethertype = rule.match_criteria.ethertype.as_deref() == Some("0x88F7");
+            let has_udp = rule.match_criteria.ip_protocol == Some(17);
+            let has_ptp_port = match &rule.match_criteria.dst_port {
+                Some(model::PortMatch::Exact(p)) => *p == 319 || *p == 320,
+                _ => false,
+            };
+            if !has_ptp_ethertype && !(has_udp && has_ptp_port) {
+                findings.push(serde_json::json!({
+                    "level": "warning",
+                    "code": "LINT051",
+                    "message": format!("Rule '{}' uses PTP fields without EtherType 0x88F7 or UDP dst_port 319/320 — PTP requires L2 or L4 transport", rule.name),
+                    "suggestion": "Add 'ethertype: \"0x88F7\"' for L2 PTP or 'ip_protocol: 17' + 'dst_port: 319' for L4 PTP"
+                }));
+            }
+        }
+    }
+
+    // LINT052: ptp_message_type > 13 (undefined PTP message types)
+    for rule in &config.pacgate.rules {
+        if let Some(mt) = rule.match_criteria.ptp_message_type {
+            if mt > 13 {
+                findings.push(serde_json::json!({
+                    "level": "info",
+                    "code": "LINT052",
+                    "message": format!("Rule '{}' uses ptp_message_type {} — values 14-15 are undefined in IEEE 1588", rule.name, mt),
+                    "suggestion": "Common PTP message types: 0=Sync, 1=Delay_Req, 8=Follow_Up, 9=Delay_Resp, 11=Announce"
+                }));
             }
         }
     }

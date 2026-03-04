@@ -572,6 +572,37 @@ pub fn generate_mutations(config: &FilterConfig) -> Vec<(Mutation, FilterConfig)
         }
     }
 
+    // Mutation 36: Remove ptp_message_type from a PTP rule
+    for (i, rule) in config.pacgate.rules.iter().enumerate() {
+        if !rule.is_stateful() && rule.match_criteria.ptp_message_type.is_some() {
+            let mut mutated = config.clone();
+            mutated.pacgate.rules[i].match_criteria.ptp_message_type = None;
+            mutations.push((Mutation {
+                name: format!("remove_ptp_message_type_{}", rule.name),
+                description: format!("Remove ptp_message_type from rule '{}'", rule.name),
+                mutant_index: index,
+            }, mutated));
+            index += 1;
+        }
+    }
+
+    // Mutation 37: Shift ptp_domain value
+    for (i, rule) in config.pacgate.rules.iter().enumerate() {
+        if !rule.is_stateful() {
+            if let Some(dom) = rule.match_criteria.ptp_domain {
+                let new_dom = if dom < 255 { dom + 1 } else { 0 };
+                let mut mutated = config.clone();
+                mutated.pacgate.rules[i].match_criteria.ptp_domain = Some(new_dom);
+                mutations.push((Mutation {
+                    name: format!("shift_ptp_domain_{}", rule.name),
+                    description: format!("Shift ptp_domain from {} to {} in rule '{}'", dom, new_dom, rule.name),
+                    mutant_index: index,
+                }, mutated));
+                index += 1;
+            }
+        }
+    }
+
     mutations
 }
 

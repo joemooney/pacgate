@@ -67,6 +67,7 @@ pub struct P4Protocols {
     pub has_icmpv6: bool,
     pub has_oam: bool,
     pub has_nsh: bool,
+    pub has_ptp: bool,
     pub has_qinq: bool,
     pub has_conntrack: bool,
     pub has_rate_limit: bool,
@@ -177,6 +178,7 @@ pub fn generate_p4_summary(config: &FilterConfig) -> serde_json::Value {
             "icmpv6": protocols.has_icmpv6,
             "oam": protocols.has_oam,
             "nsh": protocols.has_nsh,
+            "ptp": protocols.has_ptp,
             "qinq": protocols.has_qinq,
         },
         "unsupported_features": unsupported,
@@ -201,6 +203,7 @@ fn detect_protocols(config: &FilterConfig) -> P4Protocols {
     let mut has_icmpv6 = false;
     let mut has_oam = false;
     let mut has_nsh = false;
+    let mut has_ptp = false;
     let mut has_qinq = false;
     let mut has_conntrack = false;
     let mut has_rate_limit = false;
@@ -235,6 +238,7 @@ fn detect_protocols(config: &FilterConfig) -> P4Protocols {
         if mc.uses_icmpv6() { has_icmpv6 = true; has_ipv6 = true; }
         if mc.uses_oam() { has_oam = true; }
         if mc.uses_nsh() { has_nsh = true; }
+        if mc.uses_ptp() { has_ptp = true; }
         if mc.uses_qinq() { has_qinq = true; has_vlan = true; }
         if mc.igmp_type.is_some() { has_ipv4 = true; }
         if mc.mld_type.is_some() { has_ipv6 = true; has_icmpv6 = true; }
@@ -253,7 +257,7 @@ fn detect_protocols(config: &FilterConfig) -> P4Protocols {
     P4Protocols {
         has_ipv4, has_ipv6, has_tcp, has_udp, has_vlan, has_vxlan,
         has_gtp, has_mpls, has_gre, has_geneve, has_arp, has_icmp,
-        has_icmpv6, has_oam, has_nsh, has_qinq, has_conntrack, has_rate_limit,
+        has_icmpv6, has_oam, has_nsh, has_ptp, has_qinq, has_conntrack, has_rate_limit,
     }
 }
 
@@ -334,6 +338,11 @@ fn collect_table_keys(config: &FilterConfig) -> Result<Vec<P4Key>> {
         add_key_if_present(&mut keys, &mut seen, mc.nsh_spi.is_some(), "hdr.nsh.spi", "exact", 24);
         add_key_if_present(&mut keys, &mut seen, mc.nsh_si.is_some(), "hdr.nsh.si", "exact", 8);
         add_key_if_present(&mut keys, &mut seen, mc.nsh_next_protocol.is_some(), "hdr.nsh.nextProtocol", "exact", 8);
+
+        // PTP (IEEE 1588)
+        add_key_if_present(&mut keys, &mut seen, mc.ptp_message_type.is_some(), "hdr.ptp.messageType", "exact", 4);
+        add_key_if_present(&mut keys, &mut seen, mc.ptp_domain.is_some(), "hdr.ptp.domainNumber", "exact", 8);
+        add_key_if_present(&mut keys, &mut seen, mc.ptp_version.is_some(), "hdr.ptp.versionPTP", "exact", 4);
 
         // QinQ
         add_key_if_present(&mut keys, &mut seen, mc.outer_vlan_id.is_some(), "hdr.outer_vlan.vid", "exact", 12);
@@ -561,6 +570,17 @@ fn build_key_values(mc: &MatchCriteria) -> Result<Vec<P4KeyValue>> {
     }
     if let Some(np) = mc.nsh_next_protocol {
         kvs.push(P4KeyValue { header_field: "hdr.nsh.nextProtocol".to_string(), value: np.to_string(), mask: None });
+    }
+
+    // PTP (IEEE 1588)
+    if let Some(mt) = mc.ptp_message_type {
+        kvs.push(P4KeyValue { header_field: "hdr.ptp.messageType".to_string(), value: mt.to_string(), mask: None });
+    }
+    if let Some(dom) = mc.ptp_domain {
+        kvs.push(P4KeyValue { header_field: "hdr.ptp.domainNumber".to_string(), value: dom.to_string(), mask: None });
+    }
+    if let Some(ver) = mc.ptp_version {
+        kvs.push(P4KeyValue { header_field: "hdr.ptp.versionPTP".to_string(), value: ver.to_string(), mask: None });
     }
 
     // QinQ
