@@ -125,6 +125,13 @@ pub struct MatchCriteria {
     // Connection tracking state (requires --conntrack)
     #[serde(default)]
     pub conntrack_state: Option<String>,  // "new", "established" (TCP state-aware)
+    // PTP (IEEE 1588) fields (EtherType 0x88F7 or UDP 319/320)
+    #[serde(default)]
+    pub ptp_message_type: Option<u8>,    // 4-bit (0-15): 0=Sync, 1=Delay_Req, 8=Follow_Up, 9=Delay_Resp, 11=Announce
+    #[serde(default)]
+    pub ptp_domain: Option<u8>,          // 8-bit domain number (0-255)
+    #[serde(default)]
+    pub ptp_version: Option<u8>,         // 4-bit version (0-15, typically 2 for PTPv2)
     // Byte-offset matching
     #[serde(default)]
     pub byte_match: Option<Vec<ByteMatch>>,
@@ -422,6 +429,11 @@ impl MatchCriteria {
     /// Returns true if this criteria uses frame length matching
     pub fn uses_frame_len(&self) -> bool {
         self.frame_len_min.is_some() || self.frame_len_max.is_some()
+    }
+
+    /// Returns true if this criteria uses PTP (IEEE 1588) fields
+    pub fn uses_ptp(&self) -> bool {
+        self.ptp_message_type.is_some() || self.ptp_domain.is_some() || self.ptp_version.is_some()
     }
 }
 

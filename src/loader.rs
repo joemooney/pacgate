@@ -233,6 +233,19 @@ fn validate_match_criteria(mc: &crate::model::MatchCriteria, rule_name: &str) ->
 
     // ip_ttl validation (0-255 covered by u8, no extra check needed)
 
+    // PTP (IEEE 1588) validation
+    if let Some(mt) = mc.ptp_message_type {
+        if mt > 15 {
+            anyhow::bail!("ptp_message_type must be 0-15 (4-bit), got {} in rule '{}'", mt, rule_name);
+        }
+    }
+    // ptp_domain: 0-255 covered by u8, no extra check needed
+    if let Some(ver) = mc.ptp_version {
+        if ver > 15 {
+            anyhow::bail!("ptp_version must be 0-15 (4-bit), got {} in rule '{}'", ver, rule_name);
+        }
+    }
+
     // frame_len validation
     if let (Some(min), Some(max)) = (mc.frame_len_min, mc.frame_len_max) {
         if min > max {
@@ -1271,6 +1284,26 @@ pub fn criteria_shadows(a: &crate::model::MatchCriteria, b: &crate::model::Match
         }
     }
 
+    // PTP shadow checks
+    if let Some(a_mt) = a.ptp_message_type {
+        match b.ptp_message_type {
+            Some(b_mt) if a_mt == b_mt => {},
+            _ => return false,
+        }
+    }
+    if let Some(a_dom) = a.ptp_domain {
+        match b.ptp_domain {
+            Some(b_dom) if a_dom == b_dom => {},
+            _ => return false,
+        }
+    }
+    if let Some(a_ver) = a.ptp_version {
+        match b.ptp_version {
+            Some(b_ver) if a_ver == b_ver => {},
+            _ => return false,
+        }
+    }
+
     true
 }
 
@@ -1486,6 +1519,17 @@ fn criteria_overlaps(a: &crate::model::MatchCriteria, b: &crate::model::MatchCri
     // ip_ttl overlap checks
     if let (Some(a_ttl), Some(b_ttl)) = (a.ip_ttl, b.ip_ttl) {
         if a_ttl != b_ttl { return false; }
+    }
+
+    // PTP overlap checks
+    if let (Some(a_mt), Some(b_mt)) = (a.ptp_message_type, b.ptp_message_type) {
+        if a_mt != b_mt { return false; }
+    }
+    if let (Some(a_dom), Some(b_dom)) = (a.ptp_domain, b.ptp_domain) {
+        if a_dom != b_dom { return false; }
+    }
+    if let (Some(a_ver), Some(b_ver)) = (a.ptp_version, b.ptp_version) {
+        if a_ver != b_ver { return false; }
     }
 
     true

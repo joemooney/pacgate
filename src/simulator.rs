@@ -57,6 +57,9 @@ pub struct SimPacket {
     pub geneve_vni: Option<u32>,
     pub ip_ttl: Option<u8>,
     pub frame_len: Option<u16>,
+    pub ptp_message_type: Option<u8>,
+    pub ptp_domain: Option<u8>,
+    pub ptp_version: Option<u8>,
 }
 
 /// Rewrite actions that would be applied to a passed packet
@@ -334,6 +337,19 @@ pub fn parse_packet_spec(spec: &str) -> Result<SimPacket> {
             }
             "frame_len" => {
                 pkt.frame_len = Some(value.parse().map_err(|e| anyhow::anyhow!("Bad frame_len '{}': {}", value, e))?);
+            }
+            "ptp_message_type" => {
+                let v: u8 = value.parse().map_err(|e| anyhow::anyhow!("Bad ptp_message_type '{}': {}", value, e))?;
+                if v > 15 { bail!("ptp_message_type must be 0-15, got {}", v); }
+                pkt.ptp_message_type = Some(v);
+            }
+            "ptp_domain" => {
+                pkt.ptp_domain = Some(value.parse().map_err(|e| anyhow::anyhow!("Bad ptp_domain '{}': {}", value, e))?);
+            }
+            "ptp_version" => {
+                let v: u8 = value.parse().map_err(|e| anyhow::anyhow!("Bad ptp_version '{}': {}", value, e))?;
+                if v > 15 { bail!("ptp_version must be 0-15, got {}", v); }
+                pkt.ptp_version = Some(v);
             }
             _ => bail!("Unknown packet field '{}'", key),
         }
@@ -1462,6 +1478,45 @@ pub fn match_criteria_against_packet(mc: &MatchCriteria, pkt: &SimPacket) -> (bo
         fields.push(FieldMatch {
             field: "frame_len_max".to_string(),
             rule_value: max.to_string(),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // ptp_message_type
+    if let Some(rule_val) = mc.ptp_message_type {
+        let pkt_val = pkt.ptp_message_type.map(|v| v.to_string()).unwrap_or_else(|| "none".to_string());
+        let matches = pkt.ptp_message_type.map(|v| v == rule_val).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "ptp_message_type".to_string(),
+            rule_value: rule_val.to_string(),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // ptp_domain
+    if let Some(rule_val) = mc.ptp_domain {
+        let pkt_val = pkt.ptp_domain.map(|v| v.to_string()).unwrap_or_else(|| "none".to_string());
+        let matches = pkt.ptp_domain.map(|v| v == rule_val).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "ptp_domain".to_string(),
+            rule_value: rule_val.to_string(),
+            packet_value: pkt_val,
+            matches,
+        });
+        if !matches { all_match = false; }
+    }
+
+    // ptp_version
+    if let Some(rule_val) = mc.ptp_version {
+        let pkt_val = pkt.ptp_version.map(|v| v.to_string()).unwrap_or_else(|| "none".to_string());
+        let matches = pkt.ptp_version.map(|v| v == rule_val).unwrap_or(false);
+        fields.push(FieldMatch {
+            field: "ptp_version".to_string(),
+            rule_value: rule_val.to_string(),
             packet_value: pkt_val,
             matches,
         });
