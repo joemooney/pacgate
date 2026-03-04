@@ -6922,3 +6922,143 @@ pacgate:
     assert_eq!(json["is_pipeline"], true);
     assert_eq!(json["stage_count"], 1);
 }
+
+// ========================== Pipeline Verilog Generation Tests ==========================
+
+#[test]
+fn pipeline_compile_generates_pipeline_top() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("pipeline.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules: []
+  tables:
+    - name: classify
+      default_action: pass
+      next_table: enforce
+      rules:
+        - name: mark_web
+          priority: 100
+          match:
+            ethertype: "0x0800"
+            dst_port: 80
+          action: pass
+    - name: enforce
+      default_action: drop
+      rules:
+        - name: allow_web
+          priority: 100
+          match:
+            dst_port: 80
+          action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["compile", yaml.to_str().unwrap(), "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "pipeline compile failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let rtl_dir = tmp.path().join("rtl");
+    assert!(rtl_dir.join("pipeline_top.v").exists(), "Expected pipeline_top.v");
+    assert!(rtl_dir.join("rule_match_s0_r0.v").exists(), "Expected stage 0 rule 0 matcher");
+    assert!(rtl_dir.join("rule_match_s1_r0.v").exists(), "Expected stage 1 rule 0 matcher");
+    assert!(rtl_dir.join("decision_logic_s0.v").exists(), "Expected stage 0 decision logic");
+    assert!(rtl_dir.join("decision_logic_s1.v").exists(), "Expected stage 1 decision logic");
+    assert!(rtl_dir.join("frame_parser.v").exists(), "Expected shared frame_parser.v");
+}
+
+#[test]
+fn pipeline_compile_three_stages() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("three_stage.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules: []
+  tables:
+    - name: classify
+      default_action: pass
+      next_table: rate
+      rules:
+        - name: mark_http
+          priority: 100
+          match:
+            dst_port: 80
+          action: pass
+    - name: rate
+      default_action: pass
+      next_table: enforce
+      rules:
+        - name: rate_http
+          priority: 100
+          match:
+            dst_port: 80
+          action: pass
+    - name: enforce
+      default_action: drop
+      rules:
+        - name: allow_http
+          priority: 100
+          match:
+            dst_port: 80
+          action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["compile", yaml.to_str().unwrap(), "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "3-stage pipeline compile failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let rtl_dir = tmp.path().join("rtl");
+    let pipeline = std::fs::read_to_string(rtl_dir.join("pipeline_top.v")).unwrap();
+    assert!(pipeline.contains("Stage 0"), "Pipeline should reference stage 0");
+    assert!(pipeline.contains("Stage 1"), "Pipeline should reference stage 1");
+    assert!(pipeline.contains("Stage 2"), "Pipeline should reference stage 2");
+    assert!(pipeline.contains("3 pipeline stages"), "Pipeline should note 3 stages");
+}
+
+#[test]
+fn pipeline_compile_json_output() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("pipeline.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules: []
+  tables:
+    - name: stage1
+      default_action: pass
+      rules:
+        - name: rule1
+          priority: 100
+          match:
+            dst_port: 80
+          action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["compile", yaml.to_str().unwrap(), "-o", tmp.path().to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "pipeline compile JSON failed: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn pipeline_single_table_backward_compat_compile() {
+    // Existing single-table example should compile normally (not pipeline)
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "single-table compile failed: {}", String::from_utf8_lossy(&output.stderr));
+    // Should have packet_filter_top.v, NOT pipeline_top.v
+    assert!(tmp.path().join("rtl/packet_filter_top.v").exists());
+    assert!(!tmp.path().join("rtl/pipeline_top.v").exists());
+}

@@ -597,6 +597,8 @@ fn main() -> Result<()> {
             // Generate Verilog
             if dynamic {
                 verilog_gen::generate_dynamic(&config, &templates, &output, dynamic_entries)?;
+            } else if config.is_pipeline() {
+                verilog_gen::generate_pipeline(&config, &templates, &output)?;
             } else {
                 verilog_gen::generate(&config, &templates, &output)?;
             }

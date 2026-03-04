@@ -573,6 +573,232 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
     Ok(())
 }
 
+/// Generate multi-table pipeline Verilog.
+/// Creates per-stage rule matchers and decision logic, plus a pipeline_top wrapper.
+pub fn generate_pipeline(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) -> Result<()> {
+    let glob = format!("{}/**/*.tera", templates_dir.display());
+    let tera = Tera::new(&glob)
+        .with_context(|| format!("Failed to load templates from {}", templates_dir.display()))?;
+
+    let rtl_dir = output_dir.join("rtl");
+    std::fs::create_dir_all(&rtl_dir)?;
+
+    let tables = config.pacgate.tables.as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Pipeline generation requires tables"))?;
+
+    // Compute global protocol flags across ALL stages
+    let all_rules = config.all_rules();
+    let global_protos = compute_global_protos_from_rules(&all_rules, config);
+
+    // Collect all byte_match offsets across all stages
+    let byte_offsets = collect_byte_match_offsets_from_rules(&all_rules);
+    let has_byte_capture = !byte_offsets.is_empty();
+
+    if has_byte_capture {
+        let mut ctx = tera::Context::new();
+        let captures: Vec<std::collections::HashMap<String, serde_json::Value>> = byte_offsets.iter().map(|(offset, len)| {
+            let mut map = std::collections::HashMap::new();
+            map.insert("offset".to_string(), serde_json::json!(offset));
+            map.insert("byte_len".to_string(), serde_json::json!(len));
+            map.insert("bit_width".to_string(), serde_json::json!(len * 8));
+            map
+        }).collect();
+        ctx.insert("captures", &captures);
+        let rendered = tera.render("byte_capture.v.tera", &ctx)?;
+        std::fs::write(rtl_dir.join("byte_capture.v"), &rendered)?;
+    }
+
+    // Track total rules for global index width
+    let total_rules: usize = tables.iter().map(|s| s.rules.len()).sum();
+    let total_idx_bits = if total_rules == 0 { 1 } else {
+        ((total_rules as f64).log2().ceil() as usize).max(1)
+    };
+
+    // Generate per-stage rule matchers and decision logic
+    let mut stage_infos: Vec<serde_json::Value> = Vec::new();
+    let mut global_rule_offset = 0usize;
+
+    for (stage_idx, stage) in tables.iter().enumerate() {
+        let mut rules = stage.rules.clone();
+        rules.sort_by(|a, b| b.priority.cmp(&a.priority));
+
+        let stage_idx_bits = if rules.is_empty() { 1 } else {
+            ((rules.len() as f64).log2().ceil() as usize).max(1)
+        };
+
+        // Generate per-rule matchers with stage-prefixed names
+        for (rule_idx, rule) in rules.iter().enumerate() {
+            let module_name = format!("rule_match_s{}_r{}", stage_idx, rule_idx);
+            generate_stateless_rule_with_name(&tera, &rtl_dir, rule_idx, rule, &byte_offsets, &global_protos, &module_name)?;
+        }
+
+        // Generate per-stage decision logic
+        {
+            let mut ctx = tera::Context::new();
+            ctx.insert("num_rules", &rules.len());
+            let default_pass = stage.default_action == Action::Pass;
+            ctx.insert("default_pass", &default_pass);
+            ctx.insert("idx_bits", &stage_idx_bits);
+            ctx.insert("module_name", &format!("decision_logic_s{}", stage_idx));
+
+            let rule_info: Vec<_> = rules.iter().enumerate().map(|(idx, rule)| {
+                let mut map = std::collections::HashMap::new();
+                map.insert("index".to_string(), idx.to_string());
+                map.insert("name".to_string(), rule.name.clone());
+                let action_pass = (rule.action() == Action::Pass).to_string();
+                map.insert("action_pass".to_string(), action_pass);
+                map
+            }).collect();
+            ctx.insert("rules", &rule_info);
+
+            let rendered = tera.render("decision_logic.v.tera", &ctx)?;
+            // Replace module name in rendered output
+            let rendered = rendered.replace("module decision_logic", &format!("module decision_logic_s{}", stage_idx));
+            std::fs::write(rtl_dir.join(format!("decision_logic_s{}.v", stage_idx)), &rendered)?;
+            log::info!("Generated decision_logic_s{}.v", stage_idx);
+        }
+
+        // Build stage info for pipeline_top template
+        let rule_infos: Vec<serde_json::Value> = rules.iter().enumerate().map(|(idx, rule)| {
+            serde_json::json!({
+                "index": idx,
+                "name": rule.name,
+                "global_index": global_rule_offset + idx,
+            })
+        }).collect();
+
+        stage_infos.push(serde_json::json!({
+            "index": stage_idx,
+            "name": stage.name,
+            "num_rules": rules.len(),
+            "idx_bits": stage_idx_bits,
+            "rules": rule_infos,
+        }));
+
+        global_rule_offset += rules.len();
+    }
+
+    // Generate pipeline_top.v
+    {
+        let mut ctx = tera::Context::new();
+        ctx.insert("num_stages", &tables.len());
+        ctx.insert("stages", &stage_infos);
+        ctx.insert("total_idx_bits", &total_idx_bits);
+        ctx.insert("has_ipv6", &global_protos.has_ipv6);
+        ctx.insert("has_gtp", &global_protos.has_gtp);
+        ctx.insert("has_mpls", &global_protos.has_mpls);
+        ctx.insert("has_multicast", &global_protos.has_multicast);
+        ctx.insert("has_dscp_ecn", &global_protos.has_dscp_ecn);
+        ctx.insert("has_ipv6_tc", &global_protos.has_ipv6_tc);
+        ctx.insert("has_tcp_flags", &global_protos.has_tcp_flags);
+        ctx.insert("has_icmp", &global_protos.has_icmp);
+        ctx.insert("has_icmpv6", &global_protos.has_icmpv6);
+        ctx.insert("has_arp", &global_protos.has_arp);
+        ctx.insert("has_ipv6_ext", &global_protos.has_ipv6_ext);
+        ctx.insert("has_qinq", &global_protos.has_qinq);
+        ctx.insert("has_ip_frag", &global_protos.has_ip_frag);
+        ctx.insert("has_gre", &global_protos.has_gre);
+        ctx.insert("has_oam", &global_protos.has_oam);
+        ctx.insert("has_nsh", &global_protos.has_nsh);
+        ctx.insert("has_conntrack_state", &global_protos.has_conntrack_state);
+        ctx.insert("has_geneve", &global_protos.has_geneve);
+        ctx.insert("has_ip_ttl", &global_protos.has_ip_ttl);
+        ctx.insert("has_byte_capture", &has_byte_capture);
+
+        let rendered = tera.render("pipeline_top.v.tera", &ctx)?;
+        std::fs::write(rtl_dir.join("pipeline_top.v"), &rendered)?;
+        log::info!("Generated pipeline_top.v ({} stages)", tables.len());
+    }
+
+    // Copy frame_parser.v (shared across all pipeline stages)
+    {
+        let src = Path::new("rtl").join("frame_parser.v");
+        if src.exists() {
+            let dst = rtl_dir.join("frame_parser.v");
+            std::fs::copy(&src, &dst)
+                .with_context(|| "Failed to copy frame_parser.v to output")?;
+            log::info!("Copied frame_parser.v to {}", dst.display());
+        }
+    }
+
+    Ok(())
+}
+
+/// Compute GlobalProtocolFlags from a list of rule references
+fn compute_global_protos_from_rules(all_rules: &[&crate::model::StatelessRule], config: &FilterConfig) -> GlobalProtocolFlags {
+    GlobalProtocolFlags {
+        has_ipv6: all_rules.iter().any(|r| r.match_criteria.uses_ipv6()),
+        has_gtp: all_rules.iter().any(|r| r.match_criteria.uses_gtp()),
+        has_mpls: all_rules.iter().any(|r| r.match_criteria.uses_mpls()),
+        has_multicast: all_rules.iter().any(|r| r.match_criteria.uses_multicast()),
+        has_dscp_ecn: all_rules.iter().any(|r| r.match_criteria.uses_dscp_ecn()),
+        has_ipv6_tc: all_rules.iter().any(|r| r.match_criteria.uses_ipv6_tc()),
+        has_tcp_flags: all_rules.iter().any(|r| r.match_criteria.uses_tcp_flags()),
+        has_icmp: all_rules.iter().any(|r| r.match_criteria.uses_icmp()),
+        has_icmpv6: all_rules.iter().any(|r| r.match_criteria.uses_icmpv6()),
+        has_arp: all_rules.iter().any(|r| r.match_criteria.uses_arp()),
+        has_ipv6_ext: all_rules.iter().any(|r| r.match_criteria.uses_ipv6_ext()),
+        has_qinq: all_rules.iter().any(|r| r.match_criteria.uses_qinq()),
+        has_ip_frag: all_rules.iter().any(|r| r.match_criteria.uses_ip_frag()),
+        has_gre: all_rules.iter().any(|r| r.match_criteria.uses_gre()),
+        has_oam: all_rules.iter().any(|r| r.match_criteria.uses_oam()),
+        has_nsh: all_rules.iter().any(|r| r.match_criteria.uses_nsh()),
+        has_conntrack_state: all_rules.iter().any(|r| r.match_criteria.uses_conntrack_state()),
+        has_geneve: all_rules.iter().any(|r| r.match_criteria.uses_geneve()),
+        has_ip_ttl: all_rules.iter().any(|r| r.match_criteria.uses_ip_ttl()),
+        has_flow_counters: config.pacgate.conntrack.as_ref().and_then(|c| c.enable_flow_counters).unwrap_or(false),
+        has_mirror: all_rules.iter().any(|r| r.has_mirror()),
+        has_redirect: all_rules.iter().any(|r| r.has_redirect()),
+    }
+}
+
+/// Collect byte_match offsets from a list of rule references
+fn collect_byte_match_offsets_from_rules(all_rules: &[&crate::model::StatelessRule]) -> Vec<(u16, usize)> {
+    let mut offsets: std::collections::BTreeMap<u16, usize> = std::collections::BTreeMap::new();
+    for rule in all_rules {
+        if let Some(ref bm) = rule.match_criteria.byte_match {
+            for m in bm {
+                let byte_len = (m.value.len() / 2).max(1);
+                offsets.entry(m.offset as u16).or_insert(byte_len);
+            }
+        }
+    }
+    offsets.into_iter().collect()
+}
+
+/// Generate a stateless rule matcher with a custom module name
+fn generate_stateless_rule_with_name(
+    tera: &Tera,
+    rtl_dir: &Path,
+    rule_idx: usize,
+    rule: &crate::model::StatelessRule,
+    byte_offsets: &[(u16, usize)],
+    global_protos: &GlobalProtocolFlags,
+    module_name: &str,
+) -> Result<()> {
+    // Delegate to generate_stateless_rule, then rename the module
+    generate_stateless_rule(tera, rtl_dir, rule_idx, rule, byte_offsets, global_protos)?;
+
+    // Rename the generated file and module name
+    let src_file = rtl_dir.join(format!("rule_match_{}.v", rule_idx));
+    let dst_file = rtl_dir.join(format!("{}.v", module_name));
+
+    if src_file.exists() {
+        let content = std::fs::read_to_string(&src_file)?;
+        let content = content.replace(
+            &format!("module rule_match_{}", rule_idx),
+            &format!("module {}", module_name),
+        );
+        std::fs::write(&dst_file, &content)?;
+        if src_file != dst_file {
+            std::fs::remove_file(&src_file)?;
+        }
+        log::info!("Generated {}.v", module_name);
+    }
+
+    Ok(())
+}
+
 /// Generate rewrite LUT: combinational ROM mapping rule_idx → rewrite parameters
 fn generate_rewrite_lut(tera: &Tera, rtl_dir: &Path, rules: &[crate::model::StatelessRule], idx_bits: usize) -> Result<()> {
     let mut ctx = tera::Context::new();
