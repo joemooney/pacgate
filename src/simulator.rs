@@ -112,6 +112,7 @@ pub struct SimResult {
     pub rewrite: Option<SimRewrite>,
     pub mirror_port: Option<u8>,
     pub redirect_port: Option<u8>,
+    pub rss_queue: Option<u8>,
 }
 
 /// Per-field match breakdown
@@ -407,6 +408,7 @@ fn simulate_stage(rules: &[crate::model::StatelessRule], default_action: &Action
                 rewrite,
                 mirror_port: rule.mirror_port,
                 redirect_port: rule.redirect_port,
+                rss_queue: rule.rss_queue,
             };
         }
     }
@@ -418,6 +420,7 @@ fn simulate_stage(rules: &[crate::model::StatelessRule], default_action: &Action
         rewrite: None,
         mirror_port: None,
         redirect_port: None,
+        rss_queue: None,
     }
 }
 
@@ -444,6 +447,7 @@ fn simulate_pipeline(config: &FilterConfig, packet: &SimPacket) -> SimResult {
         rewrite: None,
         mirror_port: None,
         redirect_port: None,
+        rss_queue: None,
     };
 
     for stage in tables {
@@ -534,6 +538,7 @@ pub fn simulate_with_rate_limit(
                         rewrite: None,
                         mirror_port: None,
                         redirect_port: None,
+                        rss_queue: None,
                     };
                 }
             }
@@ -787,6 +792,7 @@ pub fn simulate_stateful(
             rewrite: None,
             mirror_port: None,
             redirect_port: None,
+            rss_queue: None,
         };
     }
 
@@ -1662,6 +1668,99 @@ fn port_matches(port: u16, pm: &PortMatch) -> bool {
     }
 }
 
+// --- RSS (Receive Side Scaling) ---
+
+/// Microsoft RSS default secret key (40 bytes)
+pub const RSS_DEFAULT_KEY: [u8; 40] = [
+    0x6d, 0x5a, 0x56, 0xda, 0x25, 0x5b, 0x0e, 0xc2,
+    0x41, 0x67, 0x25, 0x3d, 0x43, 0xa3, 0x8f, 0xb0,
+    0xd0, 0xca, 0x2b, 0xcb, 0xae, 0x7b, 0x30, 0xb4,
+    0x77, 0xcb, 0x2d, 0xa3, 0x80, 0x30, 0xf2, 0x0c,
+    0x6a, 0x42, 0xb7, 0x3b, 0xbe, 0xac, 0x01, 0xfa,
+];
+
+/// Compute Toeplitz hash of a 5-tuple input using the given 40-byte key.
+/// Input is packed as: src_ip[31:0] || dst_ip[31:0] || src_port[15:0] || dst_port[15:0] || ip_protocol[7:0]
+/// = 104 bits total. For each set bit in the input, XOR the corresponding 32-bit key window.
+pub fn toeplitz_hash(src_ip: &[u8; 4], dst_ip: &[u8; 4], src_port: u16, dst_port: u16, ip_protocol: u8, key: &[u8; 40]) -> u32 {
+    // Pack input into a bit array (104 bits)
+    let mut input = [0u8; 13]; // 104 bits = 13 bytes
+    input[0..4].copy_from_slice(src_ip);
+    input[4..8].copy_from_slice(dst_ip);
+    input[8] = (src_port >> 8) as u8;
+    input[9] = src_port as u8;
+    input[10] = (dst_port >> 8) as u8;
+    input[11] = dst_port as u8;
+    input[12] = ip_protocol;
+
+    let mut hash: u32 = 0;
+
+    for byte_idx in 0..13 {
+        for bit_idx in 0..8u8 {
+            if (input[byte_idx] >> (7 - bit_idx)) & 1 == 1 {
+                // Get the 32-bit key window starting at this bit position
+                let bit_pos = byte_idx * 8 + bit_idx as usize;
+                let key_window = get_key_window(key, bit_pos);
+                hash ^= key_window;
+            }
+        }
+    }
+
+    hash
+}
+
+/// Extract a 32-bit window from the key starting at the given bit position
+fn get_key_window(key: &[u8; 40], bit_pos: usize) -> u32 {
+    let byte_start = bit_pos / 8;
+    let bit_offset = bit_pos % 8;
+
+    if bit_offset == 0 && byte_start + 4 <= 40 {
+        // Aligned case
+        u32::from_be_bytes([key[byte_start], key[byte_start+1], key[byte_start+2], key[byte_start+3]])
+    } else {
+        // Unaligned: shift and combine
+        let mut result: u32 = 0;
+        for i in 0..32 {
+            let abs_bit = bit_pos + i;
+            let kb = abs_bit / 8;
+            let kbit = abs_bit % 8;
+            if kb < 40 {
+                let bit_val = (key[kb] >> (7 - kbit)) & 1;
+                result |= (bit_val as u32) << (31 - i);
+            }
+        }
+        result
+    }
+}
+
+/// Compute RSS queue assignment for a simulation result.
+/// Returns queue_id based on Toeplitz hash of 5-tuple, or per-rule override.
+pub fn compute_rss_queue(packet: &SimPacket, result: &SimResult, num_queues: u8) -> Option<u8> {
+    // Per-rule override takes priority
+    if let Some(q) = result.rss_queue {
+        return Some(q);
+    }
+
+    // Compute Toeplitz hash of 5-tuple
+    let src_ip = packet.src_ip.as_ref()
+        .and_then(|s| crate::model::Ipv4Prefix::parse(s).ok())
+        .map(|p| p.addr)
+        .unwrap_or([0u8; 4]);
+    let dst_ip = packet.dst_ip.as_ref()
+        .and_then(|s| crate::model::Ipv4Prefix::parse(s).ok())
+        .map(|p| p.addr)
+        .unwrap_or([0u8; 4]);
+    let src_port = packet.src_port.unwrap_or(0);
+    let dst_port = packet.dst_port.unwrap_or(0);
+    let ip_protocol = packet.ip_protocol.unwrap_or(0);
+
+    let hash = toeplitz_hash(&src_ip, &dst_ip, src_port, dst_port, ip_protocol, &RSS_DEFAULT_KEY);
+
+    // Indirection table: lower 7 bits of hash → queue (round-robin default)
+    let itable_idx = (hash & 0x7F) as u8; // 128 entries
+    Some(itable_idx % num_queues)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1726,7 +1825,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
             },
             StatelessRule {
                 name: "allow_ipv4".to_string(),
@@ -1740,7 +1839,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1766,7 +1865,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1792,7 +1891,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
             },
             StatelessRule {
                 name: "high_pri".to_string(),
@@ -1806,7 +1905,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1831,7 +1930,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1858,7 +1957,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1885,7 +1984,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1914,7 +2013,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1948,7 +2047,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1998,7 +2097,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
             },
         ];
         let config = make_config(rules, Action::Pass);
@@ -2023,7 +2122,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -2050,7 +2149,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -2077,7 +2176,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -2116,7 +2215,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -2168,7 +2267,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -2195,7 +2294,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -2228,7 +2327,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -2287,7 +2386,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -2316,7 +2415,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -2345,7 +2444,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -2373,7 +2472,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -2400,7 +2499,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: Some(RateLimit { pps: 100, burst: 10 }),
-                rewrite: None, mirror_port: None, redirect_port: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
             },
             StatelessRule {
                 name: "allow_arp".to_string(),
@@ -2414,7 +2513,7 @@ mod tests {
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
             },
         ];
         make_config(rules, Action::Drop)
@@ -3516,7 +3615,7 @@ pacgate:
             action: Some(action),
             rule_type: None, fsm: None, ports: None,
             rate_limit: None, rewrite: None,
-            mirror_port: None, redirect_port: None,
+            mirror_port: None, redirect_port: None, rss_queue: None,
         }
     }
 
@@ -3623,5 +3722,107 @@ pacgate:
         let result = simulate(&config, &pkt);
         assert_eq!(result.action, Action::Pass);
         assert_eq!(result.rule_name.as_deref(), Some("web"));
+    }
+
+    // --- RSS (Receive Side Scaling) tests ---
+
+    #[test]
+    fn toeplitz_hash_deterministic() {
+        let src_ip = [10, 0, 0, 1];
+        let dst_ip = [10, 0, 0, 2];
+        let h1 = toeplitz_hash(&src_ip, &dst_ip, 12345, 80, 6, &RSS_DEFAULT_KEY);
+        let h2 = toeplitz_hash(&src_ip, &dst_ip, 12345, 80, 6, &RSS_DEFAULT_KEY);
+        assert_eq!(h1, h2, "Same input must produce same hash");
+    }
+
+    #[test]
+    fn toeplitz_hash_different_ips_differ() {
+        let h1 = toeplitz_hash(&[10,0,0,1], &[10,0,0,2], 12345, 80, 6, &RSS_DEFAULT_KEY);
+        let h2 = toeplitz_hash(&[10,0,0,3], &[10,0,0,4], 12345, 80, 6, &RSS_DEFAULT_KEY);
+        assert_ne!(h1, h2, "Different IPs should generally produce different hashes");
+    }
+
+    #[test]
+    fn toeplitz_hash_different_ports_differ() {
+        let h1 = toeplitz_hash(&[10,0,0,1], &[10,0,0,2], 1000, 80, 6, &RSS_DEFAULT_KEY);
+        let h2 = toeplitz_hash(&[10,0,0,1], &[10,0,0,2], 2000, 80, 6, &RSS_DEFAULT_KEY);
+        assert_ne!(h1, h2, "Different source ports should produce different hashes");
+    }
+
+    #[test]
+    fn toeplitz_hash_nonzero() {
+        let h = toeplitz_hash(&[192,168,1,1], &[10,0,0,1], 5000, 443, 6, &RSS_DEFAULT_KEY);
+        assert_ne!(h, 0, "Hash of non-zero input should be non-zero");
+    }
+
+    #[test]
+    fn rss_queue_override_takes_priority() {
+        let pkt = parse_packet_spec("src_ip=10.0.0.1,dst_ip=10.0.0.2,ip_protocol=6,src_port=1234,dst_port=80").unwrap();
+        let result = SimResult {
+            rule_name: Some("test".to_string()),
+            action: Action::Pass,
+            is_default: false,
+            fields: Vec::new(),
+            rewrite: None,
+            mirror_port: None,
+            redirect_port: None,
+            rss_queue: Some(7),
+        };
+        let q = compute_rss_queue(&pkt, &result, 4);
+        assert_eq!(q, Some(7), "Per-rule override should take priority over hash");
+    }
+
+    #[test]
+    fn rss_queue_hash_within_range() {
+        let pkt = parse_packet_spec("src_ip=10.0.0.1,dst_ip=10.0.0.2,ip_protocol=6,src_port=1234,dst_port=80").unwrap();
+        let result = SimResult {
+            rule_name: Some("test".to_string()),
+            action: Action::Pass,
+            is_default: false,
+            fields: Vec::new(),
+            rewrite: None,
+            mirror_port: None,
+            redirect_port: None,
+            rss_queue: None,
+        };
+        for num_queues in [1, 2, 4, 8, 16] {
+            let q = compute_rss_queue(&pkt, &result, num_queues).unwrap();
+            assert!(q < num_queues, "Queue {} must be < {} queues", q, num_queues);
+        }
+    }
+
+    #[test]
+    fn rss_queue_same_flow_same_queue() {
+        let pkt = parse_packet_spec("src_ip=10.0.0.1,dst_ip=10.0.0.2,ip_protocol=6,src_port=1234,dst_port=80").unwrap();
+        let result = SimResult {
+            rule_name: None, action: Action::Pass, is_default: true,
+            fields: Vec::new(), rewrite: None, mirror_port: None,
+            redirect_port: None, rss_queue: None,
+        };
+        let q1 = compute_rss_queue(&pkt, &result, 4);
+        let q2 = compute_rss_queue(&pkt, &result, 4);
+        assert_eq!(q1, q2, "Same 5-tuple must always map to same queue");
+    }
+
+    #[test]
+    fn rss_queue_in_sim_result() {
+        let rules = vec![
+            StatelessRule {
+                name: "pinned".to_string(),
+                priority: 100,
+                match_criteria: MatchCriteria {
+                    ethertype: Some("0x0800".to_string()),
+                    ..Default::default()
+                },
+                action: Some(Action::Pass),
+                rule_type: None, fsm: None, ports: None, rate_limit: None,
+                rewrite: None, mirror_port: None, redirect_port: None,
+                rss_queue: Some(5),
+            },
+        ];
+        let config = make_config(rules, Action::Drop);
+        let pkt = parse_packet_spec("ethertype=0x0800").unwrap();
+        let result = simulate(&config, &pkt);
+        assert_eq!(result.rss_queue, Some(5));
     }
 }

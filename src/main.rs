@@ -87,6 +87,14 @@ enum Commands {
         /// Include PTP hardware clock for IEEE 1588 timestamping
         #[arg(long)]
         ptp: bool,
+
+        /// Enable RSS (Receive Side Scaling) multi-queue dispatch
+        #[arg(long)]
+        rss: bool,
+
+        /// Number of RSS queues (1-16, default 4; implies --rss)
+        #[arg(long, default_value = "4")]
+        rss_queues: u8,
     },
     /// Validate YAML rules without generating output
     Validate {
@@ -565,7 +573,9 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Compile { rules, output, templates, json, axi, counters, ports, conntrack, rate_limit, dynamic, dynamic_entries, target, width, ptp } => {
+        Commands::Compile { rules, output, templates, json, axi, counters, ports, conntrack, rate_limit, dynamic, dynamic_entries, target, width, ptp, rss, rss_queues } => {
+            // --rss-queues != 4 implies --rss
+            let rss = rss || rss_queues != 4;
             // Validate width parameter
             match width {
                 8 | 64 | 128 | 256 | 512 => {}
@@ -586,6 +596,14 @@ fn main() -> Result<()> {
             // Width > 8 requires AXI wrapper (width converters are part of AXI pipeline)
             if width > 8 && !axi && !platform.is_platform() {
                 anyhow::bail!("--width {} requires --axi flag (width converters are part of the AXI pipeline)", width);
+            }
+
+            // Validate RSS parameters
+            if rss_queues < 1 || rss_queues > 16 {
+                anyhow::bail!("--rss-queues must be 1-16 (got {})", rss_queues);
+            }
+            if rss && !axi && !platform.is_platform() {
+                anyhow::bail!("--rss requires --axi flag (RSS uses AXI-Lite CSR for key/indirection table)");
             }
 
             // Platform targets implicitly enable AXI
@@ -625,6 +643,20 @@ fn main() -> Result<()> {
                     std::fs::create_dir_all(output.join("rtl"))?;
                     std::fs::copy(&src, &dst)?;
                     log::info!("Copied ptp_clock.v to {}", dst.display());
+                }
+            }
+
+            // Copy RSS RTL if --rss
+            if rss {
+                let rtl_dir = output.join("rtl");
+                std::fs::create_dir_all(&rtl_dir)?;
+                for name in &["rss_toeplitz.v", "rss_indirection.v"] {
+                    let src = std::path::Path::new("rtl").join(name);
+                    if src.exists() {
+                        let dst = rtl_dir.join(name);
+                        std::fs::copy(&src, &dst)?;
+                        log::info!("Copied {} to {}", name, dst.display());
+                    }
                 }
             }
 
@@ -1111,6 +1143,9 @@ fn main() -> Result<()> {
                 if let Some(port) = result.redirect_port {
                     summary.as_object_mut().unwrap().insert("redirect_port".to_string(), serde_json::json!(port));
                 }
+                if let Some(q) = result.rss_queue {
+                    summary.as_object_mut().unwrap().insert("rss_queue".to_string(), serde_json::json!(q));
+                }
                 if stateful {
                     let is_rate_limited = result.rule_name.as_deref() == Some("rate_limited");
                     summary.as_object_mut().unwrap().insert(
@@ -1180,6 +1215,10 @@ fn main() -> Result<()> {
                         if let Some(port) = result.redirect_port {
                             println!("    redirect_port: {}", port);
                         }
+                    }
+                    if let Some(q) = result.rss_queue {
+                        println!();
+                        println!("  RSS Queue: {}", q);
                     }
                     if stateful && model::StatelessRule::has_flow_counters(&config.pacgate) {
                         println!();
@@ -1562,7 +1601,7 @@ fn main() -> Result<()> {
         }
         Commands::Regress { scenario: scenario_path, count, json } => {
             let s = scenario::load_scenario(&scenario_path)?;
-            let output = scenario::run_regress(&s, count, json)?;
+            let output = scenario::run_regress(&s, Some(&scenario_path), count, json)?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&output)?);
             }
@@ -1573,7 +1612,7 @@ fn main() -> Result<()> {
         }
         Commands::Topology { scenario: scenario_path, json } => {
             let s = scenario::load_scenario(&scenario_path)?;
-            let output = scenario::run_topology(&s, json)?;
+            let output = scenario::run_topology(&s, Some(&scenario_path), json)?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&output)?);
             }

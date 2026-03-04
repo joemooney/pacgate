@@ -560,6 +560,16 @@ fn validate_rule(rule: &crate::model::StatelessRule) -> Result<()> {
         }
     }
 
+    // Validate rss_queue range (0-15)
+    if let Some(q) = rule.rss_queue {
+        if q > 15 {
+            anyhow::bail!("rss_queue must be 0-15, got {} (rule '{}')", q, rule.name);
+        }
+        if rule.is_stateful() {
+            anyhow::bail!("rss_queue not supported on stateful rules (rule '{}')", rule.name);
+        }
+    }
+
     Ok(())
 }
 
@@ -1832,7 +1842,7 @@ pacgate:
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
             },
             StatelessRule {
                 name: "allow_ipv4".to_string(),
@@ -1846,7 +1856,7 @@ pacgate:
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
             },
         ];
         let warnings = check_rule_overlaps(&rules);
@@ -1870,7 +1880,7 @@ pacgate:
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
             },
             StatelessRule {
                 name: "drop_arp".to_string(),
@@ -1884,7 +1894,7 @@ pacgate:
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
             },
         ];
         let warnings = check_rule_overlaps(&rules);
@@ -1907,7 +1917,7 @@ pacgate:
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
             },
             StatelessRule {
                 name: "allow_ipv4".to_string(),
@@ -1921,7 +1931,7 @@ pacgate:
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
             },
         ];
         let warnings = check_rule_overlaps(&rules);
@@ -1941,7 +1951,7 @@ pacgate:
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
             },
         ];
         let warnings = check_rule_overlaps(&rules);
@@ -3150,5 +3160,85 @@ pacgate:
         assert!(!config.is_pipeline());
         assert_eq!(config.stage_count(), 1);
         assert_eq!(config.all_rules().len(), 1);
+    }
+
+    // --- RSS validation (Phase 29) ---
+
+    #[test]
+    fn accept_rss_queue() {
+        let yaml = valid_yaml(
+            "    - name: pinned\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n      action: pass\n      rss_queue: 3",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_ok());
+        let config = result.unwrap();
+        assert_eq!(config.pacgate.rules[0].rss_queue, Some(3));
+    }
+
+    #[test]
+    fn accept_rss_queue_zero() {
+        let yaml = valid_yaml(
+            "    - name: q0\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n      action: pass\n      rss_queue: 0",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().pacgate.rules[0].rss_queue, Some(0));
+    }
+
+    #[test]
+    fn accept_rss_queue_15() {
+        let yaml = valid_yaml(
+            "    - name: q15\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n      action: pass\n      rss_queue: 15",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().pacgate.rules[0].rss_queue, Some(15));
+    }
+
+    #[test]
+    fn reject_rss_queue_16() {
+        let yaml = valid_yaml(
+            "    - name: bad\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n      action: pass\n      rss_queue: 16",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("rss_queue must be 0-15"));
+    }
+
+    #[test]
+    fn reject_rss_queue_on_stateful() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: stateful_rss
+      priority: 100
+      type: stateful
+      rss_queue: 3
+      fsm:
+        initial_state: idle
+        states:
+          idle:
+            transitions:
+              - match:
+                  ethertype: "0x0800"
+                next_state: idle
+                action: pass
+"#;
+        let result = load_rules_from_str(yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("rss_queue not supported on stateful"));
+    }
+
+    #[test]
+    fn no_rss_queue_by_default() {
+        let yaml = valid_yaml(
+            "    - name: test\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().pacgate.rules[0].rss_queue, None);
     }
 }

@@ -147,7 +147,7 @@ mod tests {
                         rate_limit: None,
                         rewrite: None,
                         mirror_port: None,
-                        redirect_port: None,
+                        redirect_port: None, rss_queue: None,
                     },
                 ],
                 conntrack: None,

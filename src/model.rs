@@ -636,6 +636,10 @@ pub struct StatelessRule {
     /// Redirect packet to a different egress port (0-255), overriding normal egress.
     #[serde(default)]
     pub redirect_port: Option<u8>,
+    /// RSS queue override: pin this rule's traffic to a specific queue (0-15).
+    /// Without this, traffic is assigned via Toeplitz hash of 5-tuple.
+    #[serde(default)]
+    pub rss_queue: Option<u8>,
 }
 
 impl StatelessRule {
@@ -661,6 +665,11 @@ impl StatelessRule {
     /// Returns true if this rule has redirect port configured
     pub fn has_redirect(&self) -> bool {
         self.redirect_port.is_some()
+    }
+
+    /// Returns true if this rule has an explicit RSS queue assignment
+    pub fn has_rss_queue(&self) -> bool {
+        self.rss_queue.is_some()
     }
 
     /// Returns true if this rule set has flow counters enabled via conntrack config
@@ -694,6 +703,16 @@ fn default_conntrack_fields() -> Vec<String> {
         "ip_protocol".to_string(), "src_port".to_string(), "dst_port".to_string(),
     ]
 }
+
+/// RSS (Receive Side Scaling) configuration
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RssConfig {
+    /// Number of RSS queues (1-16, default 4)
+    #[serde(default = "default_rss_queues")]
+    pub queues: u8,
+}
+
+fn default_rss_queues() -> u8 { 4 }
 
 /// Pipeline stage: a named set of rules with a default action and optional next stage
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -1119,7 +1138,7 @@ mod tests {
             rate_limit: None,
             rewrite: None,
             mirror_port: None,
-            redirect_port: None,
+            redirect_port: None, rss_queue: None,
         };
         assert_eq!(rule.action(), Action::Drop);
     }
@@ -1137,7 +1156,7 @@ mod tests {
             rate_limit: None,
             rewrite: None,
             mirror_port: None,
-            redirect_port: None,
+            redirect_port: None, rss_queue: None,
         };
         assert_eq!(rule.action(), Action::Pass);
     }
@@ -1155,7 +1174,7 @@ mod tests {
             rate_limit: None,
             rewrite: None,
             mirror_port: None,
-            redirect_port: None,
+            redirect_port: None, rss_queue: None,
         };
         assert!(rule.is_stateful());
     }
@@ -1173,7 +1192,7 @@ mod tests {
             rate_limit: None,
             rewrite: None,
             mirror_port: None,
-            redirect_port: None,
+            redirect_port: None, rss_queue: None,
         };
         assert!(!rule.is_stateful());
     }
@@ -1601,7 +1620,7 @@ pacgate:
                 ..Default::default()
             }),
             mirror_port: None,
-            redirect_port: None,
+            redirect_port: None, rss_queue: None,
         };
         assert!(rule.has_rewrite());
     }
@@ -1619,7 +1638,7 @@ pacgate:
             rate_limit: None,
             rewrite: None,
             mirror_port: None,
-            redirect_port: None,
+            redirect_port: None, rss_queue: None,
         };
         assert!(!rule.has_rewrite());
     }
@@ -2110,7 +2129,7 @@ pacgate:
             rate_limit: None,
             rewrite: None,
             mirror_port: Some(1),
-            redirect_port: None,
+            redirect_port: None, rss_queue: None,
         };
         assert!(rule.has_mirror());
         assert!(!rule.has_redirect());
@@ -2130,6 +2149,7 @@ pacgate:
             rewrite: None,
             mirror_port: None,
             redirect_port: Some(2),
+            rss_queue: None,
         };
         assert!(!rule.has_mirror());
         assert!(rule.has_redirect());
@@ -2149,9 +2169,39 @@ pacgate:
             rewrite: None,
             mirror_port: Some(3),
             redirect_port: Some(4),
+            rss_queue: None,
         };
         assert!(rule.has_mirror());
         assert!(rule.has_redirect());
+    }
+
+    #[test]
+    fn has_rss_queue_true() {
+        let rule = StatelessRule {
+            name: "test".to_string(),
+            priority: 100,
+            match_criteria: MatchCriteria::default(),
+            action: Some(Action::Pass),
+            rule_type: None, fsm: None, ports: None,
+            rate_limit: None, rewrite: None,
+            mirror_port: None, redirect_port: None,
+            rss_queue: Some(3),
+        };
+        assert!(rule.has_rss_queue());
+    }
+
+    #[test]
+    fn has_rss_queue_false() {
+        let rule = StatelessRule {
+            name: "test".to_string(),
+            priority: 100,
+            match_criteria: MatchCriteria::default(),
+            action: Some(Action::Pass),
+            rule_type: None, fsm: None, ports: None,
+            rate_limit: None, rewrite: None,
+            mirror_port: None, redirect_port: None, rss_queue: None,
+        };
+        assert!(!rule.has_rss_queue());
     }
 
     #[test]
