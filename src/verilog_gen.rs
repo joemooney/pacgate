@@ -57,6 +57,7 @@ struct GlobalProtocolFlags {
     has_conntrack_state: bool,
     has_geneve: bool,
     has_ip_ttl: bool,
+    has_ptp: bool,
     has_flow_counters: bool,
     has_mirror: bool,
     has_redirect: bool,
@@ -326,6 +327,17 @@ fn build_condition_expr(mc: &crate::model::MatchCriteria) -> Result<String> {
         conditions.push(format!("(ip_ttl == 8'd{})", ttl));
     }
 
+    // PTP (IEEE 1588) fields
+    if let Some(mt) = mc.ptp_message_type {
+        conditions.push(format!("(ptp_valid && ptp_message_type == 4'd{})", mt));
+    }
+    if let Some(dom) = mc.ptp_domain {
+        conditions.push(format!("(ptp_valid && ptp_domain == 8'd{})", dom));
+    }
+    if let Some(ver) = mc.ptp_version {
+        conditions.push(format!("(ptp_valid && ptp_version == 4'd{})", ver));
+    }
+
     // Connection tracking state
     if let Some(ref state) = mc.conntrack_state {
         match state.as_str() {
@@ -461,6 +473,7 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
     let has_conntrack_state = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_conntrack_state());
     let has_geneve = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_geneve());
     let has_ip_ttl = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_ip_ttl());
+    let has_ptp = config.pacgate.rules.iter().any(|r| r.match_criteria.uses_ptp());
     let has_flow_counters = config.pacgate.conntrack.as_ref().and_then(|c| c.enable_flow_counters).unwrap_or(false);
     let has_mirror = config.pacgate.rules.iter().any(|r| r.has_mirror());
     let has_redirect = config.pacgate.rules.iter().any(|r| r.has_redirect());
@@ -486,6 +499,7 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         has_conntrack_state,
         has_geneve,
         has_ip_ttl,
+        has_ptp,
         has_flow_counters,
         has_mirror,
         has_redirect,
@@ -542,6 +556,7 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         ctx.insert("has_conntrack_state", &has_conntrack_state);
         ctx.insert("has_geneve", &has_geneve);
         ctx.insert("has_ip_ttl", &has_ip_ttl);
+        ctx.insert("has_ptp", &has_ptp);
         ctx.insert("has_flow_counters", &has_flow_counters);
         ctx.insert("has_rewrite", &has_rewrite);
         ctx.insert("has_mirror", &has_mirror);
@@ -703,6 +718,7 @@ pub fn generate_pipeline(config: &FilterConfig, templates_dir: &Path, output_dir
         ctx.insert("has_conntrack_state", &global_protos.has_conntrack_state);
         ctx.insert("has_geneve", &global_protos.has_geneve);
         ctx.insert("has_ip_ttl", &global_protos.has_ip_ttl);
+        ctx.insert("has_ptp", &global_protos.has_ptp);
         ctx.insert("has_byte_capture", &has_byte_capture);
 
         let rendered = tera.render("pipeline_top.v.tera", &ctx)?;
@@ -746,6 +762,7 @@ fn compute_global_protos_from_rules(all_rules: &[&crate::model::StatelessRule], 
         has_conntrack_state: all_rules.iter().any(|r| r.match_criteria.uses_conntrack_state()),
         has_geneve: all_rules.iter().any(|r| r.match_criteria.uses_geneve()),
         has_ip_ttl: all_rules.iter().any(|r| r.match_criteria.uses_ip_ttl()),
+        has_ptp: all_rules.iter().any(|r| r.match_criteria.uses_ptp()),
         has_flow_counters: config.pacgate.conntrack.as_ref().and_then(|c| c.enable_flow_counters).unwrap_or(false),
         has_mirror: all_rules.iter().any(|r| r.has_mirror()),
         has_redirect: all_rules.iter().any(|r| r.has_redirect()),
@@ -1497,6 +1514,7 @@ fn generate_stateless_rule(
     ctx.insert("has_conntrack_state", &global_protos.has_conntrack_state);
     ctx.insert("has_geneve", &global_protos.has_geneve);
     ctx.insert("has_ip_ttl", &global_protos.has_ip_ttl);
+    ctx.insert("has_ptp", &global_protos.has_ptp);
     let byte_cap_info: Vec<std::collections::HashMap<String, serde_json::Value>> = byte_offsets.iter().map(|(offset, len)| {
         let mut map = std::collections::HashMap::new();
         map.insert("offset".to_string(), serde_json::json!(offset));
@@ -1838,6 +1856,7 @@ fn generate_fsm_rule(
     ctx.insert("has_conntrack_state", &global_protos.has_conntrack_state);
     ctx.insert("has_geneve", &global_protos.has_geneve);
     ctx.insert("has_ip_ttl", &global_protos.has_ip_ttl);
+    ctx.insert("has_ptp", &global_protos.has_ptp);
 
     let rendered = tera.render("rule_fsm.v.tera", &ctx)
         .with_context(|| format!("Failed to render rule_fsm for rule {}", rule.name))?;

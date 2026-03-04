@@ -83,6 +83,10 @@ enum Commands {
         /// AXI-Stream data path width in bits (8, 64, 128, 256, 512)
         #[arg(long, default_value = "8")]
         width: u16,
+
+        /// Include PTP hardware clock for IEEE 1588 timestamping
+        #[arg(long)]
+        ptp: bool,
     },
     /// Validate YAML rules without generating output
     Validate {
@@ -561,7 +565,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Compile { rules, output, templates, json, axi, counters, ports, conntrack, rate_limit, dynamic, dynamic_entries, target, width } => {
+        Commands::Compile { rules, output, templates, json, axi, counters, ports, conntrack, rate_limit, dynamic, dynamic_entries, target, width, ptp } => {
             // Validate width parameter
             match width {
                 8 | 64 | 128 | 256 | 512 => {}
@@ -611,6 +615,17 @@ fn main() -> Result<()> {
             // Copy conntrack RTL if --conntrack
             if conntrack {
                 verilog_gen::copy_conntrack_rtl(&output)?;
+            }
+
+            // Copy PTP clock RTL if --ptp
+            if ptp {
+                let src = std::path::Path::new("rtl").join("ptp_clock.v");
+                if src.exists() {
+                    let dst = output.join("rtl").join("ptp_clock.v");
+                    std::fs::create_dir_all(output.join("rtl"))?;
+                    std::fs::copy(&src, &dst)?;
+                    log::info!("Copied ptp_clock.v to {}", dst.display());
+                }
             }
 
             // Copy rate limiter RTL if --rate-limit or any rule has rate_limit
@@ -695,6 +710,7 @@ fn main() -> Result<()> {
                     "dynamic_entries": if dynamic { Some(dynamic_entries) } else { None },
                     "target": platform.name(),
                     "data_width": width,
+                    "ptp": ptp,
                     "generated": {
                         "verilog_dir": format!("{}/rtl", output.display()),
                         "cocotb_dir": format!("{}/tb", output.display()),

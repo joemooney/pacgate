@@ -90,6 +90,10 @@ module pipeline_top (
     wire        nsh_valid;
     wire [23:0] geneve_vni;
     wire        geneve_valid;
+    wire [3:0]  ptp_message_type;
+    wire [3:0]  ptp_version;
+    wire [7:0]  ptp_domain;
+    wire        ptp_valid;
     wire        fields_valid;
 
     frame_parser u_parser (
@@ -166,6 +170,10 @@ module pipeline_top (
         .nsh_valid   (nsh_valid),
         .geneve_vni  (geneve_vni),
         .geneve_valid (geneve_valid),
+        .ptp_message_type (ptp_message_type),
+        .ptp_version  (ptp_version),
+        .ptp_domain   (ptp_domain),
+        .ptp_valid    (ptp_valid),
         .fields_valid (fields_valid)
     );
 
@@ -283,6 +291,12 @@ module pipeline_top (
 {% if has_geneve %}
         .geneve_vni  (geneve_vni),
         .geneve_valid (geneve_valid),
+{% endif %}
+{% if has_ptp %}
+        .ptp_message_type (ptp_message_type),
+        .ptp_version  (ptp_version),
+        .ptp_domain   (ptp_domain),
+        .ptp_valid    (ptp_valid),
 {% endif %}
 {% if has_ip_ttl %}
         .ip_ttl      (ip_ttl),

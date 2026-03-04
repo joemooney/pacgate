@@ -86,6 +86,12 @@ module rule_match_{{ rule_index }} (
     input  wire [23:0] geneve_vni,
     input  wire        geneve_valid,
 {% endif %}
+{% if has_ptp %}
+    input  wire [3:0]  ptp_message_type,
+    input  wire [3:0]  ptp_version,
+    input  wire [7:0]  ptp_domain,
+    input  wire        ptp_valid,
+{% endif %}
 {% if has_ip_ttl %}
     input  wire [7:0]  ip_ttl,
 {% endif %}

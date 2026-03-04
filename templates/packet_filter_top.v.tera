@@ -188,6 +188,14 @@ module packet_filter_top (
     wire        geneve_valid;
 {% endif %}
 
+{% if has_ptp %}
+    // Frame parser outputs — PTP (IEEE 1588)
+    wire [3:0]  ptp_message_type;
+    wire [3:0]  ptp_version;
+    wire [7:0]  ptp_domain;
+    wire        ptp_valid;
+{% endif %}
+
 {% if has_conntrack_state %}
     // Connection tracking state (driven by conntrack_table when --conntrack is used)
     wire        conntrack_established;
@@ -276,6 +284,12 @@ module packet_filter_top (
 {% if has_geneve %}
         .geneve_vni      (geneve_vni),
         .geneve_valid    (geneve_valid),
+{% endif %}
+{% if has_ptp %}
+        .ptp_message_type (ptp_message_type),
+        .ptp_version      (ptp_version),
+        .ptp_domain       (ptp_domain),
+        .ptp_valid        (ptp_valid),
 {% endif %}
         .fields_valid (fields_valid)
     );
@@ -394,6 +408,12 @@ module packet_filter_top (
 {% if has_geneve %}
         .geneve_vni        (geneve_vni),
         .geneve_valid      (geneve_valid),
+{% endif %}
+{% if has_ptp %}
+        .ptp_message_type  (ptp_message_type),
+        .ptp_version       (ptp_version),
+        .ptp_domain        (ptp_domain),
+        .ptp_valid         (ptp_valid),
 {% endif %}
 {% if has_ip_ttl %}
         .ip_ttl            (ip_ttl),
