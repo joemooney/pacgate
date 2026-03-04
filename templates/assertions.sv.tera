@@ -661,6 +661,36 @@ module packet_filter_assertions (
 {% endfor %}
 {% endif %}
 
+{% if has_rss %}
+    // ── RSS (Receive Side Scaling) Assertions ────────────────────────────
+    // RSS queue assignment: rss_queue_id must be within configured range.
+
+    // RSS queue_valid implies queue_id < NUM_QUEUES (4-bit, max 16)
+    assert_rss_queue_bounds: assert property (@(posedge clk) disable iff (!rst_n)
+        (rss_queue_valid |-> rss_queue_id <= 4'd15))
+        else $error("ASSERT FAIL: rss_queue_id exceeds 4-bit range (> 15)");
+
+    // RSS override takes priority: if override_valid, queue_id equals override value
+    assert_rss_override_priority: assert property (@(posedge clk) disable iff (!rst_n)
+        (rss_queue_valid && rss_queue_override_valid |-> rss_queue_id == rss_queue_override))
+        else $error("ASSERT FAIL: RSS override valid but queue_id does not match override value");
+
+    // Cover: RSS queue assignment seen
+    cover_rss_queue_valid: cover property (@(posedge clk) disable iff (!rst_n) rss_queue_valid);
+
+    // Cover: different queue assignments seen
+    cover_rss_queue_0: cover property (@(posedge clk) disable iff (!rst_n)
+        rss_queue_valid && rss_queue_id == 4'd0);
+    cover_rss_queue_1: cover property (@(posedge clk) disable iff (!rst_n)
+        rss_queue_valid && rss_queue_id == 4'd1);
+
+    // Cover: each RSS rule exercised
+{% for idx in rss_rule_indices %}
+    cover_rss_rule_{{ idx }}: cover property (@(posedge clk) disable iff (!rst_n)
+        match_hit_{{ idx }});
+{% endfor %}
+{% endif %}
+
 {% if has_conntrack_state %}
     // ── Connection Tracking State Cover Properties ──────────────────────
     // conntrack_established is a 1-bit signal from the conntrack table.

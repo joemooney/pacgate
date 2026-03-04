@@ -154,6 +154,8 @@ class Rule:
     # Egress port actions (informational — do not affect pass/drop matching)
     mirror_port: Optional[int] = None
     redirect_port: Optional[int] = None
+    # RSS queue override (informational — does not affect pass/drop matching)
+    rss_queue: Optional[int] = None
     # Flow counters (hardware feature — does not affect pass/drop matching)
     enable_flow_counters: bool = False
 
@@ -529,6 +531,33 @@ class PacketFilterScoreboard:
 
         return expected_action, matched_rule
 
+    def predict_rss_queue(self, frame: EthernetFrame, extracted: Optional[dict] = None,
+                          num_queues: int = 4) -> Optional[int]:
+        """Predict the RSS queue assignment for a frame.
+
+        Returns queue_id if matched rule has rss_queue override,
+        otherwise computes Toeplitz hash-based queue.
+        """
+        _, matched_rule_name = self.predict(frame, extracted)
+        if matched_rule_name == "__default__":
+            return None
+
+        # Find the matched rule
+        for rule in self.rules:
+            if rule.name == matched_rule_name:
+                if rule.rss_queue is not None:
+                    return rule.rss_queue
+                break
+
+        # Hash-based assignment using extracted 5-tuple
+        ext = extracted or {}
+        src_ip = _parse_ip_bytes(ext.get("src_ip", "0.0.0.0"))
+        dst_ip = _parse_ip_bytes(ext.get("dst_ip", "0.0.0.0"))
+        src_port = ext.get("src_port", 0)
+        dst_port = ext.get("dst_port", 0)
+        ip_protocol = ext.get("ip_protocol", 0)
+        return compute_rss_queue(src_ip, dst_ip, src_port, dst_port, ip_protocol, num_queues)
+
     def report(self) -> str:
         """Generate scoreboard summary report."""
         lines = [
@@ -609,3 +638,61 @@ class PipelineScoreboard:
             raise ScoreboardMismatch(frame, expected_action, actual_pass, matched_rule)
 
         return expected_action, matched_rule
+
+
+# --- RSS helper functions (module-level) ---
+
+RSS_DEFAULT_KEY = bytes([
+    0x6d, 0x5a, 0x56, 0xda, 0x25, 0x5b, 0x0e, 0xc2,
+    0x41, 0x67, 0x25, 0x3d, 0x43, 0xa3, 0x8f, 0xb0,
+    0xd0, 0xca, 0x2b, 0xcb, 0xae, 0x7b, 0x30, 0xb4,
+    0x77, 0xcb, 0x2d, 0xa3, 0x80, 0x30, 0xf2, 0x0c,
+    0x6a, 0x42, 0xb7, 0x3b, 0xbe, 0xac, 0x01, 0xfa,
+])
+
+
+def _parse_ip_bytes(ip_str: str) -> bytes:
+    """Convert dotted-decimal IP string to 4 bytes."""
+    try:
+        parts = ip_str.split(".")
+        if len(parts) == 4:
+            return bytes(int(p) for p in parts)
+    except (ValueError, TypeError):
+        pass
+    return b"\x00\x00\x00\x00"
+
+
+def toeplitz_hash(src_ip: bytes, dst_ip: bytes, src_port: int, dst_port: int,
+                  ip_protocol: int, key: bytes = RSS_DEFAULT_KEY) -> int:
+    """Compute Toeplitz hash over 5-tuple (Microsoft RSS compatible)."""
+    input_bytes = bytearray(13)
+    input_bytes[0:4] = src_ip
+    input_bytes[4:8] = dst_ip
+    input_bytes[8] = (src_port >> 8) & 0xFF
+    input_bytes[9] = src_port & 0xFF
+    input_bytes[10] = (dst_port >> 8) & 0xFF
+    input_bytes[11] = dst_port & 0xFF
+    input_bytes[12] = ip_protocol & 0xFF
+
+    result = 0
+    for byte_idx in range(13):
+        for bit_idx in range(8):
+            if input_bytes[byte_idx] & (0x80 >> bit_idx):
+                bit_pos = byte_idx * 8 + bit_idx
+                key_window = 0
+                for k in range(32):
+                    key_byte = (bit_pos + k) // 8
+                    key_bit = (bit_pos + k) % 8
+                    if key_byte < len(key) and key[key_byte] & (0x80 >> key_bit):
+                        key_window |= (1 << (31 - k))
+                result ^= key_window
+    return result & 0xFFFFFFFF
+
+
+def compute_rss_queue(src_ip: bytes, dst_ip: bytes, src_port: int, dst_port: int,
+                      ip_protocol: int, num_queues: int = 4,
+                      key: bytes = RSS_DEFAULT_KEY) -> int:
+    """Compute RSS queue assignment from 5-tuple."""
+    h = toeplitz_hash(src_ip, dst_ip, src_port, dst_port, ip_protocol, key)
+    itable_idx = h & 0x7F  # lower 7 bits -> 128-entry indirection table
+    return itable_idx % num_queues

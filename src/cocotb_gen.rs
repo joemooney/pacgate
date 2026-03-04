@@ -250,6 +250,11 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
             tc.insert("ptp_version".to_string(), ver.to_string());
             tc.insert("has_ptp".to_string(), "true".to_string());
         }
+        // RSS queue override (informational)
+        if let Some(q) = rule.rss_queue {
+            tc.insert("rss_queue".to_string(), q.to_string());
+            tc.insert("has_rss".to_string(), "true".to_string());
+        }
         // Mirror/redirect port (informational)
         if let Some(mp) = rule.mirror_port {
             tc.insert("mirror_port".to_string(), mp.to_string());
@@ -540,6 +545,10 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         if let Some(ver) = rule.match_criteria.ptp_version {
             sr.insert("ptp_version".to_string(), ver.to_string());
         }
+        // RSS queue override scoreboard field
+        if let Some(q) = rule.rss_queue {
+            sr.insert("rss_queue".to_string(), q.to_string());
+        }
         scoreboard_rules.push(sr);
     }
 
@@ -582,6 +591,7 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         ctx.insert("has_ip_ttl_rules", &config.pacgate.rules.iter().any(|r| r.match_criteria.uses_ip_ttl()));
         ctx.insert("has_mirror_rules", &rules.iter().any(|r| r.has_mirror()));
         ctx.insert("has_redirect_rules", &rules.iter().any(|r| r.has_redirect()));
+        ctx.insert("has_rss_rules", &rules.iter().any(|r| r.has_rss_queue()));
         ctx.insert("has_flow_counters", &config.pacgate.conntrack.as_ref()
             .and_then(|c| c.enable_flow_counters)
             .unwrap_or(false));

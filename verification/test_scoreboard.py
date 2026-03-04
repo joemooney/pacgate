@@ -14,6 +14,7 @@ from verification.packet import EthernetFrame, mac_to_bytes
 from verification.scoreboard import (
     Rule, PacketFilterScoreboard, PipelineStage, PipelineScoreboard,
     ipv4_matches_cidr, ipv6_matches_cidr, port_matches, byte_match_matches,
+    toeplitz_hash, compute_rss_queue, _parse_ip_bytes, RSS_DEFAULT_KEY,
 )
 
 
@@ -570,6 +571,55 @@ class TestPtpMatch:
                     ethertype=0x88F7, ptp_message_type=0)
         frame = _make_frame(ethertype=0x88F7)
         assert not rule.matches(frame, extracted={})
+
+
+class TestRssQueueAssignment:
+    def test_toeplitz_hash_deterministic(self):
+        src = _parse_ip_bytes("10.0.0.1")
+        dst = _parse_ip_bytes("10.0.0.2")
+        h1 = toeplitz_hash(src, dst, 12345, 80, 6)
+        h2 = toeplitz_hash(src, dst, 12345, 80, 6)
+        assert h1 == h2
+
+    def test_toeplitz_hash_different_ips_differ(self):
+        src1 = _parse_ip_bytes("10.0.0.1")
+        src2 = _parse_ip_bytes("10.0.0.2")
+        dst = _parse_ip_bytes("10.0.0.3")
+        h1 = toeplitz_hash(src1, dst, 80, 80, 6)
+        h2 = toeplitz_hash(src2, dst, 80, 80, 6)
+        assert h1 != h2
+
+    def test_toeplitz_hash_nonzero(self):
+        src = _parse_ip_bytes("192.168.1.1")
+        dst = _parse_ip_bytes("10.0.0.1")
+        h = toeplitz_hash(src, dst, 443, 8080, 6)
+        assert h != 0
+
+    def test_compute_rss_queue_within_range(self):
+        src = _parse_ip_bytes("10.0.0.1")
+        dst = _parse_ip_bytes("10.0.0.2")
+        for num_q in [1, 2, 4, 8, 16]:
+            q = compute_rss_queue(src, dst, 12345, 80, 6, num_queues=num_q)
+            assert 0 <= q < num_q
+
+    def test_rss_queue_override_in_scoreboard(self):
+        rule = Rule(name="pin_q3", priority=100, action="pass",
+                    ethertype=0x0800, rss_queue=3)
+        sb = PacketFilterScoreboard(rules=[rule], default_action="drop")
+        frame = _make_frame(ethertype=0x0800)
+        q = sb.predict_rss_queue(frame, num_queues=4,
+                                  extracted={"src_ip": "10.0.0.1", "dst_ip": "10.0.0.2"})
+        assert q == 3
+
+    def test_rss_queue_hash_based_in_scoreboard(self):
+        rule = Rule(name="allow_web", priority=100, action="pass",
+                    ethertype=0x0800)
+        sb = PacketFilterScoreboard(rules=[rule], default_action="drop")
+        frame = _make_frame(ethertype=0x0800)
+        q = sb.predict_rss_queue(frame, num_queues=4,
+                                  extracted={"src_ip": "10.0.0.1", "dst_ip": "10.0.0.2",
+                                             "src_port": 12345, "dst_port": 80, "ip_protocol": 6})
+        assert 0 <= q < 4
 
 
 if __name__ == "__main__":

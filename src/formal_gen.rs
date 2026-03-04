@@ -111,6 +111,7 @@ pub fn generate_with_dynamic(config: &FilterConfig, templates_dir: &Path, output
     let has_geneve = rules.iter().any(|r| r.match_criteria.uses_geneve());
     let has_ip_ttl = rules.iter().any(|r| r.match_criteria.uses_ip_ttl());
     let has_ptp = rules.iter().any(|r| r.match_criteria.uses_ptp());
+    let has_rss = rules.iter().any(|r| r.has_rss_queue());
     let has_mirror = rules.iter().any(|r| r.has_mirror());
     let has_redirect = rules.iter().any(|r| r.has_redirect());
     let has_flow_counters = config.pacgate.conntrack.as_ref()
@@ -148,6 +149,9 @@ pub fn generate_with_dynamic(config: &FilterConfig, templates_dir: &Path, output
         .map(|(i, _)| i).collect();
     let ptp_rule_indices: Vec<usize> = rules.iter().enumerate()
         .filter(|(_, r)| r.match_criteria.uses_ptp())
+        .map(|(i, _)| i).collect();
+    let rss_rule_indices: Vec<usize> = rules.iter().enumerate()
+        .filter(|(_, r)| r.has_rss_queue())
         .map(|(i, _)| i).collect();
 
     // Render SVA assertions
@@ -201,6 +205,8 @@ pub fn generate_with_dynamic(config: &FilterConfig, templates_dir: &Path, output
         ctx.insert("ip_ttl_rule_indices", &ip_ttl_rule_indices);
         ctx.insert("has_ptp", &has_ptp);
         ctx.insert("ptp_rule_indices", &ptp_rule_indices);
+        ctx.insert("has_rss", &has_rss);
+        ctx.insert("rss_rule_indices", &rss_rule_indices);
         ctx.insert("has_mirror", &has_mirror);
         ctx.insert("has_redirect", &has_redirect);
         ctx.insert("has_flow_counters", &has_flow_counters);
