@@ -1,0 +1,48 @@
+# pcap_gen_demo.yaml — Traffic generation demonstration
+#
+# A multi-protocol rule set used to demonstrate synthetic PCAP traffic
+# generation with the pcap-gen subcommand. Each rule type generates
+# protocol-appropriate packets for testing and benchmarking.
+#
+# Generate: pacgate pcap-gen pcap_gen_demo.yaml --count 1000 --output demo.pcap
+# Simulate: pacgate simulate pcap_gen_demo.yaml --packet "ethertype=0x0800,ip_protocol=6,dst_port=80"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_http
+      priority: 600
+      action: pass
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 80
+
+    - name: allow_dns
+      priority: 500
+      action: pass
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17
+        dst_port: 53
+
+    - name: allow_icmp
+      priority: 400
+      action: pass
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 1
+
+    - name: allow_arp
+      priority: 300
+      action: pass
+      match:
+        ethertype: "0x0806"
+
+    - name: allow_ipv6
+      priority: 200
+      action: pass
+      match:
+        ethertype: "0x86DD"
+        ipv6_next_header: 6

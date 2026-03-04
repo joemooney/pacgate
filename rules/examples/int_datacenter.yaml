@@ -1,0 +1,54 @@
+# int_datacenter.yaml — Data center firewall with INT telemetry
+#
+# Demonstrates In-band Network Telemetry (INT) for critical traffic flows.
+# INT-enabled rules produce sideband metadata (switch_id, timestamps,
+# hop_latency, queue_id) for network visibility without modifying packets.
+#
+# Compile: pacgate compile int_datacenter.yaml --axi --int --int-switch-id 42
+# Simulate: pacgate simulate int_datacenter.yaml --packet "ethertype=0x0800,ip_protocol=6,dst_port=443"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: int_https
+      priority: 500
+      action: pass
+      int_insert: true
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 443
+
+    - name: int_database
+      priority: 400
+      action: pass
+      int_insert: true
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 5432
+
+    - name: allow_dns
+      priority: 300
+      action: pass
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17
+        dst_port: 53
+
+    - name: allow_ssh
+      priority: 200
+      action: pass
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 22
+
+    - name: int_icmp_monitor
+      priority: 100
+      action: pass
+      int_insert: true
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 1
