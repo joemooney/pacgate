@@ -1,0 +1,52 @@
+# rss_datacenter.yaml — Multi-queue data center firewall with RSS
+#
+# Demonstrates Receive Side Scaling for multi-core packet processing.
+# Web traffic uses RSS hash-based queue assignment (queues 0-3),
+# management traffic pinned to queue 15, DNS pinned to queue 0.
+#
+# Compile: pacgate compile rss_datacenter.yaml --axi --rss --rss-queues 4
+# Simulate: pacgate simulate rss_datacenter.yaml --packet "ethertype=0x0800,src_ip=10.0.0.1,dst_ip=10.0.0.2,ip_protocol=6,src_port=12345,dst_port=80"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_dns
+      priority: 500
+      action: pass
+      rss_queue: 0
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17
+        dst_port: 53
+
+    - name: allow_http
+      priority: 400
+      action: pass
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 80
+
+    - name: allow_https
+      priority: 390
+      action: pass
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 443
+
+    - name: allow_ssh_mgmt
+      priority: 300
+      action: pass
+      rss_queue: 15
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 22
+
+    - name: allow_arp
+      priority: 200
+      action: pass
+      match:
+        ethertype: "0x0806"

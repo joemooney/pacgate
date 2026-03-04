@@ -1514,3 +1514,93 @@
 - REQ-2972: 47 YAML examples (45 existing + ptp_boundary_clock + ptp_5g_fronthaul) [IMPLEMENTED]
 - REQ-2973: 50 lint rules (LINT001-052, some skipped) [IMPLEMENTED]
 - REQ-2974: 37 mutation types [IMPLEMENTED]
+
+## Phase 29 Requirements — RSS (Receive Side Scaling) Multi-Queue Dispatch
+
+### Overview
+- REQ-3000: RSS (Receive Side Scaling) multi-queue dispatch for multi-core packet processing — distributes incoming packets across multiple hardware queues to enable parallel processing on multi-core CPUs
+
+### Per-Rule RSS Queue Field
+- REQ-3010: `rss_queue` match/action field on StatelessRule (Option<u8>, 0-15) for explicit per-rule queue pinning
+- REQ-3011: rss_queue range validation (0-15, reject >= 16) in YAML loader
+- REQ-3012: rss_queue in MatchCriteria or RewriteAction model (per-rule queue override)
+- REQ-3013: Shadow/overlap detection considers rss_queue field
+
+### CLI Flags
+- REQ-3020: `--rss` CLI flag on `compile` command to enable RSS hardware generation
+- REQ-3021: `--rss-queues N` CLI flag (1-16, default 4) for queue count configuration
+- REQ-3022: `--rss-queues` validation rejects values < 1 or > 16
+- REQ-3023: `--rss` requires `--axi` for CSR access to indirection table (compile-time error if `--axi` not set)
+
+### Toeplitz Hash Computation
+- REQ-3030: Toeplitz hash computation in RTL using Microsoft RSS default key (40-byte standard key)
+- REQ-3031: Hash computed over IP source/destination addresses and TCP/UDP source/destination ports (4-tuple for TCP/UDP, 2-tuple for non-TCP/UDP)
+- REQ-3032: Hash result used as index into indirection table for queue selection
+- REQ-3033: Hash computation pipelined to avoid critical path impact
+
+### Indirection Table
+- REQ-3040: 128-entry indirection table mapping hash values to queue IDs
+- REQ-3041: AXI-Lite runtime configuration of indirection table entries
+- REQ-3042: Default indirection table initialization: round-robin queue assignment across configured queue count
+- REQ-3043: Each indirection table entry holds a queue ID (4-bit for 0-15 range)
+
+### Per-Rule Queue Override
+- REQ-3050: rss_queue_lut ROM — generated combinational lookup mapping rule_idx to queue override
+- REQ-3051: Per-rule rss_queue overrides Toeplitz hash-based queue selection when set
+- REQ-3052: Rules without rss_queue use the hash-based indirection table (default behavior)
+- REQ-3053: Queue override priority: per-rule rss_queue > indirection table lookup
+
+### Verilog Generation
+- REQ-3060: has_rss flag in GlobalProtocolFlags controlling conditional RSS port/logic generation
+- REQ-3061: rss_queue output port on packet_filter_top (4-bit queue ID)
+- REQ-3062: RSS queue output wired through AXI-Stream top-level and platform wrappers
+- REQ-3063: rss_queue_lut.v generated (combinational ROM) when any rule specifies rss_queue
+
+### Simulation
+- REQ-3070: Software Toeplitz hash implementation in simulator for RSS queue prediction
+- REQ-3071: SimPacket supports rss_queue field
+- REQ-3072: Simulation results include predicted RSS queue ID
+- REQ-3073: `--json` simulation output includes `rss_queue` field
+
+### Python Verification
+- REQ-3080: Python scoreboard predict_rss_queue() function for queue prediction verification
+- REQ-3081: Scoreboard Rule dataclass includes rss_queue field
+- REQ-3082: Scoreboard matches() considers rss_queue for result comparison
+- REQ-3083: PacketFactory supports RSS queue annotation in test packets
+
+### Formal Verification (SVA)
+- REQ-3090: SVA assertion: rss_queue output always < configured queue count (queue bounds check)
+- REQ-3091: SVA assertion: per-rule rss_queue override has priority over hash-based selection
+- REQ-3092: SVA cover property: rss_queue changes across consecutive packets (queue distribution)
+
+### Lint Rules
+- REQ-3100: LINT053 — rss_queue specified without `--rss` flag (warning: queue field ignored without RSS hardware)
+- REQ-3101: LINT054 — rss_queue >= 16 (error: out of range for 4-bit queue ID)
+- REQ-3102: LINT055 — RSS (`--rss`) requires `--axi` for CSR access to indirection table
+
+### Mutation Testing
+- REQ-3110: Mutation type 38: remove_rss_queue — clears rss_queue from rules that specify it
+- REQ-3111: Mutation type 39: shift_rss_queue — increments rss_queue by 1 (modulo 16)
+
+### P4 Export
+- REQ-3120: P4 ActionSelector extern for hash-based queue dispatch
+- REQ-3121: P4 action_selector mapped from RSS Toeplitz hash configuration
+- REQ-3122: Per-rule queue override mapped to P4 direct action with queue_id parameter
+
+### Tool Support
+- REQ-3130: Estimate: RSS hardware resource costs (Toeplitz hash LUTs, indirection table FFs, queue mux)
+- REQ-3131: Stats: rss_queue field usage counter (JSON + text)
+- REQ-3132: Diff: rss_queue field change detection (text + JSON + HTML)
+- REQ-3133: Doc: rss_queue in HTML rule documentation
+- REQ-3134: Graph: rss_queue label on DOT rule nodes
+
+### Examples
+- REQ-3140: rss_multiqueue.yaml — RSS multi-queue dispatch example with per-rule queue pinning
+- REQ-3141: rss_datacenter.yaml — data center RSS example with hash-based distribution + management queue pinning
+
+### Phase 29 Test Counts
+- REQ-3150: 914 Rust tests (536 unit + 378 integration) through Phase 29
+- REQ-3151: 85 Python scoreboard unit tests through Phase 29
+- REQ-3152: 49 YAML examples (47 existing + rss_multiqueue + rss_datacenter)
+- REQ-3153: 53 lint rules (LINT001-055, some skipped)
+- REQ-3154: 39 mutation types

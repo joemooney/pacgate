@@ -472,7 +472,7 @@ PacGate generates verification artifacts (tests, assertions, coverage) automatic
 | **Store-forward FIFO** | Yes | Yes | Yes | No | Yes | Yes |
 | **Hardware timestamping (PTP)** | **Yes** (IEEE 1588) | User | **Yes** | No | No | User |
 | **DMA / PCIe host interface** | No | User | **Yes** | No | **Yes** | **Yes** |
-| **RSS / multi-queue** | No | User | **Yes** | No | **Yes** | No |
+| **RSS / multi-queue** | **Yes** (Toeplitz) | User | **Yes** | No | **Yes** | No |
 
 ### Performance & Targets
 
@@ -543,7 +543,7 @@ PacGate generates verification artifacts (tests, assertions, coverage) automatic
 | **GUI for FSM design** | Visual state machine editor | FlowBlaze | Medium — web UI generating YAML; Mermaid Live already works |
 | **L7 / DPI (regex match)** | Application-layer protocol detection | FFShark (via BPF), P4 (limited) | Large — regex engine in hardware (BRAM-based NFA) |
 | **In-band telemetry (INT)** | Insert metadata headers for network visibility | VitisNetP4, Tofino | Medium — INT header insertion in rewrite engine |
-| **RSS / multi-queue dispatch** | Distribute flows across CPU queues | Corundum, OpenNIC | Medium — Toeplitz hash + queue assignment |
+| ~~**RSS / multi-queue dispatch**~~ | ~~Distribute flows across CPU queues~~ | ~~Corundum, OpenNIC~~ | ~~**DONE (Phase 29)**~~ |
 | **AI-assisted SVA generation** | Auto-generate complex assertions from design | Questa (Property Assist) | Medium — LLM-based assertion suggestion |
 
 ### Low Priority (nice-to-have / future)
@@ -619,7 +619,7 @@ Based on this analysis, the next features that would most strengthen PacGate's c
 
 3. **DMA / host interface** — PCIe DMA for software packet injection/extraction. Could leverage existing Corundum/OpenNIC platform targets rather than building from scratch.
 
-4. **RSS / multi-queue dispatch** — Toeplitz hash + queue assignment for distributing flows across CPU queues. Needed for high-throughput host-attached deployments.
+4. ~~**RSS / multi-queue dispatch**~~ — **DONE (Phase 29)**: Toeplitz hash + 128-entry indirection table + per-rule queue override.
 
 5. **In-band telemetry (INT)** — Insert metadata headers for network visibility. Natural extension of the existing rewrite engine (15 actions).
 

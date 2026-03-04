@@ -1,0 +1,60 @@
+# rss_nic_offload.yaml — NIC offload with per-service queue pinning
+#
+# RSS queue assignment for NIC-level traffic steering.
+# DNS pinned to queue 0, HTTP spread across queues 1-4 via RSS hash,
+# monitoring traffic pinned to queue 15, ICMP on queue 14.
+#
+# Compile: pacgate compile rss_nic_offload.yaml --axi --rss --rss-queues 16
+# Simulate: pacgate simulate rss_nic_offload.yaml --packet "ethertype=0x0800,ip_protocol=17,dst_port=53"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: dns_service
+      priority: 600
+      action: pass
+      rss_queue: 0
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17
+        dst_port: 53
+
+    - name: http_service
+      priority: 500
+      action: pass
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 80
+
+    - name: https_service
+      priority: 490
+      action: pass
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 443
+
+    - name: icmp_monitoring
+      priority: 400
+      action: pass
+      rss_queue: 14
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 1
+
+    - name: snmp_monitoring
+      priority: 350
+      action: pass
+      rss_queue: 15
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17
+        dst_port: 161
+
+    - name: allow_arp
+      priority: 100
+      action: pass
+      match:
+        ethertype: "0x0806"

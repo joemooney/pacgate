@@ -26,6 +26,7 @@
 - **Geneve tunnel (RFC 8926)**: geneve_vni (24-bit VNI, 0-16777215) matching after UDP:6081 detection
 - **IP TTL matching**: ip_ttl (0-255) match field for TTL-based security and traceroute detection
 - **PTP (IEEE 1588)**: ptp_message_type (4-bit, 0-15), ptp_domain (8-bit), ptp_version (4-bit) matching via dual L2 (EtherType 0x88F7) and L4 (UDP 319/320) detection; optional `--ptp` flag for hardware timestamping clock (ptp_clock.v)
+- **RSS (Receive Side Scaling)**: `rss_queue` per-rule queue override (0-15), `--rss`/`--rss-queues N` CLI flags, Toeplitz hash engine (Microsoft RSS compatible), 128-entry indirection table with AXI-Lite CSR, hash-based multi-queue dispatch for multi-core packet processing
 - **Frame length matching**: frame_len_min/frame_len_max (simulation-only, no RTL) for size-based filtering
 - **L4 port rewrite**: set_src_port, set_dst_port with RFC 1624 incremental L4 checksum update (TCP/UDP, UDP cksum=0 preserved)
 - **Byte-offset matching**: raw byte inspection at any packet offset with value/mask (`byte_match`)
@@ -57,7 +58,7 @@
 - **HTML diff visualization**: color-coded side-by-side HTML diff report (`diff --html`)
 - **Performance benchmarking**: compile time, simulation throughput (pkts/sec), LUT/FF scaling curves (`bench` subcommand)
 - Rule overlap and shadow detection with warnings
-- **Full-stack scoreboard**: Python reference model matches L2/L3/L4/IPv6/VXLAN/GTP-U/MPLS/IGMP/MLD/DSCP/ECN/IPv6-TC/TCP-flags/ICMP/ICMPv6/ARP/IPv6-ext/QinQ/IP-frag/GRE/conntrack-state/OAM/NSH/Geneve/ip_ttl/frame_len/byte-match/PTP fields
+- **Full-stack scoreboard**: Python reference model matches L2/L3/L4/IPv6/VXLAN/GTP-U/MPLS/IGMP/MLD/DSCP/ECN/IPv6-TC/TCP-flags/ICMP/ICMPv6/ARP/IPv6-ext/QinQ/IP-frag/GRE/conntrack-state/OAM/NSH/Geneve/ip_ttl/frame_len/byte-match/PTP/RSS fields
 - **Directed L3/L4 tests**: generated tests construct proper IPv4/IPv6/TCP/UDP headers
 - **Protocol-specific cocotb packets**: 14 PacketFactory methods (geneve, gre, icmp, icmpv6_msg, arp_msg, qinq, ip_frag, tcp_with_flags, dscp_ecn, ipv6_tc, ipv6_ext, ipv4_tcp_conntrack) with 13 protocol branches in test_harness.py.tera
 - **Byte-match simulation**: software simulator evaluates byte_match rules with raw_bytes
@@ -86,8 +87,8 @@
 - Coverage XML export with merge support across runs
 - Coverage-directed test generation (verification/coverage_driven.py)
 - Enhanced overlap detection with CIDR containment and port range analysis
-- 47 real-world YAML examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite, OpenNIC, Corundum, TCP flags/ICMP, ARP security, ICMPv6 firewall, QinQ provider, fragment security, port rewrite, GRE tunnel, conntrack firewall, mirror/redirect, flow counters, OAM monitoring, NSH/SFC, Geneve datacenter, TTL security, IPv6 routing, QoS rewrite, wide AXI firewall, P4 export demo, pipeline classify, PTP boundary clock, PTP 5G fronthaul)
-- 518 Rust unit tests + 378 integration tests = 896 total, 79 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
+- 49 real-world YAML examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite, OpenNIC, Corundum, TCP flags/ICMP, ARP security, ICMPv6 firewall, QinQ provider, fragment security, port rewrite, GRE tunnel, conntrack firewall, mirror/redirect, flow counters, OAM monitoring, NSH/SFC, Geneve datacenter, TTL security, IPv6 routing, QoS rewrite, wide AXI firewall, P4 export demo, pipeline classify, PTP boundary clock, PTP 5G fronthaul)
+- 536 Rust unit tests + 378 integration tests = 914 total, 85 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
 
 ## Architecture
 ```
@@ -119,6 +120,9 @@ Mermaid .md --> pacgate from-mermaid --> YAML rules
   - `rewrite_lut` — generated combinational ROM mapping rule_idx to rewrite ops (if rewrite rules present)
   - `egress_lut` — generated combinational ROM mapping rule_idx to mirror/redirect port params (if mirror/redirect rules present)
   - `packet_rewrite` — hand-written byte substitution engine with RFC 1624 checksum (rtl/packet_rewrite.v)
+  - `rss_toeplitz` — Toeplitz hash engine for 5-tuple hashing (rtl/rss_toeplitz.v, optional `--rss`)
+  - `rss_indirection` — 128-entry indirection table with AXI-Lite + per-rule override mux (rtl/rss_indirection.v, optional `--rss`)
+  - `rss_queue_lut` — generated per-rule queue override ROM (optional, if rss_queue rules present)
 - `packet_filter_dynamic_top` — dynamic mode top-level (generated, `--dynamic`)
   - `frame_parser` — same hand-written parser
   - `flow_table` — register-based match entries with AXI-Lite CRUD (generated from template)
@@ -159,6 +163,8 @@ pacgate compile rules.yaml --target corundum  # Corundum mqnic_app_block wrapper
 pacgate compile rules.yaml --width 128 --axi  # 128-bit AXI-Stream width converters
 pacgate compile rules.yaml --width 512 --target opennic  # Native 512-bit (no extra converters)
 pacgate compile rules.yaml --axi --ptp                   # Include PTP hardware clock + CSR registers
+pacgate compile rules.yaml --axi --rss                   # Enable RSS multi-queue dispatch (4 queues default)
+pacgate compile rules.yaml --axi --rss --rss-queues 16   # RSS with 16 queues
 pacgate compile rules.yaml --json      # JSON output with warnings
 # After compile: cd gen/tb && python run_sim.py   # cocotb 2.0 runner (recommended)
 # After compile: cd gen/tb && make                 # Makefile-based (legacy, still supported)
@@ -232,7 +238,7 @@ pytest verification/test_scoreboard.py # 67 Python scoreboard unit tests
 ```
 
 ## Key Files
-- `src/model.rs` — Data model (Action, MatchCriteria, ByteMatch, Ipv6Prefix, RateLimit, FsmVariable, HSM types, ConntrackConfig, GtpTeid, MplsLabel, IgmpType, MldType, IpDscp, IpEcn, Ipv6Dscp, Ipv6Ecn, TcpFlags, IcmpType, IcmpCode, ICMPv6Type, ICMPv6Code, ArpOpcode, ArpSpa, ArpTpa, Ipv6HopLimit, Ipv6FlowLabel, OuterVlanId, OuterVlanPcp, IpDontFragment, IpMoreFragments, IpFragOffset, GreProtocol, GreKey, ConntrackState, OamLevel, OamOpcode, NshSpi, NshSi, NshNextProtocol, GeneveVni, IpTtl, FrameLenMin, FrameLenMax, PtpMessageType, PtpDomain, PtpVersion, RewriteAction with set_src_port/set_dst_port/dec_hop_limit/set_hop_limit/set_ecn/set_vlan_pcp/set_outer_vlan_id)
+- `src/model.rs` — Data model (Action, MatchCriteria, ByteMatch, Ipv6Prefix, RateLimit, FsmVariable, HSM types, ConntrackConfig, RssConfig, GtpTeid, MplsLabel, IgmpType, MldType, IpDscp, IpEcn, Ipv6Dscp, Ipv6Ecn, TcpFlags, IcmpType, IcmpCode, ICMPv6Type, ICMPv6Code, ArpOpcode, ArpSpa, ArpTpa, Ipv6HopLimit, Ipv6FlowLabel, OuterVlanId, OuterVlanPcp, IpDontFragment, IpMoreFragments, IpFragOffset, GreProtocol, GreKey, ConntrackState, OamLevel, OamOpcode, NshSpi, NshSi, NshNextProtocol, GeneveVni, IpTtl, FrameLenMin, FrameLenMax, PtpMessageType, PtpDomain, PtpVersion, RewriteAction with set_src_port/set_dst_port/dec_hop_limit/set_hop_limit/set_ecn/set_vlan_pcp/set_outer_vlan_id)
 - `src/loader.rs` — YAML loading + validation + CIDR/port overlap detection + HSM/byte_match/conntrack validation
 - `src/verilog_gen.rs` — Tera-based Verilog generation (L2/L3/L4/IPv6/VXLAN/GTP-U/MPLS/IGMP/MLD/byte-match, HSM flattening, multiport)
 - `src/cocotb_gen.rs` — cocotb test harness + AXI tests + property test generation
@@ -260,9 +266,11 @@ pytest verification/test_scoreboard.py # 67 Python scoreboard unit tests
 - `rtl/packet_rewrite.v` — Hand-written byte substitution engine with RFC 1624 incremental checksum
 - `rtl/conntrack_table.v` — Connection tracking hash table with CRC hash + timeout + TCP state machine (NEW→ESTABLISHED→FIN_WAIT→CLOSED) + per-flow 64-bit pkt/byte counters + flow read-back interface
 - `rtl/rate_limiter.v` — Token-bucket rate limiter (parameterized PPS, BURST)
+- `rtl/rss_toeplitz.v` — Combinational Toeplitz hash engine (104-bit 5-tuple input, 320-bit key, 32-bit hash output)
+- `rtl/rss_indirection.v` — 128-entry RSS indirection table with AXI-Lite interface and per-rule queue override mux
 - `rtl/axis_512_to_8.v` — 512→8-bit AXI-Stream width converter (for platform targets)
 - `rtl/axis_8_to_512.v` — 8→512-bit AXI-Stream width converter (for platform targets)
-- `templates/*.tera` — 26+ Tera templates (+ synth scripts, rate limiter TB, HTML docs, diff report, MCY config, flow table, dynamic top, rewrite_lut, packet_filter_axi_top, cocotb 2.0 runner scripts)
+- `templates/*.tera` — 27+ Tera templates (+ synth scripts, rate limiter TB, HTML docs, diff report, MCY config, flow table, dynamic top, rewrite_lut, rss_queue_lut, packet_filter_axi_top, cocotb 2.0 runner scripts)
 - `templates/rewrite_lut.v.tera` — Combinational ROM mapping rule_idx to rewrite operations
 - `templates/egress_lut.v.tera` — Combinational ROM mapping rule_idx to mirror/redirect port parameters
 - `templates/packet_filter_axi_top.v.tera` — Templatized AXI top-level with rewrite engine wiring
@@ -388,3 +396,11 @@ pytest verification/test_scoreboard.py # 67 Python scoreboard unit tests
   - **28.5 Tools**: LINT051-052, mutations 36-37, estimate/stats/diff/doc/graph PTP support, P4 PTP header+parser
   - **28.6 Examples+Docs**: ptp_boundary_clock.yaml, ptp_5g_fronthaul.yaml, documentation updates
   - 23 parser states, 50 lint rules, 37 mutation types, 47 examples, 79 Python scoreboard tests, 518 unit + 378 integration = 896 Rust tests
+- **Phase 29**: Complete — RSS / Multi-queue Dispatch:
+  - **29.1 Model+Loader+CLI**: `rss_queue` field on StatelessRule (0-15), `RssConfig` struct, `--rss`/`--rss-queues N` CLI flags, Toeplitz hash in simulator
+  - **29.2 RTL**: rss_toeplitz.v (combinational hash engine, 104-bit 5-tuple input, 320-bit key), rss_indirection.v (128-entry table, AXI-Lite, per-rule override mux)
+  - **29.3 VerilogGen+Templates**: rss_queue_lut.v.tera (per-rule override ROM), RSS module wiring in AXI top, OpenNIC/Corundum RSS port passthrough
+  - **29.4 Verification**: Python Toeplitz hash + compute_rss_queue, predict_rss_queue() scoreboard method, 6 RSS Python tests, SVA assertions (bounds, override priority, covers)
+  - **29.5 Tools**: LINT053-055, mutations 38-39, estimate (+200 LUT Toeplitz, +64 FF indirection), stats/diff/doc/graph RSS fields, P4 ActionSelector
+  - **29.6 Examples+Docs**: rss_datacenter.yaml, rss_nic_offload.yaml, documentation updates
+  - 23 parser states, 53 lint rules, 39 mutation types, 49 examples, 85 Python scoreboard tests, 536 unit + 378 integration = 914 Rust tests

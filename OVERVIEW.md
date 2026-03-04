@@ -4,7 +4,7 @@
 PacGate is an FPGA-based packet filtering switch where YAML-defined rules compile into both synthesizable Verilog (the filter hardware) and a cocotb test harness (the validator). The two outputs are generated from the same specification but serve orthogonal purposes: the filter enforces rules in hardware, the harness proves they work correctly in simulation.
 
 ## What It Does
-1. You define packet filter rules in YAML (match on MAC, IPv4/IPv6, ports, VLAN, QinQ double VLAN, VXLAN VNI, GTP-U TEID, GRE protocol/key, Geneve VNI, MPLS labels, IGMP/MLD, DSCP/ECN, IPv6 TC, TCP flags, ICMP type/code, ICMPv6 type/code, ARP opcode/SPA/TPA, IPv6 hop_limit/flow_label, ip_ttl, IPv4 fragmentation flags, OAM/CFM level+opcode, NSH SPI/SI/next_protocol, PTP message_type/domain/version (IEEE 1588), frame_len_min/max (simulation-only), etc.) with optional rewrite actions (NAT, TTL, MAC, VLAN, VLAN PCP, outer VLAN, DSCP, ECN, IPv6 hop_limit, L4 port rewrite) and egress actions (mirror_port, redirect_port). Rules can be organized into sequential match-action stages using the `tables:` YAML key for multi-table pipeline processing
+1. You define packet filter rules in YAML (match on MAC, IPv4/IPv6, ports, VLAN, QinQ double VLAN, VXLAN VNI, GTP-U TEID, GRE protocol/key, Geneve VNI, MPLS labels, IGMP/MLD, DSCP/ECN, IPv6 TC, TCP flags, ICMP type/code, ICMPv6 type/code, ARP opcode/SPA/TPA, IPv6 hop_limit/flow_label, ip_ttl, IPv4 fragmentation flags, OAM/CFM level+opcode, NSH SPI/SI/next_protocol, PTP message_type/domain/version (IEEE 1588), frame_len_min/max (simulation-only), etc.) with optional rewrite actions (NAT, TTL, MAC, VLAN, VLAN PCP, outer VLAN, DSCP, ECN, IPv6 hop_limit, L4 port rewrite), egress actions (mirror_port, redirect_port), and per-rule RSS queue pinning (rss_queue 0-15). Rules can be organized into sequential match-action stages using the `tables:` YAML key for multi-table pipeline processing
 2. The `pacgate` compiler (written in Rust) reads the YAML and generates:
    - **Verilog RTL** — synthesizable hardware description for an FPGA
    - **cocotb test bench** — Python tests that verify the hardware via simulation
@@ -21,7 +21,7 @@ PacGate is an FPGA-based packet filtering switch where YAML-defined rules compil
 PacGate is unique in that no other tool generates both the hardware implementation (Verilog) and the verification environment (cocotb) from a single specification. Commercial tools like Agnisys IDS-Verify generate tests from register specs but assume the RTL already exists. LLM-based approaches generate one or the other non-deterministically. PacGate generates both, ensuring perfect alignment between specification, implementation, and verification.
 
 ## Architecture
-The generated hardware has a configurable-width streaming interface (`--width 8/64/128/256/512`, default 8-bit byte-at-a-time). A hand-written frame parser (23 states) extracts L2/L3/L4/VXLAN/GTP-U/GRE/Geneve/MPLS/IGMP/MLD/ICMP/ICMPv6/ARP/PTP header fields (including QinQ outer VLAN, IPv6 Traffic Class, TCP flags, hop_limit, flow_label, ip_ttl, IPv4 fragmentation flags, PTP messageType/domain/version), generated per-rule matchers evaluate in parallel (combinational), and a priority encoder selects the first matching rule's action (pass or drop). Rules can optionally be organized into multiple sequential tables (`tables:` YAML key) for multi-stage match-action pipeline processing.
+The generated hardware has a configurable-width streaming interface (`--width 8/64/128/256/512`, default 8-bit byte-at-a-time). A hand-written frame parser (23 states) extracts L2/L3/L4/VXLAN/GTP-U/GRE/Geneve/MPLS/IGMP/MLD/ICMP/ICMPv6/ARP/PTP header fields (including QinQ outer VLAN, IPv6 Traffic Class, TCP flags, hop_limit, flow_label, ip_ttl, IPv4 fragmentation flags, PTP messageType/domain/version), generated per-rule matchers evaluate in parallel (combinational), and a priority encoder selects the first matching rule's action (pass or drop). Rules can optionally be organized into multiple sequential tables (`tables:` YAML key) for multi-stage match-action pipeline processing. An optional RSS (Receive Side Scaling) subsystem (`--rss`) performs Toeplitz hash-based multi-queue dispatch with per-rule queue override support.
 
 ```
 rules.yaml ──> Compiler (Rust) ──┬──> Verilog (DUT)
@@ -53,6 +53,10 @@ rules.yaml ──> Compiler (Rust) ──┬──> Verilog (DUT)
 - `conntrack_table` — connection tracking hash table with per-flow counters (optional, --conntrack)
   - Per-entry 64-bit packet/byte counters (`enable_flow_counters: true`)
   - Flow read-back interface for flow export (registered, 1-cycle latency)
+- RSS subsystem (optional, --rss)
+  - `rss_toeplitz` — Toeplitz hash engine for 5-tuple hashing (rtl/rss_toeplitz.v)
+  - `rss_indirection` — 128-entry indirection table with AXI-Lite runtime updates (rtl/rss_indirection.v)
+  - `rss_queue_lut` — per-rule queue override LUT (generated from template rss_queue_lut.v.tera)
 - `pacgate_opennic_250` — OpenNIC Shell wrapper (optional, --target opennic)
   - `axis_512_to_8` → `packet_filter_axi_top` → `axis_8_to_512`
 - `pacgate_corundum_app` — Corundum app block (optional, --target corundum)
@@ -106,16 +110,17 @@ rules.yaml ──> Compiler (Rust) ──┬──> Verilog (DUT)
 | PTP | ptp_message_type | 4-bit (0-15) | `0` (Sync) |
 | PTP | ptp_domain | 8-bit (0-255) | `0` |
 | PTP | ptp_version | 4-bit (0-15) | `2` (PTPv2) |
+| RSS | rss_queue | 4-bit (0-15) | `3` |
 | Raw | byte_match | Offset+value+mask | `{offset: 14, value: "45", mask: "F0"}` |
 | Sim | frame_len_min | 16-bit (sim-only) | `64` |
 | Sim | frame_len_max | 16-bit (sim-only) | `1518` |
 
 ## Verification Framework
 UVM-inspired Python verification environment with:
-- **PacketFactory** — generates directed, random, boundary, and corner-case Ethernet frames (with L3/L4/IPv6 headers, 20+ protocol-specific methods including GRE, OAM, NSH, ARP, ICMP, ICMPv6, QinQ, Geneve, TCP-flags, PTP)
+- **PacketFactory** — generates directed, random, boundary, and corner-case Ethernet frames (with L3/L4/IPv6 headers, 20+ protocol-specific methods including GRE, OAM, NSH, ARP, ICMP, ICMPv6, QinQ, Geneve, TCP-flags, PTP, RSS queue-tagged packets)
 - **PacketDriver** (BFM) — drives frames into the DUT byte-by-byte
 - **DecisionMonitor** — captures pass/drop decisions from the DUT
-- **Scoreboard** — Python reference model with full L2/L3/L4/IPv6/QinQ/VXLAN/GTP-U/Geneve/MPLS/IGMP/MLD/DSCP/ECN/IPv6-TC/TCP-flags/ICMP/ICMPv6/ARP/IPv6-ext/IPv4-frag/ip_ttl/byte-match/PTP matching, checks against DUT
+- **Scoreboard** — Python reference model with full L2/L3/L4/IPv6/QinQ/VXLAN/GTP-U/Geneve/MPLS/IGMP/MLD/DSCP/ECN/IPv6-TC/TCP-flags/ICMP/ICMPv6/ARP/IPv6-ext/IPv4-frag/ip_ttl/byte-match/PTP matching + Toeplitz hash RSS queue verification, checks against DUT
 - **Coverage** — functional coverage with cover points, bins, cross coverage, and XML export
 - **Properties** — Hypothesis-based property testing (determinism, priority, conservation, independence, L3/L4 determinism, 12 protocol-specific strategies: GTP-U/MPLS/IGMP/MLD/GRE/OAM/NSH/ARP/ICMP/ICMPv6/QinQ/TCP-flags)
 - **Conntrack Tests** — 5 cocotb tests for connection tracking (new flow, return traffic, timeout, collision, overflow)
@@ -129,6 +134,8 @@ UVM-inspired Python verification environment with:
 - `pacgate compile rules.yaml --conntrack` — Include connection tracking hash table RTL
 - `pacgate compile rules.yaml --rate-limit` — Include rate limiter RTL for rules with rate_limit
 - `pacgate compile rules.yaml --width 64` — Parameterized data path width (8/64/128/256/512 bit)
+- `pacgate compile rules.yaml --rss` — Include RSS multi-queue dispatch (Toeplitz hash + indirection table)
+- `pacgate compile rules.yaml --rss --rss-queues 8` — RSS with 8 queues (default 4, max 16)
 - `pacgate validate rules.yaml` — Validate YAML only
 - `pacgate init` — Create a well-commented starter rules file
 - `pacgate estimate rules.yaml` — FPGA resource estimation (LUTs/FFs) + timing analysis
@@ -164,12 +171,12 @@ UVM-inspired Python verification environment with:
 - `pacgate scenario export --store store.json --out-dir dir/` — Export scenarios from store
 - `pacgate regress --scenario file.json --count 1000` — Run packet regression (direct simulate, ~600K pps)
 - `pacgate topology --scenario file.json` — Run topology simulation (RMAC/L3 switch, subnet gating)
-- `pacgate p4-export rules.yaml` — Export rules to P4_16 PSA program (software switch / SmartNIC targets)
+- `pacgate p4-export rules.yaml` — Export rules to P4_16 PSA program (software switch / SmartNIC targets, with P4 ActionSelector for RSS)
 - `pacgate p4-export rules.yaml --json` — P4 export with JSON metadata
 - All commands except `init`, `graph`, `report` support `--json` for machine-readable output
 
 ## Examples
-45 production-quality YAML examples covering real-world deployments:
+49 production-quality YAML examples covering real-world deployments:
 - Enterprise campus, data center multi-tenant, blacklist mode
 - Industrial OT boundary (EtherCAT, PROFINET, PTP, GOOSE)
 - Automotive Ethernet gateway (AVB/TSN, ADAS)
@@ -203,25 +210,26 @@ UVM-inspired Python verification environment with:
 - P4 export target (P4_16 PSA program generation for SmartNIC/software switches)
 - PTP boundary clock (IEEE 1588 domain isolation, Sync/Delay_Req/Follow_Up/Delay_Resp/Announce)
 - PTP 5G fronthaul (multi-domain PTP + eCPRI, L2/L4 dual transport)
+- RSS datacenter (multi-queue dispatch with per-rule queue pinning)
+- RSS NIC offload (Toeplitz hash-based queue distribution for NIC offload)
 
 ## Quality
-- 518 Rust unit tests (model parsing, validation, CIDR/port overlap, IPv4/IPv6, PCAP, byte-match, HSM, Mermaid, simulation incl. byte-match/rate-limit/conntrack, PCAP analysis, synthesis, mutation (37 types), templates, benchmarking, reachability (protocol fields), GTP-U, MPLS, IGMP/MLD, DSCP/ECN, IPv6 TC, TCP flags, ICMP type/code, ICMPv6, ARP, IPv6 extensions, QinQ, IPv4 fragmentation, L4 port rewrite, GRE, conntrack state, mirror/redirect, flow counters, OAM/CFM, NSH/SFC, Geneve VNI, ip_ttl, frame_len, IPv6 rewrite, VLAN PCP/outer VLAN rewrite, MCY config generation, rewrite action parsing/validation, cocotb 2.0 runner generation, parameterized width, P4 export, multi-table pipeline, PTP matching)
-- 378 Rust integration tests (full compile pipeline, AXI, formal, lint, L3/L4, IPv6, VXLAN, counters, PCAP, report, byte-match, HSM, Mermaid, multi-port, conntrack, rate-limit, simulate, simulate --stateful, pcap-analyze, synth, mutate, template, doc, scoreboard field verification, multi-flag compile, all-examples lint, bench, diff --html, reachability, GTP-U, MPLS, multicast, DSCP/ECN, IPv6 TC, TCP flags, ICMP, ICMPv6, ARP, IPv6 extensions, QinQ, IPv4 fragmentation, L4 port rewrite, GRE, conntrack state, mirror/redirect, flow counters, OAM/CFM, NSH/SFC, Geneve, ip_ttl, IPv6 rewrite, VLAN rewrite, coverage framework, boundary tests, MCY, mutation kill-rate, protocol verification completeness, lint protocol prereqs, formal cover assertions, byte_match in docs, protocol property tests, rewrite actions, cocotb 2.0 runner scripts, parameterized width, P4 export, multi-table pipeline)
-- 79 Python scoreboard unit tests (IPv4 CIDR, IPv6 CIDR, port matching, VXLAN VNI, byte-match, multi-field L3/L4, GTP-U TEID, MPLS label/TC/BOS, IGMP/MLD type, IPv6 TC, TCP flags mask-aware, ICMP type/code, ICMPv6 type/code, ARP opcode/SPA/TPA, IPv6 hop_limit/flow_label, QinQ outer VLAN, IPv4 fragmentation, GRE protocol/key, conntrack state, OAM level/opcode, NSH SPI/SI, Geneve VNI, ip_ttl, PTP messageType/domain/version, protocol coverage sampling, protocol determinism checks)
+- 914 Rust tests total (model parsing, validation, CIDR/port overlap, IPv4/IPv6, PCAP, byte-match, HSM, Mermaid, simulation incl. byte-match/rate-limit/conntrack, PCAP analysis, synthesis, mutation (39 types), templates, benchmarking, reachability (protocol fields), GTP-U, MPLS, IGMP/MLD, DSCP/ECN, IPv6 TC, TCP flags, ICMP type/code, ICMPv6, ARP, IPv6 extensions, QinQ, IPv4 fragmentation, L4 port rewrite, GRE, conntrack state, mirror/redirect, flow counters, OAM/CFM, NSH/SFC, Geneve VNI, ip_ttl, frame_len, IPv6 rewrite, VLAN PCP/outer VLAN rewrite, MCY config generation, rewrite action parsing/validation, cocotb 2.0 runner generation, parameterized width, P4 export, multi-table pipeline, PTP matching, RSS queue pinning/Toeplitz hash/indirection table)
+- 85 Python scoreboard unit tests (IPv4 CIDR, IPv6 CIDR, port matching, VXLAN VNI, byte-match, multi-field L3/L4, GTP-U TEID, MPLS label/TC/BOS, IGMP/MLD type, IPv6 TC, TCP flags mask-aware, ICMP type/code, ICMPv6 type/code, ARP opcode/SPA/TPA, IPv6 hop_limit/flow_label, QinQ outer VLAN, IPv4 fragmentation, GRE protocol/key, conntrack state, OAM level/opcode, NSH SPI/SI, Geneve VNI, ip_ttl, PTP messageType/domain/version, RSS Toeplitz hash queue verification, protocol coverage sampling, protocol determinism checks)
 - 13+ cocotb simulation tests (directed with L3/L4 headers + 500-packet random + corner cases)
 - 5 conntrack cocotb tests (new flow, return traffic, timeout, hash collision, table overflow)
 - 85%+ functional coverage with varied frame sizes and VLAN-tagged traffic
 - Rule overlap and shadow detection with CIDR containment and port range analysis
-- Best-practice linting with 46 lint rules (LINT001-046, including GTP/MPLS/IGMP/MLD/DSCP/ECN/IPv6-TC/TCP-flags/ICMP/ICMPv6/ARP/IPv6-ext/QinQ/IPv4-frag/L4-port-rewrite/GRE/conntrack-state/mirror/redirect/flow-counters/OAM/NSH/Geneve/ip_ttl/frame_len/IPv6-rewrite/VLAN-rewrite prerequisite checks, dynamic mode, rewrite actions)
-- Mutation testing: 33 YAML mutation strategies + MCY Verilog-level mutation config generation
+- Best-practice linting with 53 lint rules (LINT001-055, including GTP/MPLS/IGMP/MLD/DSCP/ECN/IPv6-TC/TCP-flags/ICMP/ICMPv6/ARP/IPv6-ext/QinQ/IPv4-frag/L4-port-rewrite/GRE/conntrack-state/mirror/redirect/flow-counters/OAM/NSH/Geneve/ip_ttl/frame_len/IPv6-rewrite/VLAN-rewrite/PTP/RSS prerequisite checks, dynamic mode, rewrite actions)
+- Mutation testing: 39 YAML mutation strategies + MCY Verilog-level mutation config generation
 - Mutation kill-rate runner: compile + lint each mutant, report kill/survived/error rates
 - Coverage-directed test generation with CoverageDirector wired into random test loop
 - Coverage XML export for CI artifact tracking
 - Boundary test generation: auto-derived CIDR boundary and port boundary test cases
 - Formally-derived negative tests: guaranteed no-match frames from unused ethertypes
 - Property-based testing with Hypothesis for invariant verification (9 property checks + 12 protocol strategies: GTP-U/MPLS/IGMP/MLD/GRE/OAM/NSH/ARP/ICMP/ICMPv6/QinQ/TCP-flags)
-- SVA formal assertions with IPv6 CIDR, port range, rate limiter, byte-match, GTP-U, MPLS, IGMP/MLD, DSCP/ECN, IPv6 TC, TCP flags, ICMP, ICMPv6, ARP, IPv6 extensions, QinQ, IPv4 fragmentation, L4 port rewrite, GRE, conntrack state, OAM, NSH, Geneve correctness checks
-- Shadow/overlap detection covers all protocol fields (L2/L3/L4/IPv6/QinQ/VXLAN/GTP-U/Geneve/MPLS/IGMP/MLD/DSCP/ECN/IPv6-TC/TCP-flags/ICMP/ICMPv6/ARP/IPv6-ext/IPv4-frag/ip_ttl)
+- SVA formal assertions with IPv6 CIDR, port range, rate limiter, byte-match, GTP-U, MPLS, IGMP/MLD, DSCP/ECN, IPv6 TC, TCP flags, ICMP, ICMPv6, ARP, IPv6 extensions, QinQ, IPv4 fragmentation, L4 port rewrite, GRE, conntrack state, OAM, NSH, Geneve, PTP, RSS correctness checks
+- Shadow/overlap detection covers all protocol fields (L2/L3/L4/IPv6/QinQ/VXLAN/GTP-U/Geneve/MPLS/IGMP/MLD/DSCP/ECN/IPv6-TC/TCP-flags/ICMP/ICMPv6/ARP/IPv6-ext/IPv4-frag/ip_ttl/PTP/RSS)
 - Analysis tools (stats/graph/diff/estimate/doc) fully cover all protocol fields
 
 ## Development Status
@@ -254,6 +262,8 @@ UVM-inspired Python verification environment with:
 - **Phase 25.6** (complete): NSH/SFC (RFC 8300) support — nsh_spi (24-bit Service Path Identifier) + nsh_si (8-bit Service Index) + nsh_next_protocol (inner protocol type) matching on EtherType 0x894F, frame parser S_NSH_HDR state (8-byte header parse), LINT039 (NSH without ethertype 0x894F), SVA assertions + cover properties, mutation type 29 (remove_nsh_spi), nsh_sfc.yaml example (5 rules), 439 unit + 327 integration = 766 tests
 - **Phase 26** (complete): Geneve tunnel + TTL match + IPv6 rewrite + cocotb/Hypothesis completeness + VLAN rewrite — 6 sub-phases: (26.1) Geneve VNI matching (RFC 8926, UDP:6081, 24-bit VNI) with S_GENEVE_HDR parser state, geneve_datacenter.yaml example; (26.2) ip_ttl match field (0-255) + frame_len_min/max simulation-only fields, ttl_security.yaml example; (26.3) IPv6 rewrite actions (dec_hop_limit, set_hop_limit, set_ecn) with packet_rewrite.v extensions, ipv6_routing.yaml example; (26.4) cocotb test completeness with 14 PacketFactory methods and 13 protocol branches in test_harness; (26.5) Hypothesis property test completeness with 8 new strategies (GRE/OAM/NSH/ARP/ICMP/ICMPv6/QinQ/TCP flags) and 9 conditional blocks; (26.6) VLAN PCP/outer VLAN rewrite (set_vlan_pcp, set_outer_vlan_id), qos_rewrite.yaml example; LINT040-046 (7 new lint rules), mutation types 30-33, rewrite flag bits 10-14, 479 unit + 327 integration = 806 Rust tests + 67 Python tests
 - **Phase 27** (complete): Parameterized data path width + P4 export + multi-table pipeline — 3 sub-features: (27.1) `--width` flag (8/64/128/256/512 bit) parameterizes pkt_data bus width and frame_parser data path for throughput scaling (e.g., 512-bit at 250 MHz = 128 Gbps); (27.2) `p4-export` subcommand generates P4_16 PSA (Portable Switch Architecture) programs from YAML rules for software switch and SmartNIC targets (BMv2, Tofino, DPDK); (27.3) `tables:` YAML key enables multi-table pipeline with sequential match-action stages — each table is an independent match-action unit, packets traverse tables in order with metadata passing between stages. 3 new YAML examples, 518 unit + 378 integration = 896 Rust tests + 73 Python tests
+- **Phase 28** (complete): IEEE 1588 PTP hardware timestamping — 3 new match fields (ptp_message_type 4-bit, ptp_domain 8-bit, ptp_version 4-bit) with dual L2 (EtherType 0x88F7) and L4 (UDP 319/320) detection, S_PTP_HDR parser state (5'd22), optional ptp_clock.v (64-bit free-running clock with SOF/EOF timestamp latching, `--ptp` flag), Python scoreboard PTP matching + PacketFactory.ptp(), SVA assertions, LINT051-052, mutations 36-37, P4 PTP header+parser, ptp_boundary_clock.yaml + ptp_5g_fronthaul.yaml examples, 50 lint rules, 37 mutation types, 47 examples, 79 Python tests, 518 unit + 378 integration = 896 Rust tests
+- **Phase 29** (complete): RSS / Multi-queue Dispatch — per-rule `rss_queue` field (0-15) for queue pinning, `--rss` and `--rss-queues N` CLI flags, Toeplitz hash engine (rss_toeplitz.v) for 5-tuple hashing, 128-entry indirection table (rss_indirection.v) with AXI-Lite runtime updates, per-rule queue override LUT (rss_queue_lut.v.tera), Python scoreboard Toeplitz hash implementation for queue verification, P4 ActionSelector for hash-based queue dispatch, LINT053-055 (RSS prerequisite checks), mutations 38-39, rss_datacenter.yaml + rss_nic_offload.yaml examples, 53 lint rules, 39 mutation types, 49 examples, 85 Python tests, 914 Rust tests
 
 ## Documentation
 - `README.md` — Project showcase and quick start

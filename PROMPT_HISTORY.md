@@ -2702,3 +2702,71 @@ Research four FPGA packet filtering/NIC tools for detailed competitive profiles 
 
 ### Git
 - Committed and pushed Phase 28 (6 sub-phase commits)
+
+---
+
+## Phase 29 — 2026-03-04: RSS / Multi-queue Dispatch
+
+### Goal
+Implement RSS (Receive Side Scaling) multi-queue dispatch for multi-core packet processing, enabling hardware-based flow distribution across multiple CPU queues.
+
+### Actions Taken
+
+**Phase 29.1 — Model + Loader + CLI**:
+- Added `rss_queue: Option<u8>` to StatelessRule for per-rule queue override
+- Added `RssConfig` struct with queue count, indirection table size, and hash key configuration
+- Added `--rss` and `--rss-queues N` CLI flags to `compile` subcommand
+- Implemented Toeplitz hash in simulator using Microsoft RSS default key
+- YAML validation for rss_queue range and RssConfig parameters
+
+**Phase 29.2 — RTL**:
+- Created `rtl/rss_toeplitz.v` — combinational Toeplitz hash module (104-bit 5-tuple input → 32-bit hash output)
+- Created `rtl/rss_indirection.v` — 128-entry indirection table with AXI-Lite interface and per-rule override mux
+- Hash computed over {src_ip, dst_ip, src_port, dst_port, ip_protocol} 5-tuple
+
+**Phase 29.3 — Verilog Generation + Templates**:
+- Created `templates/rss_queue_lut.v.tera` — per-rule queue override ROM (maps rule_idx to rss_queue)
+- Updated `templates/packet_filter_axi_top.v.tera` with RSS module wiring (Toeplitz hash → indirection table → override mux)
+- Updated OpenNIC and Corundum wrapper templates for RSS queue port passthrough
+
+**Phase 29.4 — Verification**:
+- Python Toeplitz hash implementation + `compute_rss_queue()` + `predict_rss_queue()` in scoreboard
+- 6 RSS scoreboard unit tests (hash distribution, per-rule override, queue bounds, default table, multi-flow spread, config validation)
+- SVA assertions: queue index bounds, per-rule override correctness, indirection table cover properties
+- Cocotb test generation: RSS queue assignment verification
+
+**Phase 29.5 — Tool Integration**:
+- LINT053: rss_queue without `--rss` flag (warning)
+- LINT054: rss_queue exceeds `--rss-queues N` (error)
+- LINT055: `--rss` without `--axi` flag (warning, RSS requires AXI-Stream wrapper)
+- Mutation type 38: remove_rss_queue (drop per-rule queue override)
+- Mutation type 39: shift_rss_queue (change queue assignment)
+- Estimate: +200 LUTs, +64 FFs for RSS modules (Toeplitz hash + indirection table)
+- Stats/diff/doc/graph: RSS field and config support
+- P4 export: ActionSelector extern for RSS hash-based distribution
+
+**Phase 29.6 — Examples + Documentation**:
+- Created `rules/examples/rss_datacenter.yaml` — data center RSS with per-service queue pinning
+- Created `rules/examples/rss_nic_offload.yaml` — NIC offload RSS with flow-based queue distribution
+- Updated CLAUDE.md, REQUIREMENTS.md, PROMPT_HISTORY.md
+
+**Lint Rules**: LINT053 (rss_queue without --rss), LINT054 (rss_queue exceeds queue count), LINT055 (--rss without --axi)
+
+**Mutation Types**: 38 (remove_rss_queue), 39 (shift_rss_queue)
+
+### Test Results
+- 536 unit tests — all PASS
+- 378 integration tests — all PASS
+- 85 Python scoreboard tests — all PASS
+- Total: 914 Rust tests + 85 Python tests
+
+### New Artifacts
+- 0 new parser states (reuses existing 5-tuple extraction) — 23 parser states total
+- 2 new RTL modules: rtl/rss_toeplitz.v, rtl/rss_indirection.v
+- 1 new template: templates/rss_queue_lut.v.tera
+- 3 new lint rules (LINT053-055) — 53 total
+- 2 new mutation types (38-39) — 39 total
+- 2 new examples: rss_datacenter.yaml, rss_nic_offload.yaml (49 total)
+
+### Git
+- Committed and pushed Phase 29 implementation
