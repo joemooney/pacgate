@@ -2597,3 +2597,41 @@ Address the top 3 gaps identified in the competitive analysis (docs/COMPARISON.m
 
 ### Git
 - Committed and pushed Phase 27 implementation
+
+---
+
+## Session — 2026-03-03: Competitive Tool Research
+
+### Goal
+Research four FPGA packet filtering/NIC tools for detailed competitive profiles in the comparison document: FFShark/fpga-bpf, hXDP, NetFPGA SUME, and Intel P4 Suite/Tofino.
+
+### Actions Taken
+
+1. **FFShark / fpga-bpf research**
+   - Identified architecture: 6 BPF soft-processor cores on Xilinx Zynq UltraScale+ XCZU19EG
+   - Documented Chopper/Forwarder architecture, 100G line-rate throughput (99.41% packet delivery)
+   - Noted limitations: fixed architecture, no verification output, non-commercial license, academic project (last significant activity ~2019-2020)
+
+2. **hXDP research**
+   - Identified architecture: eBPF-to-FPGA compiler with parallelized instruction set on Virtex-7 (NetFPGA SUME)
+   - Documented throughput: ~52 Mpps, 10x lower latency vs CPU, 156.25 MHz clock, ~10% FPGA resource usage
+   - Noted limitations: single core with 4 lanes, performance plateau, tied to retired NetFPGA SUME hardware
+
+3. **NetFPGA SUME research**
+   - Confirmed hardware retired (Digilent "Legacy" status, no longer manufactured)
+   - Documented P4->NetFPGA workflow: SDNet compiler -> SimpleSumeSwitch architecture
+   - Documented verification approach: SDNet testbenches + Python Scapy test generation + Vivado simulation
+   - Noted community: Cambridge/Stanford-led, SIGCOMM tutorials, but no announced successor board
+
+4. **Intel P4 Suite / Tofino research**
+   - Documented full Tofino EOL timeline: PCN 827577-00 (Aug 2024), last order Oct 30 2024, last ship Feb 28 2025
+   - Documented open-sourcing of P4 SDE (Jan 2025) via p4lang/open-p4studio
+   - Documented Altera spin-out (Jan 2025) inheriting P4 Suite for FPGA targeting Agilex 7/9
+   - Noted P4 Suite restricted availability ("internal use and joint customers only")
+
+5. **Updated docs/COMPARISON.md**
+   - Added 4 detailed competitive tool profiles (FFShark, hXDP, NetFPGA SUME, Intel P4 Suite/Tofino)
+   - Each profile includes: what it does, architecture, throughput, protocol support, limitations, sources with URLs
+
+### Git
+- Committed and pushed competitive tool research updates
