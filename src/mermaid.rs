@@ -257,7 +257,7 @@ pub fn to_yaml(diagram: ParsedDiagram, rule_name: &str, priority: u32) -> Filter
                 rate_limit: None,
                 rewrite: None,
                 mirror_port: None,
-                redirect_port: None, rss_queue: None,
+                redirect_port: None, rss_queue: None, int_insert: None,
             }],
             conntrack: None,
             tables: None,

@@ -113,6 +113,7 @@ pub struct SimResult {
     pub mirror_port: Option<u8>,
     pub redirect_port: Option<u8>,
     pub rss_queue: Option<u8>,
+    pub int_insert: bool,
 }
 
 /// Per-field match breakdown
@@ -409,6 +410,7 @@ fn simulate_stage(rules: &[crate::model::StatelessRule], default_action: &Action
                 mirror_port: rule.mirror_port,
                 redirect_port: rule.redirect_port,
                 rss_queue: rule.rss_queue,
+                int_insert: rule.has_int_insert(),
             };
         }
     }
@@ -421,6 +423,7 @@ fn simulate_stage(rules: &[crate::model::StatelessRule], default_action: &Action
         mirror_port: None,
         redirect_port: None,
         rss_queue: None,
+        int_insert: false,
     }
 }
 
@@ -448,6 +451,7 @@ fn simulate_pipeline(config: &FilterConfig, packet: &SimPacket) -> SimResult {
         mirror_port: None,
         redirect_port: None,
         rss_queue: None,
+                int_insert: false,
     };
 
     for stage in tables {
@@ -539,6 +543,7 @@ pub fn simulate_with_rate_limit(
                         mirror_port: None,
                         redirect_port: None,
                         rss_queue: None,
+                int_insert: false,
                     };
                 }
             }
@@ -793,6 +798,7 @@ pub fn simulate_stateful(
             mirror_port: None,
             redirect_port: None,
             rss_queue: None,
+                int_insert: false,
         };
     }
 
@@ -1826,6 +1832,7 @@ mod tests {
                 ports: None,
                 rate_limit: None,
                 rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                int_insert: None,
             },
             StatelessRule {
                 name: "allow_ipv4".to_string(),
@@ -1840,6 +1847,7 @@ mod tests {
                 ports: None,
                 rate_limit: None,
                 rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                int_insert: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1866,6 +1874,7 @@ mod tests {
                 ports: None,
                 rate_limit: None,
                 rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                int_insert: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1892,6 +1901,7 @@ mod tests {
                 ports: None,
                 rate_limit: None,
                 rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                int_insert: None,
             },
             StatelessRule {
                 name: "high_pri".to_string(),
@@ -1906,6 +1916,7 @@ mod tests {
                 ports: None,
                 rate_limit: None,
                 rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                int_insert: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1931,6 +1942,7 @@ mod tests {
                 ports: None,
                 rate_limit: None,
                 rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                int_insert: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1958,6 +1970,7 @@ mod tests {
                 ports: None,
                 rate_limit: None,
                 rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                int_insert: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -1985,6 +1998,7 @@ mod tests {
                 ports: None,
                 rate_limit: None,
                 rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                int_insert: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -2014,6 +2028,7 @@ mod tests {
                 ports: None,
                 rate_limit: None,
                 rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                int_insert: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -2048,6 +2063,7 @@ mod tests {
                 ports: None,
                 rate_limit: None,
                 rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                int_insert: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -2098,6 +2114,7 @@ mod tests {
                 ports: None,
                 rate_limit: None,
                 rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                int_insert: None,
             },
         ];
         let config = make_config(rules, Action::Pass);
@@ -2123,6 +2140,7 @@ mod tests {
                 ports: None,
                 rate_limit: None,
                 rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                int_insert: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -2150,6 +2168,7 @@ mod tests {
                 ports: None,
                 rate_limit: None,
                 rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                int_insert: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -2177,6 +2196,7 @@ mod tests {
                 ports: None,
                 rate_limit: None,
                 rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                int_insert: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -2216,6 +2236,7 @@ mod tests {
                 ports: None,
                 rate_limit: None,
                 rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                int_insert: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -2268,6 +2289,7 @@ mod tests {
                 ports: None,
                 rate_limit: None,
                 rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                int_insert: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -2295,6 +2317,7 @@ mod tests {
                 ports: None,
                 rate_limit: None,
                 rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                int_insert: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -2328,6 +2351,7 @@ mod tests {
                 ports: None,
                 rate_limit: None,
                 rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                int_insert: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -2387,6 +2411,7 @@ mod tests {
                 ports: None,
                 rate_limit: None,
                 rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                int_insert: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -2416,6 +2441,7 @@ mod tests {
                 ports: None,
                 rate_limit: None,
                 rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                int_insert: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -2445,6 +2471,7 @@ mod tests {
                 ports: None,
                 rate_limit: None,
                 rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                int_insert: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -2473,6 +2500,7 @@ mod tests {
                 ports: None,
                 rate_limit: None,
                 rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                int_insert: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
@@ -2500,6 +2528,7 @@ mod tests {
                 ports: None,
                 rate_limit: Some(RateLimit { pps: 100, burst: 10 }),
                 rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                int_insert: None,
             },
             StatelessRule {
                 name: "allow_arp".to_string(),
@@ -2514,6 +2543,7 @@ mod tests {
                 ports: None,
                 rate_limit: None,
                 rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                int_insert: None,
             },
         ];
         make_config(rules, Action::Drop)
@@ -3615,7 +3645,7 @@ pacgate:
             action: Some(action),
             rule_type: None, fsm: None, ports: None,
             rate_limit: None, rewrite: None,
-            mirror_port: None, redirect_port: None, rss_queue: None,
+            mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
         }
     }
 
@@ -3767,6 +3797,7 @@ pacgate:
             mirror_port: None,
             redirect_port: None,
             rss_queue: Some(7),
+            int_insert: false,
         };
         let q = compute_rss_queue(&pkt, &result, 4);
         assert_eq!(q, Some(7), "Per-rule override should take priority over hash");
@@ -3784,6 +3815,7 @@ pacgate:
             mirror_port: None,
             redirect_port: None,
             rss_queue: None,
+                int_insert: false,
         };
         for num_queues in [1, 2, 4, 8, 16] {
             let q = compute_rss_queue(&pkt, &result, num_queues).unwrap();
@@ -3798,6 +3830,7 @@ pacgate:
             rule_name: None, action: Action::Pass, is_default: true,
             fields: Vec::new(), rewrite: None, mirror_port: None,
             redirect_port: None, rss_queue: None,
+                int_insert: false,
         };
         let q1 = compute_rss_queue(&pkt, &result, 4);
         let q2 = compute_rss_queue(&pkt, &result, 4);
@@ -3817,12 +3850,65 @@ pacgate:
                 action: Some(Action::Pass),
                 rule_type: None, fsm: None, ports: None, rate_limit: None,
                 rewrite: None, mirror_port: None, redirect_port: None,
-                rss_queue: Some(5),
+                rss_queue: Some(5), int_insert: None,
             },
         ];
         let config = make_config(rules, Action::Drop);
         let pkt = parse_packet_spec("ethertype=0x0800").unwrap();
         let result = simulate(&config, &pkt);
         assert_eq!(result.rss_queue, Some(5));
+    }
+
+    #[test]
+    fn int_insert_in_sim_result() {
+        let rules = vec![
+            StatelessRule {
+                name: "int_rule".to_string(),
+                priority: 100,
+                match_criteria: MatchCriteria {
+                    ethertype: Some("0x0800".to_string()),
+                    ..Default::default()
+                },
+                action: Some(Action::Pass),
+                rule_type: None, fsm: None, ports: None, rate_limit: None,
+                rewrite: None, mirror_port: None, redirect_port: None,
+                rss_queue: None, int_insert: Some(true),
+            },
+        ];
+        let config = make_config(rules, Action::Drop);
+        let pkt = parse_packet_spec("ethertype=0x0800").unwrap();
+        let result = simulate(&config, &pkt);
+        assert!(result.int_insert, "Matched rule with int_insert=true should propagate");
+    }
+
+    #[test]
+    fn int_insert_false_by_default() {
+        let rules = vec![
+            StatelessRule {
+                name: "no_int".to_string(),
+                priority: 100,
+                match_criteria: MatchCriteria {
+                    ethertype: Some("0x0800".to_string()),
+                    ..Default::default()
+                },
+                action: Some(Action::Pass),
+                rule_type: None, fsm: None, ports: None, rate_limit: None,
+                rewrite: None, mirror_port: None, redirect_port: None,
+                rss_queue: None, int_insert: None,
+            },
+        ];
+        let config = make_config(rules, Action::Drop);
+        let pkt = parse_packet_spec("ethertype=0x0800").unwrap();
+        let result = simulate(&config, &pkt);
+        assert!(!result.int_insert, "Rule without int_insert should have false in result");
+    }
+
+    #[test]
+    fn int_insert_default_action_false() {
+        let rules = vec![];
+        let config = make_config(rules, Action::Drop);
+        let pkt = parse_packet_spec("ethertype=0x0800").unwrap();
+        let result = simulate(&config, &pkt);
+        assert!(!result.int_insert, "Default action should have int_insert=false");
     }
 }

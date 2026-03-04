@@ -818,7 +818,7 @@ mod tests {
                         fsm: None,
                         ports: None,
                         rate_limit: None,
-                        rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                        rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
                     },
                     StatelessRule {
                         name: "allow_ipv4".to_string(),
@@ -832,7 +832,7 @@ mod tests {
                         fsm: None,
                         ports: None,
                         rate_limit: None,
-                        rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                        rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
                     },
                 ],
                 conntrack: None,
@@ -918,7 +918,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
                     },
                 ],
                 conntrack: None,
@@ -946,7 +946,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
                     },
                 ],
                 conntrack: None,
@@ -973,7 +973,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
                     },
                 ],
                 conntrack: None,
@@ -1000,7 +1000,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
                     },
                 ],
                 conntrack: None,
@@ -1027,7 +1027,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
                     },
                 ],
                 conntrack: None,
@@ -1054,7 +1054,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
                     },
                 ],
                 conntrack: None,
@@ -1082,7 +1082,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
                     },
                 ],
                 conntrack: None,
@@ -1111,7 +1111,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
                     },
                 ],
                 conntrack: None,
@@ -1139,7 +1139,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
                     },
                 ],
                 conntrack: None,
@@ -1167,7 +1167,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
                     },
                 ],
                 conntrack: None,
@@ -1197,7 +1197,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
                     },
                 ],
                 conntrack: None,
@@ -1227,7 +1227,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
                     },
                 ],
                 conntrack: None,
@@ -1256,7 +1256,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
                     },
                 ],
                 conntrack: None,
@@ -1286,7 +1286,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
                     },
                 ],
                 conntrack: None,
@@ -1316,7 +1316,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
                     },
                 ],
                 conntrack: None,
@@ -1344,7 +1344,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
                     },
                 ],
                 conntrack: None,
@@ -1392,7 +1392,7 @@ mod tests {
                             set_outer_vlan_id: None,
                         }),
                         mirror_port: None,
-                        redirect_port: None, rss_queue: None,
+                        redirect_port: None, rss_queue: None, int_insert: None,
                     },
                 ],
                 conntrack: None,
@@ -1421,7 +1421,7 @@ mod tests {
                         action: Some(Action::Pass),
                         rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
                         mirror_port: Some(2),
-                        redirect_port: None, rss_queue: None,
+                        redirect_port: None, rss_queue: None, int_insert: None,
                     },
                 ],
                 conntrack: None,
@@ -1451,7 +1451,7 @@ mod tests {
                         rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
                         mirror_port: None,
                         redirect_port: Some(5),
-                        rss_queue: None,
+                        rss_queue: None, int_insert: None,
                     },
                 ],
                 conntrack: None,
@@ -1479,7 +1479,7 @@ mod tests {
                         },
                         action: Some(Action::Pass),
                         rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
-                        mirror_port: None, redirect_port: None, rss_queue: None,
+                        mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
                     },
                 ],
                 conntrack: Some(ConntrackConfig {
@@ -1515,7 +1515,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
                     },
                 ],
                 conntrack: None,
@@ -1545,7 +1545,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
                     },
                 ],
                 conntrack: None,
@@ -1575,7 +1575,7 @@ mod tests {
                         },
                         action: Some(Action::Pass),
                         rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None,
-                        mirror_port: None, redirect_port: None, rss_queue: None,
+                        mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
                     },
                 ],
                 conntrack: Some(ConntrackConfig {
@@ -1609,7 +1609,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
                     },
                 ],
                 conntrack: None,
@@ -1636,7 +1636,7 @@ mod tests {
                             ..Default::default()
                         },
                         action: Some(Action::Pass),
-                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                        rule_type: None, fsm: None, ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
                     },
                 ],
                 conntrack: None,
@@ -1684,7 +1684,7 @@ mod tests {
                             set_outer_vlan_id: None,
                         }),
                         mirror_port: None,
-                        redirect_port: None, rss_queue: None,
+                        redirect_port: None, rss_queue: None, int_insert: None,
                     },
                 ],
                 conntrack: None,
@@ -1733,7 +1733,7 @@ mod tests {
                             set_outer_vlan_id: None,
                         }),
                         mirror_port: None,
-                        redirect_port: None, rss_queue: None,
+                        redirect_port: None, rss_queue: None, int_insert: None,
                     },
                 ],
                 conntrack: None,

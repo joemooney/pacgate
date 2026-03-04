@@ -570,6 +570,13 @@ fn validate_rule(rule: &crate::model::StatelessRule) -> Result<()> {
         }
     }
 
+    // Validate int_insert
+    if rule.has_int_insert() {
+        if rule.is_stateful() {
+            anyhow::bail!("int_insert not supported on stateful rules (rule '{}')", rule.name);
+        }
+    }
+
     Ok(())
 }
 
@@ -1842,7 +1849,7 @@ pacgate:
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
             },
             StatelessRule {
                 name: "allow_ipv4".to_string(),
@@ -1856,7 +1863,7 @@ pacgate:
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
             },
         ];
         let warnings = check_rule_overlaps(&rules);
@@ -1880,7 +1887,7 @@ pacgate:
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
             },
             StatelessRule {
                 name: "drop_arp".to_string(),
@@ -1894,7 +1901,7 @@ pacgate:
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
             },
         ];
         let warnings = check_rule_overlaps(&rules);
@@ -1917,7 +1924,7 @@ pacgate:
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
             },
             StatelessRule {
                 name: "allow_ipv4".to_string(),
@@ -1931,7 +1938,7 @@ pacgate:
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
             },
         ];
         let warnings = check_rule_overlaps(&rules);
@@ -1951,7 +1958,7 @@ pacgate:
                 fsm: None,
                 ports: None,
                 rate_limit: None,
-                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+                rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
             },
         ];
         let warnings = check_rule_overlaps(&rules);
@@ -3240,5 +3247,64 @@ pacgate:
         let result = load_rules_from_str(&yaml);
         assert!(result.is_ok());
         assert_eq!(result.unwrap().pacgate.rules[0].rss_queue, None);
+    }
+
+    #[test]
+    fn accept_int_insert_true() {
+        let yaml = valid_yaml(
+            "    - name: int_rule\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n      action: pass\n      int_insert: true",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_ok());
+        let config = result.unwrap();
+        assert_eq!(config.pacgate.rules[0].int_insert, Some(true));
+        assert!(config.pacgate.rules[0].has_int_insert());
+    }
+
+    #[test]
+    fn accept_int_insert_false() {
+        let yaml = valid_yaml(
+            "    - name: no_int\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n      action: pass\n      int_insert: false",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().pacgate.rules[0].int_insert, Some(false));
+    }
+
+    #[test]
+    fn no_int_insert_by_default() {
+        let yaml = valid_yaml(
+            "    - name: test\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n      action: pass",
+        );
+        let result = load_rules_from_str(&yaml);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().pacgate.rules[0].int_insert, None);
+    }
+
+    #[test]
+    fn reject_int_insert_on_stateful() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: stateful_int
+      priority: 100
+      type: stateful
+      int_insert: true
+      fsm:
+        initial_state: idle
+        states:
+          idle:
+            transitions:
+              - match:
+                  ethertype: "0x0800"
+                next_state: idle
+                action: pass
+"#;
+        let result = load_rules_from_str(yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("int_insert not supported on stateful"));
     }
 }

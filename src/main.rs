@@ -17,6 +17,7 @@ mod benchmark;
 mod mcy_gen;
 mod scenario;
 mod p4_gen;
+mod pcap_gen;
 
 use std::path::{Path, PathBuf};
 use clap::{CommandFactory, Parser, Subcommand};
@@ -95,6 +96,14 @@ enum Commands {
         /// Number of RSS queues (1-16, default 4; implies --rss)
         #[arg(long, default_value = "4")]
         rss_queues: u8,
+
+        /// Enable INT (In-band Network Telemetry) metadata output
+        #[arg(long)]
+        int: bool,
+
+        /// INT switch identifier (16-bit, default 0)
+        #[arg(long, default_value = "0")]
+        int_switch_id: u16,
     },
     /// Validate YAML rules without generating output
     Validate {
@@ -480,6 +489,27 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Generate synthetic PCAP traffic for testing
+    PcapGen {
+        /// Path to the YAML rules file (used to generate matching traffic)
+        rules: PathBuf,
+
+        /// Output PCAP file path
+        #[arg(short, long, default_value = "gen/traffic.pcap")]
+        output: PathBuf,
+
+        /// Number of packets to generate
+        #[arg(long, default_value = "1000")]
+        count: u32,
+
+        /// Random seed for reproducible generation
+        #[arg(long)]
+        seed: Option<u64>,
+
+        /// Output JSON summary instead of PCAP
+        #[arg(long)]
+        json: bool,
+    },
     /// Export YAML rules as a P4_16 PSA program
     P4Export {
         /// Path to the YAML rules file
@@ -573,9 +603,11 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Compile { rules, output, templates, json, axi, counters, ports, conntrack, rate_limit, dynamic, dynamic_entries, target, width, ptp, rss, rss_queues } => {
+        Commands::Compile { rules, output, templates, json, axi, counters, ports, conntrack, rate_limit, dynamic, dynamic_entries, target, width, ptp, rss, rss_queues, int, int_switch_id } => {
             // --rss-queues != 4 implies --rss
             let rss = rss || rss_queues != 4;
+            // --int-switch-id != 0 implies --int
+            let int = int || int_switch_id != 0;
             // Validate width parameter
             match width {
                 8 | 64 | 128 | 256 | 512 => {}
@@ -604,6 +636,11 @@ fn main() -> Result<()> {
             }
             if rss && !axi && !platform.is_platform() {
                 anyhow::bail!("--rss requires --axi flag (RSS uses AXI-Lite CSR for key/indirection table)");
+            }
+
+            // Validate INT parameters
+            if int && !axi && !platform.is_platform() {
+                anyhow::bail!("--int requires --axi flag (INT metadata uses AXI output ports)");
             }
 
             // Platform targets implicitly enable AXI
@@ -1146,6 +1183,9 @@ fn main() -> Result<()> {
                 if let Some(q) = result.rss_queue {
                     summary.as_object_mut().unwrap().insert("rss_queue".to_string(), serde_json::json!(q));
                 }
+                if result.int_insert {
+                    summary.as_object_mut().unwrap().insert("int_insert".to_string(), serde_json::Value::Bool(true));
+                }
                 if stateful {
                     let is_rate_limited = result.rule_name.as_deref() == Some("rate_limited");
                     summary.as_object_mut().unwrap().insert(
@@ -1219,6 +1259,10 @@ fn main() -> Result<()> {
                     if let Some(q) = result.rss_queue {
                         println!();
                         println!("  RSS Queue: {}", q);
+                    }
+                    if result.int_insert {
+                        println!();
+                        println!("  INT: metadata insertion enabled");
                     }
                     if stateful && model::StatelessRule::has_flow_counters(&config.pacgate) {
                         println!();
@@ -1644,6 +1688,30 @@ fn main() -> Result<()> {
                         config.pacgate.rules.iter().filter(|r| r.is_stateful()).count());
                 }
                 println!("  Target: PSA (Portable Switch Architecture)");
+            }
+        }
+        Commands::PcapGen { rules, output, count, seed, json } => {
+            let (config, _warnings) = loader::load_rules_with_warnings(&rules)?;
+            let parent = output.parent().unwrap_or(Path::new("."));
+            std::fs::create_dir_all(parent)?;
+
+            // Use provided seed or generate from timestamp
+            let seed = seed.unwrap_or_else(|| {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos() as u64
+            });
+
+            let stats = pcap_gen::generate_traffic(&config, &output, count, seed)?;
+
+            if json {
+                println!("{}", serde_json::to_string_pretty(&stats)?);
+            } else {
+                println!("Generated {} packets → {}", count, output.display());
+                println!("  Seed: {}", seed);
+                println!("  Rules covered: {}/{}", stats["rules_covered"], stats["rules_total"]);
+                println!("  Bytes written: {}", stats["bytes_written"]);
             }
         }
     }

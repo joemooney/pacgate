@@ -640,6 +640,10 @@ pub struct StatelessRule {
     /// Without this, traffic is assigned via Toeplitz hash of 5-tuple.
     #[serde(default)]
     pub rss_queue: Option<u8>,
+    /// Enable INT metadata insertion for packets matching this rule.
+    /// Requires --int flag at compile time.
+    #[serde(default)]
+    pub int_insert: Option<bool>,
 }
 
 impl StatelessRule {
@@ -670,6 +674,11 @@ impl StatelessRule {
     /// Returns true if this rule has an explicit RSS queue assignment
     pub fn has_rss_queue(&self) -> bool {
         self.rss_queue.is_some()
+    }
+
+    /// Returns true if this rule has INT metadata insertion enabled
+    pub fn has_int_insert(&self) -> bool {
+        self.int_insert.unwrap_or(false)
     }
 
     /// Returns true if this rule set has flow counters enabled via conntrack config
@@ -713,6 +722,19 @@ pub struct RssConfig {
 }
 
 fn default_rss_queues() -> u8 { 4 }
+
+/// INT (In-band Network Telemetry) configuration
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct IntConfig {
+    /// Switch/device ID embedded in INT metadata (0-65535)
+    #[serde(default)]
+    pub switch_id: u16,
+    /// Maximum hop count for INT transit (1-64, default 8)
+    #[serde(default = "default_int_max_hop")]
+    pub max_hop_count: u8,
+}
+
+fn default_int_max_hop() -> u8 { 8 }
 
 /// Pipeline stage: a named set of rules with a default action and optional next stage
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -1138,7 +1160,7 @@ mod tests {
             rate_limit: None,
             rewrite: None,
             mirror_port: None,
-            redirect_port: None, rss_queue: None,
+            redirect_port: None, rss_queue: None, int_insert: None,
         };
         assert_eq!(rule.action(), Action::Drop);
     }
@@ -1156,7 +1178,7 @@ mod tests {
             rate_limit: None,
             rewrite: None,
             mirror_port: None,
-            redirect_port: None, rss_queue: None,
+            redirect_port: None, rss_queue: None, int_insert: None,
         };
         assert_eq!(rule.action(), Action::Pass);
     }
@@ -1174,7 +1196,7 @@ mod tests {
             rate_limit: None,
             rewrite: None,
             mirror_port: None,
-            redirect_port: None, rss_queue: None,
+            redirect_port: None, rss_queue: None, int_insert: None,
         };
         assert!(rule.is_stateful());
     }
@@ -1192,7 +1214,7 @@ mod tests {
             rate_limit: None,
             rewrite: None,
             mirror_port: None,
-            redirect_port: None, rss_queue: None,
+            redirect_port: None, rss_queue: None, int_insert: None,
         };
         assert!(!rule.is_stateful());
     }
@@ -1620,7 +1642,7 @@ pacgate:
                 ..Default::default()
             }),
             mirror_port: None,
-            redirect_port: None, rss_queue: None,
+            redirect_port: None, rss_queue: None, int_insert: None,
         };
         assert!(rule.has_rewrite());
     }
@@ -1638,7 +1660,7 @@ pacgate:
             rate_limit: None,
             rewrite: None,
             mirror_port: None,
-            redirect_port: None, rss_queue: None,
+            redirect_port: None, rss_queue: None, int_insert: None,
         };
         assert!(!rule.has_rewrite());
     }
@@ -2129,7 +2151,7 @@ pacgate:
             rate_limit: None,
             rewrite: None,
             mirror_port: Some(1),
-            redirect_port: None, rss_queue: None,
+            redirect_port: None, rss_queue: None, int_insert: None,
         };
         assert!(rule.has_mirror());
         assert!(!rule.has_redirect());
@@ -2149,7 +2171,7 @@ pacgate:
             rewrite: None,
             mirror_port: None,
             redirect_port: Some(2),
-            rss_queue: None,
+            rss_queue: None, int_insert: None,
         };
         assert!(!rule.has_mirror());
         assert!(rule.has_redirect());
@@ -2169,7 +2191,7 @@ pacgate:
             rewrite: None,
             mirror_port: Some(3),
             redirect_port: Some(4),
-            rss_queue: None,
+            rss_queue: None, int_insert: None,
         };
         assert!(rule.has_mirror());
         assert!(rule.has_redirect());
@@ -2185,7 +2207,7 @@ pacgate:
             rule_type: None, fsm: None, ports: None,
             rate_limit: None, rewrite: None,
             mirror_port: None, redirect_port: None,
-            rss_queue: Some(3),
+            rss_queue: Some(3), int_insert: None,
         };
         assert!(rule.has_rss_queue());
     }
@@ -2199,7 +2221,7 @@ pacgate:
             action: Some(Action::Pass),
             rule_type: None, fsm: None, ports: None,
             rate_limit: None, rewrite: None,
-            mirror_port: None, redirect_port: None, rss_queue: None,
+            mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
         };
         assert!(!rule.has_rss_queue());
     }

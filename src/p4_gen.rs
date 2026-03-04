@@ -738,7 +738,7 @@ mod tests {
             name: "test".to_string(), priority: 100,
             match_criteria: MatchCriteria { ethertype: Some("0x0800".to_string()), ..Default::default() },
             action: Some(Action::Pass), rule_type: None, fsm: None, ports: None,
-            rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+            rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
         };
         let config = make_config(vec![rule]);
         let protos = detect_protocols(&config);
@@ -752,7 +752,7 @@ mod tests {
             name: "test".to_string(), priority: 100,
             match_criteria: MatchCriteria { dst_port: Some(PortMatch::Exact(80)), ..Default::default() },
             action: Some(Action::Pass), rule_type: None, fsm: None, ports: None,
-            rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+            rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
         };
         let config = make_config(vec![rule]);
         let protos = detect_protocols(&config);
@@ -770,7 +770,7 @@ mod tests {
                 ..Default::default()
             },
             action: Some(Action::Pass), rule_type: None, fsm: None, ports: None,
-            rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+            rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
         };
         let config = make_config(vec![rule]);
         let keys = collect_table_keys(&config).unwrap();
@@ -788,7 +788,7 @@ mod tests {
                 ..Default::default()
             },
             action: Some(Action::Pass), rule_type: None, fsm: None, ports: None,
-            rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+            rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
         };
         let config = make_config(vec![rule]);
         let entries = build_table_entries(&config).unwrap();
@@ -843,7 +843,7 @@ mod tests {
             name: "test".to_string(), priority: 100,
             match_criteria: MatchCriteria { ethertype: Some("0x0800".to_string()), ..Default::default() },
             action: Some(Action::Pass), rule_type: None, fsm: None, ports: None,
-            rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+            rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
         };
         let config = make_config(vec![rule]);
         let summary = generate_p4_summary(&config);
@@ -863,7 +863,7 @@ mod tests {
                 ..Default::default()
             },
             action: Some(Action::Pass), rule_type: None, fsm: None, ports: None,
-            rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+            rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
         };
         let config = make_config(vec![rule]);
         let protos = detect_protocols(&config);
@@ -883,7 +883,7 @@ mod tests {
                 ..Default::default()
             },
             action: Some(Action::Pass), rule_type: None, fsm: None, ports: None,
-            rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+            rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
         };
         let config = make_config(vec![rule]);
         let protos = detect_protocols(&config);
@@ -903,7 +903,7 @@ mod tests {
                 states: std::collections::HashMap::new(),
                 variables: None,
             }),
-            ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+            ports: None, rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
         };
         let config = make_config(vec![rule]);
         let entries = build_table_entries(&config).unwrap();
@@ -919,7 +919,7 @@ mod tests {
                 ..Default::default()
             },
             action: Some(Action::Pass), rule_type: None, fsm: None, ports: None,
-            rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+            rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
         };
         let config = make_config(vec![rule]);
         let protos = detect_protocols(&config);
@@ -934,7 +934,7 @@ mod tests {
             match_criteria: MatchCriteria { dst_port: Some(PortMatch::Exact(80)), ..Default::default() },
             action: Some(Action::Pass), rule_type: None, fsm: None, ports: None,
             rate_limit: Some(crate::model::RateLimit { pps: 1000, burst: 100 }),
-            rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+            rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
         };
         let config = make_config(vec![rule]);
         let protos = detect_protocols(&config);
@@ -950,7 +950,7 @@ mod tests {
                 ..Default::default()
             },
             action: Some(Action::Pass), rule_type: None, fsm: None, ports: None,
-            rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+            rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
         };
         let config = make_config(vec![rule]);
         let keys = collect_table_keys(&config).unwrap();
@@ -976,7 +976,7 @@ mod tests {
                 ..Default::default()
             },
             action: Some(Action::Pass), rule_type: None, fsm: None, ports: None,
-            rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+            rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
         };
         let config = make_config(vec![rule]);
         let summary = generate_p4_summary(&config);
@@ -991,7 +991,7 @@ mod tests {
             match_criteria: MatchCriteria { dst_port: Some(PortMatch::Exact(80)), ..Default::default() },
             action: Some(Action::Pass), rule_type: None, fsm: None, ports: None,
             rate_limit: Some(crate::model::RateLimit { pps: 1000, burst: 100 }),
-            rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+            rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
         };
         let config = make_config(vec![rule]);
         let summary = generate_p4_summary(&config);
@@ -1005,7 +1005,7 @@ mod tests {
             name: "test".to_string(), priority: 100,
             match_criteria: MatchCriteria { ethertype: Some("0x0800".to_string()), ..Default::default() },
             action: Some(Action::Pass), rule_type: None, fsm: None, ports: None,
-            rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None,
+            rate_limit: None, rewrite: None, mirror_port: None, redirect_port: None, rss_queue: None, int_insert: None,
         };
         let config = make_config(vec![rule]);
         let summary = generate_p4_summary(&config);

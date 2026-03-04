@@ -55,7 +55,7 @@ fn synthetic_config(num_rules: usize) -> FilterConfig {
             rate_limit: None,
             rewrite: None,
             mirror_port: None,
-            redirect_port: None, rss_queue: None,
+            redirect_port: None, rss_queue: None, int_insert: None,
         });
     }
     FilterConfig {
