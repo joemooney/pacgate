@@ -470,7 +470,7 @@ PacGate generates verification artifacts (tests, assertions, coverage) automatic
 | **Parameterized width (8-512b)** | **Yes** | Fixed | Fixed | Fixed | Fixed | Fixed |
 | **Platform target wrappers** | OpenNIC, Corundum | Alveo | Native | NetFPGA | Native | Native |
 | **Store-forward FIFO** | Yes | Yes | Yes | No | Yes | Yes |
-| **Hardware timestamping (PTP)** | No | User | **Yes** | No | No | User |
+| **Hardware timestamping (PTP)** | **Yes** (IEEE 1588) | User | **Yes** | No | No | User |
 | **DMA / PCIe host interface** | No | User | **Yes** | No | **Yes** | **Yes** |
 | **RSS / multi-queue** | No | User | **Yes** | No | **Yes** | No |
 
@@ -532,7 +532,7 @@ PacGate generates verification artifacts (tests, assertions, coverage) automatic
 |---------|---------|--------------------------|--------|
 | **P4 import** | Accept P4 programs as input; tap into P4 ecosystem | All P4 tools | Large — P4 parser frontend + mapping to PacGate model |
 | **DMA / host interface** | Software packet injection/extraction; CPU offload | Corundum, NetFPGA, OpenNIC | Large — PCIe DMA is complex; or leverage existing Corundum/OpenNIC |
-| **Hardware timestamping (PTP)** | Precise packet timing for telemetry / 5G | Corundum | Medium — PTP timestamp capture at MAC interface |
+| ~~**Hardware timestamping (PTP)**~~ | ~~Precise packet timing for telemetry / 5G~~ | ~~Corundum~~ | **IMPLEMENTED** (Phase 28) — IEEE 1588 PTP matching + optional ptp_clock.v |
 
 ### Medium Priority (useful differentiators)
 
@@ -613,7 +613,7 @@ The closest competitors in specific dimensions:
 
 Based on this analysis, the next features that would most strengthen PacGate's competitive position:
 
-1. **Hardware timestamping (PTP)** — Critical for 5G/telecom use cases where PacGate already has strong protocol support (GTP-U, Geneve, NSH). PTP timestamp capture at MAC interface would enable precision timing applications.
+1. ~~**Hardware timestamping (PTP)**~~ — **DONE** (Phase 28). IEEE 1588 PTP matching (ptp_message_type, ptp_domain, ptp_version) with dual L2/L4 detection and optional hardware clock module.
 
 2. **P4 import** — Accept P4 as an alternative input format, expanding the user base to existing P4 developers who want PacGate's verification capabilities. Combined with the existing P4 export, this would make PacGate a bidirectional P4 bridge.
 

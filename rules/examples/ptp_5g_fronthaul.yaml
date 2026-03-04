@@ -1,0 +1,59 @@
+# PTP 5G Fronthaul — IEEE 1588 PTP + eCPRI filtering with domain separation
+# Use with: pacgate compile ptp_5g_fronthaul.yaml --axi --ptp
+# 5G fronthaul networks use PTP for O-RAN synchronization with domain isolation
+# Domain 0: Grandmaster sync, Domain 24: RU-DU sync, Domain 44: inter-DU sync
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: ptp_sync_gm
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17
+        dst_port: 319
+        ptp_message_type: 0
+        ptp_domain: 0
+      action: pass
+    - name: ptp_delay_req_gm
+      priority: 95
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17
+        dst_port: 319
+        ptp_message_type: 1
+        ptp_domain: 0
+      action: pass
+    - name: ptp_general_gm
+      priority: 90
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17
+        dst_port: 320
+        ptp_domain: 0
+      action: pass
+    - name: ptp_ru_du_sync
+      priority: 85
+      match:
+        ethertype: "0x88F7"
+        ptp_message_type: 0
+        ptp_domain: 24
+      action: pass
+    - name: ptp_ru_du_general
+      priority: 80
+      match:
+        ethertype: "0x88F7"
+        ptp_domain: 24
+      action: pass
+    - name: ptp_inter_du_sync
+      priority: 75
+      match:
+        ethertype: "0x88F7"
+        ptp_domain: 44
+      action: pass
+    - name: allow_ecpri
+      priority: 50
+      match:
+        ethertype: "0xAEFE"
+      action: pass

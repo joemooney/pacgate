@@ -1,0 +1,51 @@
+# PTP Boundary Clock — IEEE 1588 PTP filtering with domain isolation
+# Use with: pacgate compile ptp_boundary_clock.yaml --axi --ptp
+# Filters PTP (Precision Time Protocol) messages for boundary clock operation
+# Supports both L2 (EtherType 0x88F7) and L4 (UDP 319/320) PTP transport
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_sync_domain0
+      priority: 100
+      match:
+        ethertype: "0x88F7"
+        ptp_message_type: 0
+        ptp_domain: 0
+        ptp_version: 2
+      action: pass
+    - name: allow_delay_req_domain0
+      priority: 90
+      match:
+        ethertype: "0x88F7"
+        ptp_message_type: 1
+        ptp_domain: 0
+        ptp_version: 2
+      action: pass
+    - name: allow_follow_up_domain0
+      priority: 80
+      match:
+        ethertype: "0x88F7"
+        ptp_message_type: 8
+        ptp_domain: 0
+      action: pass
+    - name: allow_delay_resp_domain0
+      priority: 70
+      match:
+        ethertype: "0x88F7"
+        ptp_message_type: 9
+        ptp_domain: 0
+      action: pass
+    - name: allow_announce_domain0
+      priority: 60
+      match:
+        ethertype: "0x88F7"
+        ptp_message_type: 11
+        ptp_domain: 0
+      action: pass
+    - name: drop_other_domains
+      priority: 10
+      match:
+        ethertype: "0x88F7"
+      action: drop

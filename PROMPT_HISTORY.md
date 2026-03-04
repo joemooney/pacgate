@@ -2635,3 +2635,70 @@ Research four FPGA packet filtering/NIC tools for detailed competitive profiles 
 
 ### Git
 - Committed and pushed competitive tool research updates
+
+---
+
+## Prompt 52 — Phase 28: IEEE 1588 PTP Hardware Timestamping
+
+**Request**: Implement Phase 28 — IEEE 1588 PTP hardware timestamping with 6 sub-phases: model+loader, parser+RTL, verilog generation+CLI, verification, tool integration, examples+docs.
+
+### Actions
+
+**Phase 28.1 — Model + Loader — PTP Match Fields**:
+- Added 3 PTP fields to MatchCriteria: ptp_message_type (4-bit, 0-15), ptp_domain (8-bit, 0-255), ptp_version (4-bit, 0-15)
+- Added uses_ptp() helper method
+- Added YAML validation (range checks), shadow detection, overlap detection
+- Added SimPacket fields and parse_packet_spec parsing with range validation
+- Added match_criteria_against_packet matching for all 3 PTP fields
+
+**Phase 28.2 — Frame Parser — S_PTP_HDR State + ptp_clock.v**:
+- Added S_PTP_HDR (5'd22) parser state to frame_parser.v
+- L2 detection: EtherType 0x88F7 from S_ETYPE, S_ETYPE2, S_OUTER_VLAN
+- L4 detection: UDP dst_port 319 (0x013F) or 320 (0x0140) from S_L4_HDR
+- S_PTP_HDR handles both L2 (direct) and L4 (skip 4 bytes UDP length/checksum) paths
+- Created rtl/ptp_clock.v: 64-bit nanosecond counter with SOF/EOF timestamp latching
+
+**Phase 28.3 — Verilog Generation + CLI**:
+- Added has_ptp to GlobalProtocolFlags
+- Added PTP condition expressions in build_condition_expr
+- Updated 4 Tera templates (packet_filter_top, rule_match, rule_fsm, pipeline_top)
+- Added --ptp CLI flag to Compile command
+
+**Phase 28.4 — Verification**:
+- Python scoreboard: PTP fields in Rule.matches()
+- PacketFactory.ptp() supporting L2 and L4 modes
+- 6 PTP scoreboard unit tests (sync match, domain, mismatch, multi-field)
+- SVA assertions: messageType/version bounds, prerequisite, cover properties
+- Cocotb generation: PTP test cases and scoreboard fields
+
+**Phase 28.5 — Tool Integration**:
+- LINT051: PTP fields without transport (EtherType 0x88F7 or UDP 319/320)
+- LINT052: ptp_message_type > 13 (undefined PTP message types, info)
+- Mutations 36-37: remove_ptp_message_type, shift_ptp_domain
+- Estimate: PTP field costs (+6 LUTs per PTP rule)
+- Stats/diff/doc/graph: PTP field support
+- P4 export: ptp_t header, dual L2/L4 parser states, table keys
+
+**Phase 28.6 — Examples + Documentation**:
+- ptp_boundary_clock.yaml (6 rules): Sync/Delay_Req/Follow_Up/Delay_Resp/Announce + domain isolation
+- ptp_5g_fronthaul.yaml (7 rules): L4 PTP (UDP 319/320) + L2 PTP + eCPRI + multi-domain (0, 24, 44)
+- Updated CLAUDE.md, REQUIREMENTS.md, PROMPT_HISTORY.md, COMPARISON.md
+
+### Test Results
+- 518 unit tests — all PASS
+- 378 integration tests — all PASS
+- 79 Python scoreboard tests — all PASS
+- Total: 896 Rust tests + 79 Python tests
+
+### New Artifacts
+- 3 new match fields: ptp_message_type, ptp_domain, ptp_version (58 total)
+- 1 new parser state: S_PTP_HDR (5'd22) — 23 parser states total
+- 1 new RTL module: rtl/ptp_clock.v
+- 1 new CLI flag: --ptp
+- 2 new lint rules: LINT051-052 (50 total)
+- 2 new mutation types: 36-37 (37 total)
+- 2 new examples: ptp_boundary_clock.yaml, ptp_5g_fronthaul.yaml (47 total)
+- P4 PTP header + parser + table entries
+
+### Git
+- Committed and pushed Phase 28 (6 sub-phase commits)

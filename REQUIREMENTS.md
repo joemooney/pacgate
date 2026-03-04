@@ -1452,3 +1452,65 @@
 - REQ-2902: 45 YAML examples (42 existing + width_demo + p4_export_demo + multi_table_pipeline)
 - REQ-2903: 50 lint rules (LINT001-050)
 - REQ-2904: 35 mutation types
+
+## Phase 28 Requirements — IEEE 1588 PTP Hardware Timestamping [IMPLEMENTED]
+
+### Phase 28.1: PTP Match Fields (Model + Loader)
+- REQ-2910: ptp_message_type match field — 4-bit (0-15), 0=Sync, 1=Delay_Req, 8=Follow_Up, 9=Delay_Resp, 11=Announce [IMPLEMENTED]
+- REQ-2911: ptp_domain match field — 8-bit domain number (0-255) [IMPLEMENTED]
+- REQ-2912: ptp_version match field — 4-bit PTP version (0-15, typically 2 for PTPv2) [IMPLEMENTED]
+- REQ-2913: uses_ptp() helper method on MatchCriteria [IMPLEMENTED]
+- REQ-2914: YAML loader validates ptp_message_type range (0-15) [IMPLEMENTED]
+- REQ-2915: YAML loader validates ptp_version range (0-15) [IMPLEMENTED]
+- REQ-2916: Shadow detection for PTP fields [IMPLEMENTED]
+- REQ-2917: Overlap detection for PTP fields [IMPLEMENTED]
+- REQ-2918: Simulator parses and evaluates PTP match fields [IMPLEMENTED]
+
+### Phase 28.2: Frame Parser — S_PTP_HDR State
+- REQ-2920: S_PTP_HDR parser state (5'd22) for PTP header extraction [IMPLEMENTED]
+- REQ-2921: L2 PTP detection — EtherType 0x88F7 transitions to S_PTP_HDR [IMPLEMENTED]
+- REQ-2922: L4 PTP detection — UDP dst_port 319 or 320 transitions to S_PTP_HDR [IMPLEMENTED]
+- REQ-2923: PTP header extraction — messageType[3:0], versionPTP[3:0], domainNumber[7:0] [IMPLEMENTED]
+- REQ-2924: ptp_valid output flag set after PTP header extraction [IMPLEMENTED]
+- REQ-2925: ptp_clock.v — free-running 64-bit PTP hardware clock [IMPLEMENTED]
+- REQ-2926: SOF/EOF timestamp latching in ptp_clock.v [IMPLEMENTED]
+- REQ-2927: Parameterized CLK_PERIOD_NS (default 4 for 250MHz) [IMPLEMENTED]
+
+### Phase 28.3: Verilog Generation + CLI
+- REQ-2930: has_ptp in GlobalProtocolFlags [IMPLEMENTED]
+- REQ-2931: PTP condition expressions in build_condition_expr [IMPLEMENTED]
+- REQ-2932: --ptp CLI flag on compile command [IMPLEMENTED]
+- REQ-2933: PTP wire declarations and port connections in templates [IMPLEMENTED]
+- REQ-2934: PTP clock RTL copied when --ptp enabled [IMPLEMENTED]
+
+### Phase 28.4: Verification
+- REQ-2940: Python scoreboard PTP field matching [IMPLEMENTED]
+- REQ-2941: PacketFactory.ptp() with L2 and L4 modes [IMPLEMENTED]
+- REQ-2942: 6 PTP scoreboard unit tests [IMPLEMENTED]
+- REQ-2943: SVA assertions — PTP messageType/version bounds [IMPLEMENTED]
+- REQ-2944: SVA assertions — PTP prerequisite (ptp_valid required) [IMPLEMENTED]
+- REQ-2945: SVA cover properties — PTP Sync message, ptp_valid [IMPLEMENTED]
+- REQ-2946: Cocotb PTP test generation [IMPLEMENTED]
+
+### Phase 28.5: Tool Integration
+- REQ-2950: LINT051 — PTP fields without EtherType 0x88F7 or UDP 319/320 [IMPLEMENTED]
+- REQ-2951: LINT052 — ptp_message_type > 13 (undefined PTP types, info) [IMPLEMENTED]
+- REQ-2952: Mutation 36 — remove_ptp_message_type [IMPLEMENTED]
+- REQ-2953: Mutation 37 — shift_ptp_domain [IMPLEMENTED]
+- REQ-2954: Estimate PTP field costs (+6 LUTs per PTP rule) [IMPLEMENTED]
+- REQ-2955: Stats PTP field usage counters [IMPLEMENTED]
+- REQ-2956: Diff PTP field comparisons [IMPLEMENTED]
+- REQ-2957: Doc PTP field HTML output [IMPLEMENTED]
+- REQ-2958: Graph PTP criteria in DOT output [IMPLEMENTED]
+- REQ-2959: P4 export PTP header (ptp_t) + parser states [IMPLEMENTED]
+
+### Phase 28.6: Examples + Documentation
+- REQ-2960: ptp_boundary_clock.yaml — PTP boundary clock filtering with domain isolation [IMPLEMENTED]
+- REQ-2961: ptp_5g_fronthaul.yaml — 5G fronthaul PTP + eCPRI filtering [IMPLEMENTED]
+
+### Phase 28 Test Counts
+- REQ-2970: 896 Rust tests (518 unit + 378 integration) through Phase 28 [IMPLEMENTED]
+- REQ-2971: 79 Python scoreboard unit tests through Phase 28 [IMPLEMENTED]
+- REQ-2972: 47 YAML examples (45 existing + ptp_boundary_clock + ptp_5g_fronthaul) [IMPLEMENTED]
+- REQ-2973: 50 lint rules (LINT001-052, some skipped) [IMPLEMENTED]
+- REQ-2974: 37 mutation types [IMPLEMENTED]
