@@ -17,6 +17,7 @@
 | Rust tests | 896 |
 | Python tests | 73 |
 | Data path widths | 5 (8/64/128/256/512 bit) |
+| FPGA families | Artix-7, Virtex-7, UltraScale+, Alveo |
 | Platform targets | 3 (standalone, OpenNIC, Corundum) |
 
 ---
@@ -478,7 +479,7 @@ PacGate generates verification artifacts (tests, assertions, coverage) automatic
 | Metric | PacGate | Vitis Net P4 | Corundum | FlowBlaze | OpenNIC | hXDP |
 |--------|:-------:|:------------:|:--------:|:---------:|:-------:|:----:|
 | **Target throughput** | 2-100 Gbps | 100G-1T | 100G | 40G | 200G | 10G |
-| **Target FPGA family** | Artix-7 → UltraScale+ | UltraScale+ | UltraScale+ | Virtex-7 | Alveo | Xilinx |
+| **Target FPGA families** | Artix-7, Virtex-7, UltraScale+, Alveo | UltraScale+, Versal | UltraScale+, Stratix 10, Agilex | Virtex-7 | Alveo UltraScale+ | Virtex-7 |
 | **Min FPGA size** | XC7A35T (8b) / Alveo (512b) | Alveo U250 | Alveo U50 | NetFPGA | Alveo U250 | NetFPGA |
 | **Open-source sim** | Yes (Icarus) | No | Yes (cocotb) | No | Vivado | No |
 | **Synthesis (open-source)** | Yes (Yosys) | No | No | No | No | No |
