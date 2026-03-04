@@ -715,4 +715,86 @@ mod tests {
         assert_eq!(pkt[2], 1);
         // Last octet is random within subnet
     }
+
+    #[test]
+    fn build_matching_ipv6() {
+        let mut rng = Rng::new(1);
+        let mc = MatchCriteria {
+            ethertype: Some("0x86DD".to_string()),
+            ipv6_next_header: Some(6),
+            ..Default::default()
+        };
+        let pkt = build_matching_packet(&mc, &mut rng);
+        assert!(pkt.len() >= 64);
+        assert_eq!(pkt[12], 0x86);
+        assert_eq!(pkt[13], 0xDD);
+    }
+
+    #[test]
+    fn build_matching_udp_vxlan() {
+        let mut rng = Rng::new(1);
+        let mc = MatchCriteria {
+            ethertype: Some("0x0800".to_string()),
+            ip_protocol: Some(17),
+            dst_port: Some(crate::model::PortMatch::Exact(4789)),
+            vxlan_vni: Some(42000),
+            ..Default::default()
+        };
+        let pkt = build_matching_packet(&mc, &mut rng);
+        assert!(pkt.len() >= 64);
+        assert_eq!(pkt[23], 17); // UDP protocol
+    }
+
+    #[test]
+    fn build_matching_ptp() {
+        let mut rng = Rng::new(1);
+        let mc = MatchCriteria {
+            ethertype: Some("0x88F7".to_string()),
+            ptp_message_type: Some(0),
+            ptp_domain: Some(0),
+            ..Default::default()
+        };
+        let pkt = build_matching_packet(&mc, &mut rng);
+        assert!(pkt.len() >= 64);
+        assert_eq!(pkt[12], 0x88);
+        assert_eq!(pkt[13], 0xF7);
+    }
+
+    #[test]
+    fn build_matching_oam() {
+        let mut rng = Rng::new(1);
+        let mc = MatchCriteria {
+            ethertype: Some("0x8902".to_string()),
+            oam_level: Some(3),
+            oam_opcode: Some(1),
+            ..Default::default()
+        };
+        let pkt = build_matching_packet(&mc, &mut rng);
+        assert!(pkt.len() >= 64);
+        assert_eq!(pkt[12], 0x89);
+        assert_eq!(pkt[13], 0x02);
+    }
+
+    #[test]
+    fn generate_traffic_reproducible() {
+        let config = FilterConfig {
+            pacgate: crate::model::PacgateConfig {
+                version: "1.0".to_string(),
+                defaults: crate::model::Defaults { action: Action::Drop },
+                rules: vec![],
+                conntrack: None,
+                tables: None,
+            },
+        };
+        let dir = std::env::temp_dir().join("pacgate_pcapgen_repro");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path1 = dir.join("test1.pcap");
+        let path2 = dir.join("test2.pcap");
+        generate_traffic(&config, &path1, 5, 42).unwrap();
+        generate_traffic(&config, &path2, 5, 42).unwrap();
+        let data1 = std::fs::read(&path1).unwrap();
+        let data2 = std::fs::read(&path2).unwrap();
+        assert_eq!(data1, data2, "Same seed should produce identical output");
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }
