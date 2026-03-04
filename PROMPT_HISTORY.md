@@ -2461,3 +2461,46 @@ Update main.rs tools (lint, estimate, stats, diff, doc, graph), create OAM examp
 
 ### Git
 - Committed and pushed all documentation updates
+
+---
+
+## Session 36 — 2026-03-03: Competitive Comparison Matrix
+
+### Prompt
+"Can you do a comprehensive feature comparison matrix with other tools on the market? Does this make sense? Hopefully, we should identify features that we are missing that we could work on in the future?"
+
+### Actions Taken
+
+1. **Research** — Comprehensive survey of 20+ tools across 7 categories:
+   - P4-to-FPGA: Vitis Networking P4, Intel P4 Suite, P4->NetFPGA, P4FPGA, P4THLS
+   - HLS Networking: Vivado/Vitis HLS
+   - FPGA NIC Frameworks: Corundum, NetFPGA SUME, OpenNIC Shell, ESnet SmartNIC
+   - Stateful FPGA Processing: FlowBlaze
+   - FPGA Packet Filtering: FFShark/fpga-bpf, hXDP, HyPaFilter
+   - EDA Verification: Questa, VCS, Xcelium, JasperGold, Agnisys IDS-Verify
+   - Traffic Generators: Scapy, T-Rex, DPDK Pktgen, MoonGen
+
+2. **Created `docs/COMPARISON.md`** — Full feature comparison document with:
+   - 8 comparison tables (input/output, protocols, verification, hardware features, performance, tooling, cost)
+   - Gap analysis with 12 features across 3 priority tiers
+   - Unique positioning analysis
+   - Recommended roadmap priorities
+
+3. **Key findings:**
+   - PacGate is the ONLY tool that generates both RTL AND verification from one spec
+   - Closest competitors: FlowBlaze (stateful), Agnisys (spec→verification), P4 tools (spec→RTL)
+   - Top gaps: wider data paths (10G+), P4 import/export, multi-table pipeline, PTP timestamps
+   - PacGate's YAML accessibility and verification depth are unmatched
+
+### Identified Feature Gaps (Priority Order)
+1. **Wider data paths (64/128-bit)** — unlock 10G-25G line-rate (currently ~2 Gbps)
+2. **P4 export** — YAML→P4 for targeting P4-programmable hardware (no tool does this)
+3. **Multi-table pipeline** — sequential match-action stages
+4. **Hardware timestamping (PTP)** — critical for 5G/telecom
+5. **P4 import** — accept P4 as alternative input format
+6. **eBPF/Wireshark filter expressions** — alternative input formats
+7. **In-band telemetry (INT)** — network visibility metadata
+8. **RSS / multi-queue dispatch** — CPU queue distribution
+
+### Git
+- Created docs/COMPARISON.md, updated docs/README.md index, updated README.md nav

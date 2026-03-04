@@ -23,6 +23,7 @@
 | Management | [Slideshow](management/SLIDESHOW.md) | 13-slide product overview presentation | Leadership |
 | Management | [Why PacGate?](WHY_PACGATE.md) | Value proposition for skeptics and decision-makers | Leadership, Architects |
 | Research | [Research Report](RESEARCH.md) | cocotb, coverage, mutation testing, formal verification | Engineers, Academics |
+| Research | [Competitive Comparison](COMPARISON.md) | Feature matrix vs P4, Corundum, FlowBlaze, EDA tools | Leadership, Architects |
 | Diagrams | [System Diagrams](diagrams/system-diagrams.md) | Architecture, data flow, FSM, verification | All |
 
 ## Examples

@@ -22,7 +22,8 @@
   <a href="#how-it-works">How It Works</a> &bull;
   <a href="#examples">Examples</a> &bull;
   <a href="#verification">Verification</a> &bull;
-  <a href="docs/user-guide/">User Guide</a>
+  <a href="docs/user-guide/">User Guide</a> &bull;
+  <a href="docs/COMPARISON.md">Comparison</a>
 </p>
 
 ---
