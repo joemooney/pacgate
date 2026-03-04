@@ -17,6 +17,7 @@
 //           oam_level, oam_opcode (IEEE 802.1ag CFM OAM fields)
 //           nsh_spi, nsh_si, nsh_next_protocol (NSH RFC 8300)
 //           geneve_vni (Geneve Virtual Network Identifier, RFC 8926)
+//           ptp_message_type, ptp_version, ptp_domain (IEEE 1588 PTP)
 //           l4_port_offset (absolute byte position of L4 src_port MSB)
 // Handles 802.1Q VLAN-tagged frames (EtherType 0x8100)
 // Handles 802.1ad QinQ double-tagged frames (EtherType 0x88A8 / 0x9100)
@@ -35,6 +36,7 @@
 // Handles NSH parsing (EtherType 0x894F, RFC 8300)
 // Handles Geneve tunnel detection (UDP dst port 6081, RFC 8926)
 // Handles GRE tunnel detection (IP protocol 47) with optional key
+// Handles PTP (IEEE 1588) detection: L2 (EtherType 0x88F7) and L4 (UDP dst port 319/320)
 //
 // Interface: simple byte-stream (not AXI-Stream)
 //   pkt_data[7:0], pkt_valid, pkt_sof, pkt_eof — input
@@ -164,6 +166,12 @@ module frame_parser (
     output reg  [23:0] geneve_vni,       // Virtual Network Identifier (bytes 4-6)
     output reg         geneve_valid,     // Geneve fields extracted
 
+    // PTP fields (IEEE 1588, EtherType 0x88F7 or UDP 319/320)
+    output reg  [3:0]  ptp_message_type, // PTP messageType (4-bit: 0=Sync, 1=Delay_Req, 8=Follow_Up)
+    output reg  [3:0]  ptp_version,      // PTP versionPTP (4-bit, typically 2 for PTPv2)
+    output reg  [7:0]  ptp_domain,       // PTP domainNumber (byte 4 of PTP header)
+    output reg         ptp_valid,        // PTP fields extracted
+
     output reg         fields_valid // pulse: all header fields extracted
 );
 
@@ -190,6 +198,7 @@ module frame_parser (
     localparam S_OAM_HDR    = 5'd19; // OAM/CFM header (EtherType 0x8902)
     localparam S_NSH_HDR    = 5'd20; // NSH header (EtherType 0x894F, RFC 8300)
     localparam S_GENEVE_HDR = 5'd21; // Geneve header (UDP dst port 6081, RFC 8926)
+    localparam S_PTP_HDR    = 5'd22; // PTP header (EtherType 0x88F7 or UDP 319/320)
 
     reg [4:0] state;
     reg [5:0] byte_cnt;  // counts bytes within current state (up to 39 for IPv6)
@@ -247,6 +256,10 @@ module frame_parser (
             nsh_valid        <= 1'b0;
             geneve_vni       <= 24'd0;
             geneve_valid     <= 1'b0;
+            ptp_message_type <= 4'd0;
+            ptp_version      <= 4'd0;
+            ptp_domain       <= 8'd0;
+            ptp_valid        <= 1'b0;
             mpls_label   <= 20'd0;
             mpls_tc      <= 3'd0;
             mpls_bos     <= 1'b0;
@@ -355,6 +368,10 @@ module frame_parser (
                 nsh_valid        <= 1'b0;
                 geneve_vni       <= 24'd0;
                 geneve_valid     <= 1'b0;
+                ptp_message_type <= 4'd0;
+                ptp_version      <= 4'd0;
+                ptp_domain       <= 8'd0;
+                ptp_valid        <= 1'b0;
             end else if (pkt_valid) begin
                 // Increment absolute byte counter
                 frame_byte_cnt <= frame_byte_cnt + 11'd1;
@@ -428,6 +445,11 @@ module frame_parser (
                             else if (ethertype[15:8] == 8'h89 && pkt_data == 8'h4F) begin
                                 state    <= S_NSH_HDR;
                                 byte_cnt <= 6'd0;
+                            end
+                            // Check for PTP (0x88F7, IEEE 1588)
+                            else if (ethertype[15:8] == 8'h88 && pkt_data == 8'hF7) begin
+                                state    <= S_PTP_HDR;
+                                byte_cnt <= 6'd0;
                             end else begin
                                 state        <= S_PAYLOAD;
                                 fields_valid <= 1'b1;
@@ -489,6 +511,11 @@ module frame_parser (
                                 else if (ethertype[15:8] == 8'h89 && pkt_data == 8'h4F) begin
                                     state    <= S_NSH_HDR;
                                     byte_cnt <= 6'd0;
+                                end
+                                // Inner is PTP (0x88F7, IEEE 1588)
+                                else if (ethertype[15:8] == 8'h88 && pkt_data == 8'hF7) begin
+                                    state    <= S_PTP_HDR;
+                                    byte_cnt <= 6'd0;
                                 end else begin
                                     state        <= S_PAYLOAD;
                                     fields_valid <= 1'b1;
@@ -545,6 +572,11 @@ module frame_parser (
                             // Check for NSH after VLAN (0x894F)
                             else if (ethertype[15:8] == 8'h89 && pkt_data == 8'h4F) begin
                                 state    <= S_NSH_HDR;
+                                byte_cnt <= 6'd0;
+                            end
+                            // Check for PTP after VLAN (0x88F7, IEEE 1588)
+                            else if (ethertype[15:8] == 8'h88 && pkt_data == 8'hF7) begin
+                                state    <= S_PTP_HDR;
                                 byte_cnt <= 6'd0;
                             end else begin
                                 state        <= S_PAYLOAD;
@@ -657,7 +689,14 @@ module frame_parser (
                                     state    <= S_GENEVE_HDR;
                                     byte_cnt <= 6'd0;
                                 end
-                                // UDP (not VXLAN/GTP/Geneve): done
+                                // Check for PTP: UDP dst port 319 (0x013F) or 320 (0x0140)
+                                else if (ip_protocol == 8'd17 &&
+                                         dst_port[15:8] == 8'h01 &&
+                                         (pkt_data == 8'h3F || pkt_data == 8'h40)) begin
+                                    state    <= S_PTP_HDR;
+                                    byte_cnt <= 6'd0;
+                                end
+                                // UDP (not VXLAN/GTP/Geneve/PTP): done
                                 else if (ip_protocol == 8'd17) begin
                                     state        <= S_PAYLOAD;
                                     fields_valid <= 1'b1;
@@ -1094,6 +1133,90 @@ module frame_parser (
                             end
                             default: byte_cnt <= byte_cnt + 6'd1;
                         endcase
+                    end
+
+                    S_PTP_HDR: begin
+                        // PTP common header (IEEE 1588):
+                        //   Byte 0: transportSpecific[7:4] + messageType[3:0]
+                        //   Byte 1: reserved[7:4] + versionPTP[3:0]
+                        //   Bytes 2-3: messageLength
+                        //   Byte 4: domainNumber
+                        // For L4 PTP (UDP 319/320): skip 4 bytes UDP length+checksum first
+                        // byte_cnt starts at 0 after UDP port detection or L2 EtherType
+                        case (byte_cnt)
+                            6'd0: begin
+                                // For L4 PTP, bytes 0-3 are UDP length+checksum — skip
+                                // For L2 PTP, byte 0 is PTP header byte 0
+                                if (l4_valid) begin
+                                    // L4 path: skip UDP remainder (length+checksum)
+                                    byte_cnt <= 6'd1;
+                                end else begin
+                                    // L2 path: this is PTP header byte 0
+                                    ptp_message_type <= pkt_data[3:0];
+                                    ptp_version      <= pkt_data[7:4]; // transportSpecific, but PTPv1 puts version here
+                                    byte_cnt <= 6'd1;
+                                end
+                            end
+                            6'd1: begin
+                                if (l4_valid) begin
+                                    byte_cnt <= 6'd2; // skip
+                                end else begin
+                                    // L2 path: byte 1 = versionPTP
+                                    ptp_version <= pkt_data[3:0];
+                                    byte_cnt <= 6'd2;
+                                end
+                            end
+                            6'd2: begin
+                                if (l4_valid) begin
+                                    byte_cnt <= 6'd3; // skip
+                                end else begin
+                                    byte_cnt <= 6'd3; // messageLength MSB, skip
+                                end
+                            end
+                            6'd3: begin
+                                if (l4_valid) begin
+                                    byte_cnt <= 6'd4; // last UDP skip byte
+                                end else begin
+                                    byte_cnt <= 6'd4; // messageLength LSB, skip
+                                end
+                            end
+                            6'd4: begin
+                                if (l4_valid) begin
+                                    // L4 path: now at PTP header byte 0
+                                    ptp_message_type <= pkt_data[3:0];
+                                    byte_cnt <= 6'd5;
+                                end else begin
+                                    // L2 path: byte 4 = domainNumber
+                                    ptp_domain <= pkt_data;
+                                    ptp_valid    <= 1'b1;
+                                    state        <= S_PAYLOAD;
+                                    fields_valid <= 1'b1;
+                                end
+                            end
+                            6'd5: begin
+                                // L4 path: PTP header byte 1 = versionPTP
+                                ptp_version <= pkt_data[3:0];
+                                byte_cnt <= 6'd6;
+                            end
+                            6'd6: begin
+                                byte_cnt <= 6'd7; // messageLength MSB, skip
+                            end
+                            6'd7: begin
+                                byte_cnt <= 6'd8; // messageLength LSB, skip
+                            end
+                            6'd8: begin
+                                // L4 path: PTP header byte 4 = domainNumber
+                                ptp_domain <= pkt_data;
+                                ptp_valid    <= 1'b1;
+                                state        <= S_PAYLOAD;
+                                fields_valid <= 1'b1;
+                            end
+                            default: byte_cnt <= byte_cnt + 6'd1;
+                        endcase
+
+                        if (byte_cnt < 6'd4 || (l4_valid && byte_cnt < 6'd8)) begin
+                            // byte_cnt is already incremented in the case blocks above
+                        end
                     end
 
                     S_PAYLOAD: begin
