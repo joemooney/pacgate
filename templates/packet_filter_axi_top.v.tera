@@ -65,6 +65,12 @@ module packet_filter_axi_top #(
     output wire        egress_redirect_valid
 {% endif %}
 {% endif %}
+{% if rss_enabled %}
+    ,
+    // RSS queue assignment output
+    output wire [3:0]  rss_queue_id,
+    output wire        rss_queue_valid
+{% endif %}
 {% if has_flow_counters %}
     ,
     // Flow counter read-back interface (conntrack per-flow counters)
@@ -341,6 +347,17 @@ module packet_filter_axi_top #(
 {% endif %}
 
 {% else %}
+{% if rss_enabled %}
+    // Decision/filter signals needed for RSS (no rewrite mode)
+    wire [{{ idx_bits - 1 }}:0] decision_rule_idx;
+    wire        decision_default;
+    wire [31:0] filter_src_ip;
+    wire [31:0] filter_dst_ip;
+    wire [15:0] filter_src_port;
+    wire [15:0] filter_dst_port;
+    wire [7:0]  filter_ip_protocol;
+{% endif %}
+
     // Packet filter core (generated from rules)
     packet_filter_top u_filter (
         .clk            (clk),
@@ -351,6 +368,16 @@ module packet_filter_axi_top #(
         .pkt_eof        (pkt_eof),
         .decision_valid (decision_valid),
         .decision_pass  (decision_pass)
+{% if rss_enabled %}
+        ,
+        .decision_rule_idx (decision_rule_idx),
+        .decision_default  (decision_default),
+        .src_ip         (filter_src_ip),
+        .dst_ip         (filter_dst_ip),
+        .src_port       (filter_src_port),
+        .dst_port       (filter_dst_port),
+        .ip_protocol    (filter_ip_protocol)
+{% endif %}
 {% if has_mirror %}
         ,
         .egress_mirror_port  (egress_mirror_port),
@@ -428,6 +455,72 @@ module packet_filter_axi_top #(
     );
 {% endif %}
 
+{% endif %}
+
+{% if rss_enabled %}
+    // --- RSS (Receive Side Scaling) —
+    // Toeplitz hash of 5-tuple → indirection table → queue assignment
+    // Per-rule rss_queue override via rss_queue_lut takes priority
+
+    wire [319:0] rss_hash_key;
+    wire [31:0]  rss_hash_value;
+    wire         rss_hash_valid;
+{% if has_rss_queue_lut %}
+    wire [3:0]   rss_override_queue;
+    wire         rss_override_valid;
+
+    rss_queue_lut u_rss_queue_lut (
+        .rule_idx         (decision_rule_idx),
+        .decision_default (decision_default),
+        .rss_queue_override       (rss_override_queue),
+        .rss_queue_override_valid (rss_override_valid)
+    );
+{% endif %}
+
+    rss_toeplitz u_rss_toeplitz (
+        .clk         (clk),
+        .rst         (~rst_n),
+        .src_ip      (filter_src_ip),
+        .dst_ip      (filter_dst_ip),
+        .src_port    (filter_src_port),
+        .dst_port    (filter_dst_port),
+        .ip_protocol (filter_ip_protocol),
+        .hash_en     (decision_valid & decision_pass),
+        .hash_key    (rss_hash_key),
+        .hash_value  (rss_hash_value),
+        .hash_valid  (rss_hash_valid)
+    );
+
+    rss_indirection #(
+        .NUM_QUEUES  ({{ rss_queues }})
+    ) u_rss_indirection (
+        .clk              (clk),
+        .rst              (~rst_n),
+{% if has_rss_queue_lut %}
+        .override_queue   (rss_override_queue),
+        .override_valid   (rss_override_valid & rss_hash_valid),
+{% else %}
+        .override_queue   (4'd0),
+        .override_valid   (1'b0),
+{% endif %}
+        .hash_value       (rss_hash_value),
+        .hash_valid       (rss_hash_valid),
+        .rss_queue_id     (rss_queue_id),
+        .rss_queue_valid  (rss_queue_valid),
+        .hash_key         (rss_hash_key),
+        // AXI-Lite interface (active but unused for now — tie off)
+        .axi_awaddr       (12'd0),
+        .axi_awvalid      (1'b0),
+        .axi_awready      (),
+        .axi_wdata        (32'd0),
+        .axi_wvalid       (1'b0),
+        .axi_wready       (),
+        .axi_araddr       (12'd0),
+        .axi_arvalid      (1'b0),
+        .axi_arready      (),
+        .axi_rdata        (),
+        .axi_rvalid       ()
+    );
 {% endif %}
 
 {% if has_flow_counters %}

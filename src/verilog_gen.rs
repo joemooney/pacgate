@@ -532,6 +532,12 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         generate_egress_lut(&tera, &rtl_dir, &rules, idx_bits)?;
     }
 
+    // Generate RSS queue LUT if any rule has rss_queue override
+    let has_rss_queue = rules.iter().any(|r| r.has_rss_queue());
+    if has_rss_queue {
+        generate_rss_queue_lut(&tera, &rtl_dir, &rules, idx_bits)?;
+    }
+
     // Generate top-level
     {
         let mut ctx = tera::Context::new();
@@ -980,6 +986,28 @@ fn generate_egress_lut(tera: &Tera, rtl_dir: &Path, rules: &[crate::model::State
     Ok(())
 }
 
+/// Generate RSS queue override LUT (combinational ROM mapping rule_idx to queue).
+fn generate_rss_queue_lut(tera: &Tera, rtl_dir: &Path, rules: &[crate::model::StatelessRule], idx_bits: usize) -> Result<()> {
+    let mut ctx = tera::Context::new();
+    ctx.insert("idx_bits", &idx_bits);
+
+    let rss_entries: Vec<std::collections::HashMap<String, serde_json::Value>> = rules.iter().enumerate()
+        .filter(|(_, rule)| rule.has_rss_queue())
+        .map(|(idx, rule)| {
+            let mut map = std::collections::HashMap::new();
+            map.insert("index".to_string(), serde_json::json!(idx));
+            map.insert("rss_queue".to_string(), serde_json::json!(rule.rss_queue.unwrap()));
+            map
+        })
+        .collect();
+
+    ctx.insert("rss_entries", &rss_entries);
+    let rendered = tera.render("rss_queue_lut.v.tera", &ctx)?;
+    std::fs::write(rtl_dir.join("rss_queue_lut.v"), &rendered)?;
+    log::info!("Generated rss_queue_lut.v");
+    Ok(())
+}
+
 /// Generate dynamic flow table RTL (register-based, AXI-Lite writable).
 /// Replaces per-rule static matchers with a single flow_table module.
 pub fn generate_dynamic(config: &FilterConfig, templates_dir: &Path, output_dir: &Path, num_entries: u16) -> Result<()> {
@@ -1211,7 +1239,7 @@ pub fn generate_multiport(config: &FilterConfig, templates_dir: &Path, output_di
 /// Generate or copy AXI-Stream RTL modules to the output directory.
 /// When has_rewrite=true, renders the AXI top template with rewrite wiring.
 /// Otherwise, copies the original hand-written modules.
-pub fn copy_axi_rtl(output_dir: &Path, config: &FilterConfig, templates_dir: &Path, data_width: u16) -> Result<()> {
+pub fn copy_axi_rtl(output_dir: &Path, config: &FilterConfig, templates_dir: &Path, data_width: u16, rss_enabled: bool, rss_queues: u8) -> Result<()> {
     let rtl_dir = output_dir.join("rtl");
     std::fs::create_dir_all(&rtl_dir)?;
 
@@ -1269,10 +1297,14 @@ pub fn copy_axi_rtl(output_dir: &Path, config: &FilterConfig, templates_dir: &Pa
     ctx.insert("data_width", &data_width);
     ctx.insert("data_width_bytes", &(data_width / 8));
     ctx.insert("tkeep_width", &(data_width / 8));
+    ctx.insert("rss_enabled", &rss_enabled);
+    ctx.insert("rss_queues", &rss_queues);
+    let has_rss_queue_lut = config.pacgate.rules.iter().any(|r| r.has_rss_queue());
+    ctx.insert("has_rss_queue_lut", &has_rss_queue_lut);
 
     let rendered = tera.render("packet_filter_axi_top.v.tera", &ctx)?;
     std::fs::write(rtl_dir.join("packet_filter_axi_top.v"), &rendered)?;
-    log::info!("Generated packet_filter_axi_top.v (has_rewrite={}, data_width={})", has_rewrite, data_width);
+    log::info!("Generated packet_filter_axi_top.v (has_rewrite={}, data_width={}, rss={})", has_rewrite, data_width, rss_enabled);
 
     Ok(())
 }
@@ -1380,7 +1412,7 @@ pub fn copy_width_converter_rtl(output_dir: &Path) -> Result<()> {
 }
 
 /// Generate OpenNIC platform wrapper from template.
-pub fn generate_opennic_wrapper(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) -> Result<()> {
+pub fn generate_opennic_wrapper(config: &FilterConfig, templates_dir: &Path, output_dir: &Path, rss_enabled: bool, rss_queues: u8) -> Result<()> {
     let rtl_dir = output_dir.join("rtl");
     std::fs::create_dir_all(&rtl_dir)?;
 
@@ -1404,6 +1436,8 @@ pub fn generate_opennic_wrapper(config: &FilterConfig, templates_dir: &Path, out
     ctx.insert("has_redirect", &has_redirect);
     ctx.insert("has_counters", &has_counters);
     ctx.insert("has_flow_counters", &has_flow_counters);
+    ctx.insert("rss_enabled", &rss_enabled);
+    ctx.insert("rss_queues", &rss_queues);
     ctx.insert("idx_bits", &idx_bits);
     ctx.insert("num_rules", &rules.len());
 
@@ -1415,7 +1449,7 @@ pub fn generate_opennic_wrapper(config: &FilterConfig, templates_dir: &Path, out
 }
 
 /// Generate Corundum platform wrapper from template.
-pub fn generate_corundum_wrapper(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) -> Result<()> {
+pub fn generate_corundum_wrapper(config: &FilterConfig, templates_dir: &Path, output_dir: &Path, rss_enabled: bool, rss_queues: u8) -> Result<()> {
     let rtl_dir = output_dir.join("rtl");
     std::fs::create_dir_all(&rtl_dir)?;
 
@@ -1438,6 +1472,8 @@ pub fn generate_corundum_wrapper(config: &FilterConfig, templates_dir: &Path, ou
     ctx.insert("has_mirror", &has_mirror);
     ctx.insert("has_redirect", &has_redirect);
     ctx.insert("has_flow_counters", &has_flow_counters);
+    ctx.insert("rss_enabled", &rss_enabled);
+    ctx.insert("rss_queues", &rss_queues);
     ctx.insert("idx_bits", &idx_bits);
     ctx.insert("num_rules", &rules.len());
 

@@ -37,6 +37,12 @@ module pacgate_opennic_250 #(
     output wire [15:0]  m_axis_tuser_size,
     output wire [15:0]  m_axis_tuser_src,
     output wire [15:0]  m_axis_tuser_dst
+{% if rss_enabled %}
+    ,
+    // RSS queue assignment output
+    output wire [3:0]  rss_queue_id,
+    output wire        rss_queue_valid
+{% endif %}
 {% if has_flow_counters %}
     ,
     // Flow counter read-back interface (conntrack per-flow counters)
@@ -122,6 +128,11 @@ module pacgate_opennic_250 #(
         .decision_pass  (decision_pass),
         .fifo_overflow  (fifo_overflow),
         .fifo_empty     (fifo_empty)
+{% if rss_enabled %}
+        ,
+        .rss_queue_id   (rss_queue_id),
+        .rss_queue_valid(rss_queue_valid)
+{% endif %}
 {% if has_flow_counters %}
         ,
         .flow_read_idx       (flow_read_idx),

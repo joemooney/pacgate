@@ -668,7 +668,7 @@ fn main() -> Result<()> {
 
             // Copy/generate AXI-Stream wrapper RTL if --axi
             if axi {
-                verilog_gen::copy_axi_rtl(&output, &config, &templates, width)?;
+                verilog_gen::copy_axi_rtl(&output, &config, &templates, width, rss, rss_queues)?;
             }
 
             // Copy counter RTL if --counters
@@ -690,10 +690,10 @@ fn main() -> Result<()> {
                 }
                 match &platform {
                     verilog_gen::PlatformTarget::OpenNic => {
-                        verilog_gen::generate_opennic_wrapper(&config, &templates, &output)?;
+                        verilog_gen::generate_opennic_wrapper(&config, &templates, &output, rss, rss_queues)?;
                     }
                     verilog_gen::PlatformTarget::Corundum => {
-                        verilog_gen::generate_corundum_wrapper(&config, &templates, &output)?;
+                        verilog_gen::generate_corundum_wrapper(&config, &templates, &output, rss, rss_queues)?;
                     }
                     _ => {}
                 }
@@ -1255,7 +1255,7 @@ fn main() -> Result<()> {
                 if ports > 1 {
                     verilog_gen::generate_multiport(&config, &templates, &output, ports)?;
                 }
-                if axi { verilog_gen::copy_axi_rtl(&output, &config, &templates, 8)?; }
+                if axi { verilog_gen::copy_axi_rtl(&output, &config, &templates, 8, false, 4)?; }
                 if counters { verilog_gen::copy_counter_rtl(&output)?; }
                 if conntrack { verilog_gen::copy_conntrack_rtl(&output)?; }
                 let has_rate_limit = rate_limit || config.pacgate.rules.iter().any(|r| r.rate_limit.is_some());
