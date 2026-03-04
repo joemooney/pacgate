@@ -144,6 +144,10 @@ class Rule:
     geneve_vni: Optional[int] = None
     # IP TTL exact match
     ip_ttl: Optional[int] = None
+    # PTP (IEEE 1588) fields
+    ptp_message_type: Optional[int] = None
+    ptp_domain: Optional[int] = None
+    ptp_version: Optional[int] = None
     # Frame length range
     frame_len_min: Optional[int] = None
     frame_len_max: Optional[int] = None
@@ -414,6 +418,17 @@ class Rule:
         # IP TTL exact match
         if self.ip_ttl is not None:
             if extracted.get('ip_ttl') != self.ip_ttl:
+                return False
+
+        # PTP (IEEE 1588) matching
+        if self.ptp_message_type is not None:
+            if extracted.get('ptp_message_type') != self.ptp_message_type:
+                return False
+        if self.ptp_domain is not None:
+            if extracted.get('ptp_domain') != self.ptp_domain:
+                return False
+        if self.ptp_version is not None:
+            if extracted.get('ptp_version') != self.ptp_version:
                 return False
 
         # Frame length range matching

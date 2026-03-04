@@ -811,3 +811,54 @@ class PacketFactory:
             ethertype=0x0800,
             payload=bytes(payload_size),
         )
+
+    @staticmethod
+    def ptp(
+        message_type: int = 0,
+        version: int = 2,
+        domain: int = 0,
+        l2: bool = True,
+        dst_mac="01:1b:19:00:00:00",
+        src_mac="02:00:00:00:00:01",
+    ) -> EthernetFrame:
+        """IEEE 1588 PTP frame (L2 or L4).
+
+        PTP common header (34 bytes):
+          Byte 0: transportSpecific[7:4] + messageType[3:0]
+          Byte 1: reserved[7:4] + versionPTP[3:0]
+          Bytes 2-3: messageLength
+          Byte 4: domainNumber
+          Bytes 5-33: remaining PTP header fields (zeroed)
+        """
+        import struct
+        ptp_hdr = bytearray(34)
+        ptp_hdr[0] = ((version & 0x0F) << 4) | (message_type & 0x0F)
+        ptp_hdr[1] = version & 0x0F
+        ptp_hdr[2:4] = struct.pack(">H", 34)  # messageLength
+        ptp_hdr[4] = domain & 0xFF
+
+        if l2:
+            # L2 PTP: EtherType 0x88F7
+            return EthernetFrame(
+                dst_mac=mac_to_bytes(dst_mac),
+                src_mac=mac_to_bytes(src_mac),
+                ethertype=0x88F7,
+                payload=bytes(ptp_hdr),
+            )
+        else:
+            # L4 PTP: IPv4/UDP dst port 319 (event) or 320 (general)
+            ip_hdr = bytearray(20)
+            ip_hdr[0] = 0x45
+            ip_hdr[9] = 17  # UDP
+            ip_hdr[12:16] = bytes([10, 0, 0, 1])
+            ip_hdr[16:20] = bytes([10, 0, 0, 2])
+            udp_hdr = bytearray(8)
+            udp_hdr[0:2] = (319).to_bytes(2, 'big')  # src port
+            udp_port = 319 if message_type < 8 else 320
+            udp_hdr[2:4] = udp_port.to_bytes(2, 'big')
+            return EthernetFrame(
+                dst_mac=mac_to_bytes(dst_mac),
+                src_mac=mac_to_bytes(src_mac),
+                ethertype=0x0800,
+                payload=bytes(ip_hdr) + bytes(udp_hdr) + bytes(ptp_hdr),
+            )

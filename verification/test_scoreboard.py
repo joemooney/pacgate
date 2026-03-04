@@ -534,6 +534,44 @@ class TestPipelineScoreboard:
             sb.check(frame, 1)  # actual=pass but expected=drop
 
 
+class TestPtpMatch:
+    def test_ptp_sync_match(self):
+        rule = Rule(name="ptp_sync", priority=100, action="pass",
+                    ethertype=0x88F7, ptp_message_type=0, ptp_version=2)
+        frame = _make_frame(ethertype=0x88F7)
+        assert rule.matches(frame, extracted={"ptp_message_type": 0, "ptp_version": 2})
+
+    def test_ptp_domain_match(self):
+        rule = Rule(name="ptp_dom", priority=100, action="pass",
+                    ethertype=0x88F7, ptp_domain=1)
+        frame = _make_frame(ethertype=0x88F7)
+        assert rule.matches(frame, extracted={"ptp_domain": 1})
+
+    def test_ptp_message_type_mismatch(self):
+        rule = Rule(name="ptp_sync", priority=100, action="pass",
+                    ethertype=0x88F7, ptp_message_type=0)
+        frame = _make_frame(ethertype=0x88F7)
+        assert not rule.matches(frame, extracted={"ptp_message_type": 1})
+
+    def test_ptp_domain_mismatch(self):
+        rule = Rule(name="ptp_dom", priority=100, action="pass",
+                    ethertype=0x88F7, ptp_domain=0)
+        frame = _make_frame(ethertype=0x88F7)
+        assert not rule.matches(frame, extracted={"ptp_domain": 1})
+
+    def test_ptp_multi_field_match(self):
+        rule = Rule(name="ptp_full", priority=100, action="pass",
+                    ethertype=0x88F7, ptp_message_type=0, ptp_domain=0, ptp_version=2)
+        frame = _make_frame(ethertype=0x88F7)
+        assert rule.matches(frame, extracted={"ptp_message_type": 0, "ptp_domain": 0, "ptp_version": 2})
+
+    def test_ptp_missing_extracted(self):
+        rule = Rule(name="ptp_sync", priority=100, action="pass",
+                    ethertype=0x88F7, ptp_message_type=0)
+        frame = _make_frame(ethertype=0x88F7)
+        assert not rule.matches(frame, extracted={})
+
+
 if __name__ == "__main__":
     import pytest
     pytest.main([__file__, "-v"])

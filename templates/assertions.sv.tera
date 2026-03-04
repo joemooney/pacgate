@@ -626,6 +626,41 @@ module packet_filter_assertions (
 {% endfor %}
 {% endif %}
 
+{% if has_ptp %}
+    // ── PTP (IEEE 1588) Assertions ──────────────────────────────────────
+    // PTP: L2 EtherType 0x88F7 or L4 UDP 319/320. messageType 4-bit, version 4-bit, domain 8-bit.
+
+    // PTP messageType bounds: must be <= 15 (4-bit)
+    assert_ptp_msg_type_bounds: assert property (@(posedge clk) disable iff (!rst_n)
+        (ptp_valid |-> ptp_message_type <= 4'd15))
+        else $error("ASSERT FAIL: ptp_message_type exceeds 4-bit range (> 15)");
+
+    // PTP version bounds: must be <= 15 (4-bit)
+    assert_ptp_version_bounds: assert property (@(posedge clk) disable iff (!rst_n)
+        (ptp_valid |-> ptp_version <= 4'd15))
+        else $error("ASSERT FAIL: ptp_version exceeds 4-bit range (> 15)");
+
+    // PTP prerequisite: PTP rule match implies ptp_valid
+{% for idx in ptp_rule_indices %}
+    assert_ptp_prereq_rule_{{ idx }}: assert property (@(posedge clk) disable iff (!rst_n)
+        (match_hit_{{ idx }} |-> ptp_valid))
+        else $error("ASSERT FAIL: PTP rule {{ idx }} matched but ptp_valid not asserted");
+{% endfor %}
+
+    // Cover: PTP Sync message seen
+    cover_ptp_sync: cover property (@(posedge clk) disable iff (!rst_n)
+        ptp_valid && ptp_message_type == 4'd0);
+
+    // Cover: PTP frame detected
+    cover_ptp_valid: cover property (@(posedge clk) disable iff (!rst_n) ptp_valid);
+
+    // Cover: each PTP rule exercised
+{% for idx in ptp_rule_indices %}
+    cover_ptp_rule_{{ idx }}: cover property (@(posedge clk) disable iff (!rst_n)
+        match_hit_{{ idx }});
+{% endfor %}
+{% endif %}
+
 {% if has_conntrack_state %}
     // ── Connection Tracking State Cover Properties ──────────────────────
     // conntrack_established is a 1-bit signal from the conntrack table.

@@ -174,6 +174,10 @@ async def {{ tc.name }}(dut):
     # Construct NSH/SFC packet
     frame = PacketFactory.nsh(nsh_spi={{ tc.nsh_spi | default(value='100') }}, nsh_si={{ tc.nsh_si | default(value='255') }}{% if tc.nsh_next_protocol is defined %}, nsh_next_protocol={{ tc.nsh_next_protocol }}{% endif %})
     extracted = {"nsh_spi": {{ tc.nsh_spi | default(value='100') }}, "nsh_si": {{ tc.nsh_si | default(value='255') }}{% if tc.nsh_next_protocol is defined %}, "nsh_next_protocol": {{ tc.nsh_next_protocol }}{% endif %}}
+{% elif tc.has_ptp is defined and tc.has_ptp == "true" %}
+    # Construct PTP (IEEE 1588) packet
+    frame = PacketFactory.ptp(message_type={{ tc.ptp_message_type | default(value='0') }}, version={{ tc.ptp_version | default(value='2') }}, domain={{ tc.ptp_domain | default(value='0') }})
+    extracted = {"ptp_message_type": {{ tc.ptp_message_type | default(value='0') }}, "ptp_version": {{ tc.ptp_version | default(value='2') }}, "ptp_domain": {{ tc.ptp_domain | default(value='0') }}}
 {% elif tc.has_arp is defined and tc.has_arp == "true" %}
     # Construct ARP packet
     frame = PacketFactory.arp_msg(opcode={{ tc.arp_opcode | default(value='1') }}{% if tc.arp_spa is defined %}, spa="{{ tc.arp_spa }}"{% endif %}{% if tc.arp_tpa is defined %}, tpa="{{ tc.arp_tpa }}"{% endif %})

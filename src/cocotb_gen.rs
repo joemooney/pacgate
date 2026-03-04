@@ -237,6 +237,19 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
             tc.insert("ip_ttl".to_string(), ttl.to_string());
             tc.insert("has_ip_ttl".to_string(), "true".to_string());
         }
+        // PTP (IEEE 1588) fields
+        if let Some(mt) = rule.match_criteria.ptp_message_type {
+            tc.insert("ptp_message_type".to_string(), mt.to_string());
+            tc.insert("has_ptp".to_string(), "true".to_string());
+        }
+        if let Some(dom) = rule.match_criteria.ptp_domain {
+            tc.insert("ptp_domain".to_string(), dom.to_string());
+            tc.insert("has_ptp".to_string(), "true".to_string());
+        }
+        if let Some(ver) = rule.match_criteria.ptp_version {
+            tc.insert("ptp_version".to_string(), ver.to_string());
+            tc.insert("has_ptp".to_string(), "true".to_string());
+        }
         // Mirror/redirect port (informational)
         if let Some(mp) = rule.mirror_port {
             tc.insert("mirror_port".to_string(), mp.to_string());
@@ -516,6 +529,16 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         // IPv4 TTL scoreboard field
         if let Some(ttl) = rule.match_criteria.ip_ttl {
             sr.insert("ip_ttl".to_string(), ttl.to_string());
+        }
+        // PTP (IEEE 1588) scoreboard fields
+        if let Some(mt) = rule.match_criteria.ptp_message_type {
+            sr.insert("ptp_message_type".to_string(), mt.to_string());
+        }
+        if let Some(dom) = rule.match_criteria.ptp_domain {
+            sr.insert("ptp_domain".to_string(), dom.to_string());
+        }
+        if let Some(ver) = rule.match_criteria.ptp_version {
+            sr.insert("ptp_version".to_string(), ver.to_string());
         }
         scoreboard_rules.push(sr);
     }
