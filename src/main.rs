@@ -78,6 +78,10 @@ enum Commands {
         /// Platform integration target: standalone (default), opennic, or corundum
         #[arg(long, default_value = "standalone")]
         target: String,
+
+        /// AXI-Stream data path width in bits (8, 64, 128, 256, 512)
+        #[arg(long, default_value = "8")]
+        width: u16,
     },
     /// Validate YAML rules without generating output
     Validate {
@@ -531,7 +535,12 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Compile { rules, output, templates, json, axi, counters, ports, conntrack, rate_limit, dynamic, dynamic_entries, target } => {
+        Commands::Compile { rules, output, templates, json, axi, counters, ports, conntrack, rate_limit, dynamic, dynamic_entries, target, width } => {
+            // Validate width parameter
+            match width {
+                8 | 64 | 128 | 256 | 512 => {}
+                _ => anyhow::bail!("--width must be 8, 64, 128, 256, or 512 (got {})", width),
+            }
             let platform = verilog_gen::PlatformTarget::from_str(&target)?;
 
             // Validate platform target constraints
@@ -542,6 +551,11 @@ fn main() -> Result<()> {
                 if ports > 1 {
                     anyhow::bail!("--target {} is incompatible with --ports > 1 in V1", platform.name());
                 }
+            }
+
+            // Width > 8 requires AXI wrapper (width converters are part of AXI pipeline)
+            if width > 8 && !axi && !platform.is_platform() {
+                anyhow::bail!("--width {} requires --axi flag (width converters are part of the AXI pipeline)", width);
             }
 
             // Platform targets implicitly enable AXI
@@ -579,7 +593,7 @@ fn main() -> Result<()> {
 
             // Copy/generate AXI-Stream wrapper RTL if --axi
             if axi {
-                verilog_gen::copy_axi_rtl(&output, &config, &templates)?;
+                verilog_gen::copy_axi_rtl(&output, &config, &templates, width)?;
             }
 
             // Copy counter RTL if --counters
@@ -588,8 +602,11 @@ fn main() -> Result<()> {
             }
 
             // Platform target: copy width converters and generate wrapper
+            // If --width 512 matches platform native width, skip redundant converters
             if platform.is_platform() {
-                verilog_gen::copy_width_converter_rtl(&output)?;
+                if width != 512 {
+                    verilog_gen::copy_width_converter_rtl(&output)?;
+                }
                 match &platform {
                     verilog_gen::PlatformTarget::OpenNic => {
                         verilog_gen::generate_opennic_wrapper(&config, &templates, &output)?;
@@ -643,6 +660,7 @@ fn main() -> Result<()> {
                     "dynamic": dynamic,
                     "dynamic_entries": if dynamic { Some(dynamic_entries) } else { None },
                     "target": platform.name(),
+                    "data_width": width,
                     "generated": {
                         "verilog_dir": format!("{}/rtl", output.display()),
                         "cocotb_dir": format!("{}/tb", output.display()),
@@ -688,7 +706,14 @@ fn main() -> Result<()> {
                 }
                 if platform.is_platform() {
                     println!("  Generated {} platform wrapper in {}/rtl/", platform.name(), output.display());
-                    println!("  Note: V1 uses 512<->8 width converters (~2 Gbps at 250MHz)");
+                    if width == 512 {
+                        println!("  Note: --width 512 matches platform native width — no extra converters needed");
+                    } else {
+                        println!("  Note: V1 uses 512<->8 width converters (~2 Gbps at 250MHz)");
+                    }
+                }
+                if width > 8 {
+                    println!("  Data path width: {}-bit AXI-Stream (core remains 8-bit with width converters)", width);
                 }
                 println!("  Compilation complete.");
             }
@@ -1115,7 +1140,7 @@ fn main() -> Result<()> {
                 if ports > 1 {
                     verilog_gen::generate_multiport(&config, &templates, &output, ports)?;
                 }
-                if axi { verilog_gen::copy_axi_rtl(&output, &config, &templates)?; }
+                if axi { verilog_gen::copy_axi_rtl(&output, &config, &templates, 8)?; }
                 if counters { verilog_gen::copy_counter_rtl(&output)?; }
                 if conntrack { verilog_gen::copy_conntrack_rtl(&output)?; }
                 let has_rate_limit = rate_limit || config.pacgate.rules.iter().any(|r| r.rate_limit.is_some());

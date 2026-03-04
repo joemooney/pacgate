@@ -968,7 +968,7 @@ pub fn generate_multiport(config: &FilterConfig, templates_dir: &Path, output_di
 /// Generate or copy AXI-Stream RTL modules to the output directory.
 /// When has_rewrite=true, renders the AXI top template with rewrite wiring.
 /// Otherwise, copies the original hand-written modules.
-pub fn copy_axi_rtl(output_dir: &Path, config: &FilterConfig, templates_dir: &Path) -> Result<()> {
+pub fn copy_axi_rtl(output_dir: &Path, config: &FilterConfig, templates_dir: &Path, data_width: u16) -> Result<()> {
     let rtl_dir = output_dir.join("rtl");
     std::fs::create_dir_all(&rtl_dir)?;
 
@@ -999,6 +999,11 @@ pub fn copy_axi_rtl(output_dir: &Path, config: &FilterConfig, templates_dir: &Pa
         log::info!("Copied packet_rewrite.v to {}", dst.display());
     }
 
+    // Generate parameterized width converters if data_width > 8
+    if data_width > 8 {
+        generate_width_converters(templates_dir, &rtl_dir, data_width)?;
+    }
+
     // Render AXI top from template (supports both rewrite and non-rewrite modes)
     let glob = format!("{}/**/*.tera", templates_dir.display());
     let tera = Tera::new(&glob)
@@ -1018,10 +1023,45 @@ pub fn copy_axi_rtl(output_dir: &Path, config: &FilterConfig, templates_dir: &Pa
     ctx.insert("has_flow_counters", &has_flow_counters);
     ctx.insert("idx_bits", &idx_bits);
     ctx.insert("num_rules", &rules.len());
+    ctx.insert("data_width", &data_width);
+    ctx.insert("data_width_bytes", &(data_width / 8));
+    ctx.insert("tkeep_width", &(data_width / 8));
 
     let rendered = tera.render("packet_filter_axi_top.v.tera", &ctx)?;
     std::fs::write(rtl_dir.join("packet_filter_axi_top.v"), &rendered)?;
-    log::info!("Generated packet_filter_axi_top.v (has_rewrite={})", has_rewrite);
+    log::info!("Generated packet_filter_axi_top.v (has_rewrite={}, data_width={})", has_rewrite, data_width);
+
+    Ok(())
+}
+
+/// Generate parameterized width converter Verilog from templates.
+pub fn generate_width_converters(templates_dir: &Path, rtl_dir: &Path, data_width: u16) -> Result<()> {
+    let glob = format!("{}/**/*.tera", templates_dir.display());
+    let tera = Tera::new(&glob)
+        .with_context(|| format!("Failed to load templates from {}", templates_dir.display()))?;
+
+    let mut ctx = tera::Context::new();
+    ctx.insert("data_width", &data_width);
+    ctx.insert("keep_width", &(data_width / 8));
+    ctx.insert("data_width_minus_1", &(data_width - 1));
+    ctx.insert("keep_width_minus_1", &(data_width / 8 - 1));
+    // Bit width for byte index counter
+    let byte_idx_bits = ((data_width / 8) as f64).log2().ceil() as u16;
+    ctx.insert("byte_idx_bits", &byte_idx_bits);
+    // Byte count including zero (need +1 bit for full count)
+    ctx.insert("byte_count_bits", &(byte_idx_bits + 1));
+
+    // Generate wide-to-8 converter
+    let rendered = tera.render("axis_wide_to_8.v.tera", &ctx)?;
+    let filename = format!("axis_{}_to_8.v", data_width);
+    std::fs::write(rtl_dir.join(&filename), &rendered)?;
+    log::info!("Generated {} (parameterized width converter)", filename);
+
+    // Generate 8-to-wide converter
+    let rendered = tera.render("axis_8_to_wide.v.tera", &ctx)?;
+    let filename = format!("axis_8_to_{}.v", data_width);
+    std::fs::write(rtl_dir.join(&filename), &rendered)?;
+    log::info!("Generated {} (parameterized width converter)", filename);
 
     Ok(())
 }

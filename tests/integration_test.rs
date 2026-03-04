@@ -6169,3 +6169,123 @@ fn diff_nsh_sfc_rules() {
         .unwrap();
     assert!(output.status.success(), "diff failed: {}", String::from_utf8_lossy(&output.stderr));
 }
+
+// === Phase 27.1: Data path width tests ===
+
+#[test]
+fn width_default_is_8() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/allow_arp.yaml", "--axi", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+    // Default width=8, no width converters should be generated
+    let axi_top = std::fs::read_to_string(tmp.path().join("rtl/packet_filter_axi_top.v")).unwrap();
+    assert!(!axi_top.contains("u_width_down"), "Should not have width converters at width=8");
+}
+
+#[test]
+fn width_64_generates_converters() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/allow_arp.yaml", "--axi", "--width", "64", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+    // Width=64 should generate width converters
+    let axi_top = std::fs::read_to_string(tmp.path().join("rtl/packet_filter_axi_top.v")).unwrap();
+    assert!(axi_top.contains("axis_64_to_8"), "Should have 64-to-8 width converter");
+    assert!(axi_top.contains("axis_8_to_64"), "Should have 8-to-64 width converter");
+    // Converter RTL files should exist
+    assert!(tmp.path().join("rtl/axis_64_to_8.v").exists(), "axis_64_to_8.v should exist");
+    assert!(tmp.path().join("rtl/axis_8_to_64.v").exists(), "axis_8_to_64.v should exist");
+}
+
+#[test]
+fn width_128_generates_converters() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/allow_arp.yaml", "--axi", "--width", "128", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+    let axi_top = std::fs::read_to_string(tmp.path().join("rtl/packet_filter_axi_top.v")).unwrap();
+    assert!(axi_top.contains("axis_128_to_8"), "Should have 128-to-8 width converter");
+    assert!(axi_top.contains("[127:0]"), "Should have 128-bit data ports");
+}
+
+#[test]
+fn width_256_generates_converters() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/allow_arp.yaml", "--axi", "--width", "256", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(tmp.path().join("rtl/axis_256_to_8.v").exists());
+    assert!(tmp.path().join("rtl/axis_8_to_256.v").exists());
+}
+
+#[test]
+fn width_512_generates_converters() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/allow_arp.yaml", "--axi", "--width", "512", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+    let axi_top = std::fs::read_to_string(tmp.path().join("rtl/packet_filter_axi_top.v")).unwrap();
+    assert!(axi_top.contains("axis_512_to_8"), "Should have 512-to-8 width converter");
+    assert!(axi_top.contains("[511:0]"), "Should have 512-bit data ports");
+}
+
+#[test]
+fn width_invalid_rejected() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/allow_arp.yaml", "--axi", "--width", "32", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "Should reject invalid width=32");
+}
+
+#[test]
+fn width_requires_axi() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/allow_arp.yaml", "--width", "64", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "Should require --axi with --width > 8");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("requires --axi"), "Error should mention --axi requirement");
+}
+
+#[test]
+fn width_json_output_includes_data_width() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/allow_arp.yaml", "--axi", "--width", "128", "--json", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["data_width"], 128, "JSON should include data_width");
+}
+
+#[test]
+fn width_with_rewrite() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/rewrite_actions.yaml", "--axi", "--width", "64", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+    let axi_top = std::fs::read_to_string(tmp.path().join("rtl/packet_filter_axi_top.v")).unwrap();
+    // With rewrite + width>8, should have both converter + rewrite engine
+    assert!(axi_top.contains("u_width_down"), "Should have width-down converter");
+    assert!(axi_top.contains("u_width_up"), "Should have width-up converter");
+    assert!(axi_top.contains("u_rewrite"), "Should have rewrite engine");
+}
