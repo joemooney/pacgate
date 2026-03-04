@@ -535,3 +535,62 @@ class PacketFilterScoreboard:
             lines.append(f"  {rule_name:25s} {count:5d} ({pct:5.1f}%) {bar}")
         lines.append("=" * 60)
         return "\n".join(lines)
+
+
+class PipelineStage:
+    """A single pipeline stage with rules and a default action."""
+
+    def __init__(self, name: str, rules: list[Rule], default_action: str = "drop"):
+        self.name = name
+        self.rules = sorted(rules, key=lambda r: -r.priority)
+        self.default_action = default_action
+
+    def predict(self, frame: EthernetFrame, extracted: Optional[dict] = None) -> tuple[str, str]:
+        for rule in self.rules:
+            if rule.matches(frame, extracted):
+                return rule.action, rule.name
+        return self.default_action, f"__default_{self.name}__"
+
+
+class PipelineScoreboard:
+    """
+    Golden reference model for multi-stage pipeline.
+
+    Evaluates stages sequentially. Packet passes only if ALL stages pass
+    (AND semantics). If any stage drops, the final decision is drop.
+    """
+
+    def __init__(self, stages: list[PipelineStage]):
+        self.stages = stages
+        self.stats = ScoreboardStats()
+
+    def predict(self, frame: EthernetFrame, extracted: Optional[dict] = None) -> tuple[str, str]:
+        last_action = "pass"
+        last_rule = "__default__"
+        for stage in self.stages:
+            action, rule = stage.predict(frame, extracted)
+            if action == "drop":
+                return "drop", rule
+            last_action = action
+            last_rule = rule
+        return last_action, last_rule
+
+    def check(self, frame: EthernetFrame, actual_pass: int,
+              extracted: Optional[dict] = None) -> tuple[str, str]:
+        self.stats.total_packets += 1
+        expected_action, matched_rule = self.predict(frame, extracted)
+        expected_pass = 1 if expected_action == "pass" else 0
+
+        self.stats.rule_hit_count[matched_rule] += 1
+        if expected_pass:
+            self.stats.pass_count += 1
+        else:
+            self.stats.drop_count += 1
+
+        if actual_pass == expected_pass:
+            self.stats.matches += 1
+        else:
+            self.stats.mismatches += 1
+            raise ScoreboardMismatch(frame, expected_action, actual_pass, matched_rule)
+
+        return expected_action, matched_rule

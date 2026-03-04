@@ -7062,3 +7062,105 @@ fn pipeline_single_table_backward_compat_compile() {
     assert!(tmp.path().join("rtl/packet_filter_top.v").exists());
     assert!(!tmp.path().join("rtl/pipeline_top.v").exists());
 }
+
+#[test]
+fn pipeline_simulate_passes_both_stages() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("pipeline.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules: []
+  tables:
+    - name: classify
+      default_action: pass
+      next_table: enforce
+      rules:
+        - name: mark_web
+          priority: 100
+          match:
+            ethertype: "0x0800"
+            dst_port: 80
+          action: pass
+    - name: enforce
+      default_action: drop
+      rules:
+        - name: allow_web
+          priority: 100
+          match:
+            dst_port: 80
+          action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["simulate", yaml.to_str().unwrap(), "--packet", "ethertype=0x0800,dst_port=80"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "simulate failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("PASS"), "Expected PASS in output: {}", stdout);
+}
+
+#[test]
+fn pipeline_simulate_first_stage_drops() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("pipeline.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules: []
+  tables:
+    - name: classify
+      default_action: drop
+      next_table: enforce
+      rules: []
+    - name: enforce
+      default_action: pass
+      rules:
+        - name: allow_all
+          priority: 100
+          match: {}
+          action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["simulate", yaml.to_str().unwrap(), "--packet", "ethertype=0x0800,dst_port=80"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("DROP"), "Expected DROP: {}", stdout);
+}
+
+#[test]
+fn pipeline_simulate_json_output() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("pipeline.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules: []
+  tables:
+    - name: classify
+      default_action: pass
+      rules:
+        - name: web
+          priority: 100
+          match:
+            dst_port: 80
+          action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["simulate", yaml.to_str().unwrap(), "--packet", "dst_port=80", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["action"], "pass");
+    assert_eq!(json["matched_rule"], "web");
+}

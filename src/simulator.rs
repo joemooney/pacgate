@@ -367,24 +367,21 @@ fn build_sim_rewrite(rule: &crate::model::StatelessRule) -> Option<SimRewrite> {
     })
 }
 
-/// Simulate a packet against the filter configuration, returning the match result
-pub fn simulate(config: &FilterConfig, packet: &SimPacket) -> SimResult {
-    // Sort rules by priority (highest first) — same order as hardware
-    let mut rules = config.pacgate.rules.clone();
-    rules.sort_by(|a, b| b.priority.cmp(&a.priority));
+/// Simulate a single stage's rules against a packet
+fn simulate_stage(rules: &[crate::model::StatelessRule], default_action: &Action, packet: &SimPacket) -> SimResult {
+    let mut sorted = rules.to_vec();
+    sorted.sort_by(|a, b| b.priority.cmp(&a.priority));
 
-    // Evaluate each stateless rule in priority order (first match wins)
-    for rule in &rules {
+    for rule in &sorted {
         if rule.is_stateful() {
-            continue; // skip stateful rules in simulation
+            continue;
         }
-
         let (matches, fields) = match_criteria_against_packet(&rule.match_criteria, packet);
         if matches {
             let rewrite = if rule.action() == Action::Pass {
                 build_sim_rewrite(rule)
             } else {
-                None // rewrite on drop rules is silently ignored
+                None
             };
             return SimResult {
                 rule_name: Some(rule.name.clone()),
@@ -397,17 +394,52 @@ pub fn simulate(config: &FilterConfig, packet: &SimPacket) -> SimResult {
             };
         }
     }
-
-    // No rule matched — return default action
     SimResult {
         rule_name: None,
-        action: config.pacgate.defaults.action.clone(),
+        action: default_action.clone(),
         is_default: true,
         fields: Vec::new(),
         rewrite: None,
         mirror_port: None,
         redirect_port: None,
     }
+}
+
+/// Simulate a packet against the filter configuration, returning the match result.
+/// For pipeline configs (tables:), evaluates stages sequentially — packet passes
+/// only if ALL stages pass (AND semantics, matching RTL pipeline_top.v).
+pub fn simulate(config: &FilterConfig, packet: &SimPacket) -> SimResult {
+    if config.is_pipeline() {
+        return simulate_pipeline(config, packet);
+    }
+
+    simulate_stage(&config.pacgate.rules, &config.pacgate.defaults.action, packet)
+}
+
+/// Simulate a multi-stage pipeline: each stage evaluated sequentially.
+/// If any stage drops, final result is drop. Last stage's match info used for result.
+fn simulate_pipeline(config: &FilterConfig, packet: &SimPacket) -> SimResult {
+    let tables = config.pacgate.tables.as_ref().unwrap();
+    let mut last_result = SimResult {
+        rule_name: None,
+        action: Action::Pass,
+        is_default: true,
+        fields: Vec::new(),
+        rewrite: None,
+        mirror_port: None,
+        redirect_port: None,
+    };
+
+    for stage in tables {
+        let stage_result = simulate_stage(&stage.rules, &stage.default_action, packet);
+        if stage_result.action == Action::Drop {
+            // Any stage dropping means final drop — return immediately
+            return stage_result;
+        }
+        last_result = stage_result;
+    }
+
+    last_result
 }
 
 /// Rate-limit state for software simulation (token-bucket per rule)
@@ -421,7 +453,7 @@ impl SimRateLimitState {
     pub fn new(config: &FilterConfig) -> Self {
         let mut tokens = HashMap::new();
         let mut last_time = HashMap::new();
-        for rule in &config.pacgate.rules {
+        for rule in config.all_rules() {
             if let Some(ref rl) = rule.rate_limit {
                 tokens.insert(rule.name.clone(), rl.burst as f64);
                 last_time.insert(rule.name.clone(), 0.0);
@@ -468,7 +500,8 @@ pub fn simulate_with_rate_limit(
 
     // Check if the matched rule has rate_limit
     if let Some(ref rule_name) = result.rule_name {
-        let rule = config.pacgate.rules.iter().find(|r| &r.name == rule_name);
+        let all_rules = config.all_rules();
+        let rule = all_rules.into_iter().find(|r| &r.name == rule_name);
         if let Some(rule) = rule {
             if let Some(ref rl) = rule.rate_limit {
                 // Refill tokens based on elapsed time
@@ -3396,5 +3429,144 @@ pacgate:
         assert!(result.is_default);
         assert_eq!(result.mirror_port, None);
         assert_eq!(result.redirect_port, None);
+    }
+
+    // --- Pipeline simulation tests ---
+
+    fn make_pipeline_config(stages: Vec<PipelineStage>, default: Action) -> FilterConfig {
+        FilterConfig {
+            pacgate: PacgateConfig {
+                version: "1.0".to_string(),
+                defaults: Defaults { action: default },
+                rules: Vec::new(),
+                conntrack: None,
+                tables: Some(stages),
+            },
+        }
+    }
+
+    fn make_stage(name: &str, rules: Vec<StatelessRule>, default: Action, next: Option<&str>) -> PipelineStage {
+        PipelineStage {
+            name: name.to_string(),
+            rules,
+            default_action: default,
+            next_table: next.map(|s| s.to_string()),
+        }
+    }
+
+    fn simple_rule(name: &str, priority: u32, mc: MatchCriteria, action: Action) -> StatelessRule {
+        StatelessRule {
+            name: name.to_string(), priority,
+            match_criteria: mc,
+            action: Some(action),
+            rule_type: None, fsm: None, ports: None,
+            rate_limit: None, rewrite: None,
+            mirror_port: None, redirect_port: None,
+        }
+    }
+
+    #[test]
+    fn pipeline_simulate_both_pass() {
+        let config = make_pipeline_config(vec![
+            make_stage("classify", vec![
+                simple_rule("web", 100, MatchCriteria { dst_port: Some(PortMatch::Exact(80)), ..Default::default() }, Action::Pass),
+            ], Action::Drop, Some("enforce")),
+            make_stage("enforce", vec![
+                simple_rule("allow_all", 100, MatchCriteria::default(), Action::Pass),
+            ], Action::Drop, None),
+        ], Action::Drop);
+        let pkt = SimPacket { dst_port: Some(80), ..Default::default() };
+        let result = simulate(&config, &pkt);
+        assert_eq!(result.action, Action::Pass);
+        assert!(!result.is_default);
+    }
+
+    #[test]
+    fn pipeline_simulate_first_stage_drops() {
+        let config = make_pipeline_config(vec![
+            make_stage("classify", vec![
+                simple_rule("block_ssh", 100, MatchCriteria { dst_port: Some(PortMatch::Exact(22)), ..Default::default() }, Action::Drop),
+            ], Action::Pass, Some("enforce")),
+            make_stage("enforce", vec![
+                simple_rule("allow_all", 100, MatchCriteria::default(), Action::Pass),
+            ], Action::Drop, None),
+        ], Action::Drop);
+        let pkt = SimPacket { dst_port: Some(22), ..Default::default() };
+        let result = simulate(&config, &pkt);
+        assert_eq!(result.action, Action::Drop);
+        assert_eq!(result.rule_name.as_deref(), Some("block_ssh"));
+    }
+
+    #[test]
+    fn pipeline_simulate_second_stage_drops() {
+        let config = make_pipeline_config(vec![
+            make_stage("classify", vec![
+                simple_rule("web", 100, MatchCriteria { dst_port: Some(PortMatch::Exact(80)), ..Default::default() }, Action::Pass),
+            ], Action::Drop, Some("enforce")),
+            make_stage("enforce", vec![], Action::Drop, None),
+        ], Action::Drop);
+        let pkt = SimPacket { dst_port: Some(80), ..Default::default() };
+        let result = simulate(&config, &pkt);
+        assert_eq!(result.action, Action::Drop);
+        assert!(result.is_default);
+    }
+
+    #[test]
+    fn pipeline_simulate_default_actions() {
+        let config = make_pipeline_config(vec![
+            make_stage("classify", vec![], Action::Pass, Some("enforce")),
+            make_stage("enforce", vec![], Action::Pass, None),
+        ], Action::Drop);
+        let pkt = SimPacket { dst_port: Some(80), ..Default::default() };
+        let result = simulate(&config, &pkt);
+        assert_eq!(result.action, Action::Pass);
+        assert!(result.is_default);
+    }
+
+    #[test]
+    fn pipeline_simulate_three_stages() {
+        let config = make_pipeline_config(vec![
+            make_stage("s1", vec![
+                simple_rule("r1", 100, MatchCriteria { dst_port: Some(PortMatch::Exact(80)), ..Default::default() }, Action::Pass),
+            ], Action::Drop, Some("s2")),
+            make_stage("s2", vec![
+                simple_rule("r2", 100, MatchCriteria { ethertype: Some("0x0800".into()), ..Default::default() }, Action::Pass),
+            ], Action::Drop, Some("s3")),
+            make_stage("s3", vec![
+                simple_rule("r3", 100, MatchCriteria::default(), Action::Pass),
+            ], Action::Drop, None),
+        ], Action::Drop);
+        let pkt = SimPacket { ethertype: Some(0x0800), dst_port: Some(80), ..Default::default() };
+        let result = simulate(&config, &pkt);
+        assert_eq!(result.action, Action::Pass);
+        assert_eq!(result.rule_name.as_deref(), Some("r3"));
+    }
+
+    #[test]
+    fn pipeline_simulate_middle_stage_drops() {
+        let config = make_pipeline_config(vec![
+            make_stage("s1", vec![
+                simple_rule("r1", 100, MatchCriteria::default(), Action::Pass),
+            ], Action::Drop, Some("s2")),
+            make_stage("s2", vec![], Action::Drop, Some("s3")),
+            make_stage("s3", vec![
+                simple_rule("r3", 100, MatchCriteria::default(), Action::Pass),
+            ], Action::Drop, None),
+        ], Action::Drop);
+        let pkt = SimPacket::default();
+        let result = simulate(&config, &pkt);
+        assert_eq!(result.action, Action::Drop);
+        assert!(result.is_default);
+    }
+
+    #[test]
+    fn pipeline_backward_compat_no_tables() {
+        let config = make_config(vec![
+            simple_rule("web", 100, MatchCriteria { dst_port: Some(PortMatch::Exact(80)), ..Default::default() }, Action::Pass),
+        ], Action::Drop);
+        let pkt = SimPacket { dst_port: Some(80), ..Default::default() };
+        let result = simulate(&config, &pkt);
+        assert_eq!(result.action, Action::Pass);
+        assert_eq!(result.rule_name.as_deref(), Some("web"));
     }
 }

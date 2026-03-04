@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from verification.packet import EthernetFrame, mac_to_bytes
 from verification.scoreboard import (
-    Rule, PacketFilterScoreboard,
+    Rule, PacketFilterScoreboard, PipelineStage, PipelineScoreboard,
     ipv4_matches_cidr, ipv6_matches_cidr, port_matches, byte_match_matches,
 )
 
@@ -476,6 +476,62 @@ class TestProtocolDeterminism:
         sb = PacketFilterScoreboard([rule], default_action="drop")
         frame = _make_frame(ethertype=0x86DD)
         assert check_protocol_determinism(sb, frame, {"mld_type": 130})
+
+
+class TestPipelineScoreboard:
+    """Tests for multi-stage pipeline scoreboard."""
+
+    def test_both_stages_pass(self):
+        stage1 = PipelineStage("classify", [Rule(name="web", priority=100, action="pass", dst_port=80)], "drop")
+        stage2 = PipelineStage("enforce", [Rule(name="allow", priority=100, action="pass", dst_port=80)], "drop")
+        sb = PipelineScoreboard([stage1, stage2])
+        frame = _make_frame()
+        action, rule = sb.predict(frame, {"dst_port": 80})
+        assert action == "pass"
+        assert rule == "allow"
+
+    def test_first_stage_drops(self):
+        stage1 = PipelineStage("classify", [], "drop")  # no rules, default drop
+        stage2 = PipelineStage("enforce", [Rule(name="allow", priority=100, action="pass")], "pass")
+        sb = PipelineScoreboard([stage1, stage2])
+        frame = _make_frame()
+        action, rule = sb.predict(frame, {})
+        assert action == "drop"
+
+    def test_second_stage_drops(self):
+        stage1 = PipelineStage("classify", [Rule(name="web", priority=100, action="pass")], "drop")
+        stage2 = PipelineStage("enforce", [], "drop")  # no rules, default drop
+        sb = PipelineScoreboard([stage1, stage2])
+        frame = _make_frame()
+        action, rule = sb.predict(frame, {})
+        assert action == "drop"
+
+    def test_three_stages_all_pass(self):
+        stage1 = PipelineStage("s1", [Rule(name="r1", priority=100, action="pass")], "drop")
+        stage2 = PipelineStage("s2", [Rule(name="r2", priority=100, action="pass")], "drop")
+        stage3 = PipelineStage("s3", [Rule(name="r3", priority=100, action="pass")], "drop")
+        sb = PipelineScoreboard([stage1, stage2, stage3])
+        frame = _make_frame()
+        action, rule = sb.predict(frame, {})
+        assert action == "pass"
+        assert rule == "r3"  # last stage's rule
+
+    def test_middle_stage_drops(self):
+        stage1 = PipelineStage("s1", [Rule(name="r1", priority=100, action="pass")], "drop")
+        stage2 = PipelineStage("s2", [], "drop")  # drops
+        stage3 = PipelineStage("s3", [Rule(name="r3", priority=100, action="pass")], "drop")
+        sb = PipelineScoreboard([stage1, stage2, stage3])
+        frame = _make_frame()
+        action, rule = sb.predict(frame, {})
+        assert action == "drop"
+
+    def test_check_raises_on_mismatch(self):
+        stage1 = PipelineStage("s1", [], "drop")
+        sb = PipelineScoreboard([stage1])
+        frame = _make_frame()
+        import pytest
+        with pytest.raises(Exception):  # ScoreboardMismatch
+            sb.check(frame, 1)  # actual=pass but expected=drop
 
 
 if __name__ == "__main__":
