@@ -1726,6 +1726,7 @@ fn generate_rule_documentation(
         if let Some(mt) = rule.match_criteria.ptp_message_type { match_fields.push(format!("ptp_message_type: {}", mt)); }
         if let Some(dom) = rule.match_criteria.ptp_domain { match_fields.push(format!("ptp_domain: {}", dom)); }
         if let Some(ver) = rule.match_criteria.ptp_version { match_fields.push(format!("ptp_version: {}", ver)); }
+        if let Some(q) = rule.rss_queue { match_fields.push(format!("rss_queue: {}", q)); }
         if let Some(ref bms) = rule.match_criteria.byte_match {
             for bm in bms {
                 match_fields.push(format!("byte_match: offset={}, value={}, mask={}", bm.offset, bm.value, bm.mask.as_deref().unwrap_or("FF")));
@@ -2062,6 +2063,9 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
     let uses_mirror = config.pacgate.rules.iter().filter(|r| r.mirror_port.is_some()).count();
     let uses_redirect = config.pacgate.rules.iter().filter(|r| r.redirect_port.is_some()).count();
 
+    // RSS queue stats
+    let uses_rss_queue = config.pacgate.rules.iter().filter(|r| r.rss_queue.is_some()).count();
+
     // Priority spacing
     let mut priorities: Vec<u32> = all_rules.iter().map(|r| r.priority).collect();
     priorities.sort();
@@ -2136,6 +2140,9 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
         "egress_actions": {
             "mirror_port": uses_mirror,
             "redirect_port": uses_redirect,
+        },
+        "rss": {
+            "rules_with_rss_queue": uses_rss_queue,
         },
         "flow_counters": {
             "enabled": model::StatelessRule::has_flow_counters(&config.pacgate),
@@ -2367,6 +2374,15 @@ fn print_stats(config: &model::FilterConfig) {
         }
     }
 
+    // RSS queue stats
+    let uses_rss_queue_txt = config.pacgate.rules.iter().filter(|r| r.rss_queue.is_some()).count();
+    if uses_rss_queue_txt > 0 {
+        let bar = |n: usize| "#".repeat(n).to_string() + &" ".repeat(total.saturating_sub(n));
+        println!();
+        println!("  RSS Queue Overrides:");
+        println!("  rss_queue    [{:>2}/{}] |{}|", uses_rss_queue_txt, total, bar(uses_rss_queue_txt));
+    }
+
     // Flow counters
     if model::StatelessRule::has_flow_counters(&config.pacgate) {
         println!();
@@ -2497,6 +2513,7 @@ fn print_dot_graph(config: &model::FilterConfig) {
         }
         if let Some(port) = rule.mirror_port { criteria.push(format!("mirror→{}", port)); }
         if let Some(port) = rule.redirect_port { criteria.push(format!("redirect→{}", port)); }
+        if let Some(q) = rule.rss_queue { criteria.push(format!("rss_q={}", q)); }
 
         let criteria_str = if criteria.is_empty() { "any".to_string() } else { criteria.join("\\n") };
         let action_str = match &rule.action {
@@ -2794,6 +2811,10 @@ fn diff_rules(old: &model::FilterConfig, new: &model::FilterConfig, json: bool) 
                 if old_rule.redirect_port != new_rule.redirect_port {
                     changes.push(format!("redirect_port: {:?} -> {:?}",
                         old_rule.redirect_port, new_rule.redirect_port));
+                }
+                if old_rule.rss_queue != new_rule.rss_queue {
+                    changes.push(format!("rss_queue: {:?} -> {:?}",
+                        old_rule.rss_queue, new_rule.rss_queue));
                 }
 
                 if changes.is_empty() {
@@ -3597,6 +3618,13 @@ fn compute_resource_estimate(config: &model::FilterConfig) -> serde_json::Value 
         rule_luts += num_ptp * 6;
     }
 
+    // RSS: +200 LUTs for Toeplitz hash engine + 64 FFs for indirection table + 10 LUTs per queue override rule
+    let rss_override_rules = all_rules.iter().filter(|r| r.rss_queue.is_some()).count();
+    if rss_override_rules > 0 {
+        rule_luts += 200 + rss_override_rules * 10;
+        rule_ffs += 64;
+    }
+
     // Egress LUT: +4 LUTs per rule with mirror/redirect (8-bit port + valid per action)
     let egress_rules = all_rules.iter()
         .filter(|r| r.mirror_port.is_some() || r.redirect_port.is_some())
@@ -3774,6 +3802,13 @@ fn print_resource_estimate(config: &model::FilterConfig) {
     let num_ptp = rules.iter().filter(|r| r.match_criteria.uses_ptp()).count();
     if num_ptp > 0 {
         rule_luts += num_ptp * 6;
+    }
+
+    // RSS: +200 LUTs for Toeplitz hash engine + 64 FFs for indirection table + 10 LUTs per queue override rule
+    let rss_override_rules_txt = rules.iter().filter(|r| r.rss_queue.is_some()).count();
+    if rss_override_rules_txt > 0 {
+        rule_luts += 200 + rss_override_rules_txt * 10;
+        rule_ffs += 64;
     }
 
     // Rate limiter: +50 LUTs, +64 FFs per rate-limited rule
@@ -4739,6 +4774,42 @@ fn lint_rules(config: &model::FilterConfig, warnings: &[String], dynamic: bool, 
                 }));
             }
         }
+    }
+
+    // LINT053: rss_queue without --rss (RSS queue override requires --rss flag)
+    let has_any_rss_queue = config.pacgate.rules.iter().any(|r| r.rss_queue.is_some());
+    if has_any_rss_queue {
+        findings.push(serde_json::json!({
+            "level": "info",
+            "code": "LINT053",
+            "message": "Rules with rss_queue require --rss flag at compile time to generate RSS hardware",
+            "suggestion": "Use --rss flag when compiling to enable Toeplitz hash + indirection table"
+        }));
+    }
+
+    // LINT054: rss_queue >= 16 (queue index out of range)
+    for rule in &config.pacgate.rules {
+        if let Some(q) = rule.rss_queue {
+            if q > 15 {
+                findings.push(serde_json::json!({
+                    "level": "error",
+                    "code": "LINT054",
+                    "message": format!("Rule '{}' has rss_queue {} — must be 0-15 (4-bit queue ID)", rule.name, q),
+                    "suggestion": "RSS queue IDs are 4-bit (0-15)"
+                }));
+            }
+        }
+    }
+
+    // LINT055: --rss without --axi (RSS needs AXI wrapper for CSR access)
+    // Note: this is informational since lint doesn't receive CLI flags — warns about RSS field usage
+    if has_any_rss_queue {
+        findings.push(serde_json::json!({
+            "level": "info",
+            "code": "LINT055",
+            "message": "RSS queue assignment requires --axi flag (RSS indirection table uses AXI-Lite CSR interface)",
+            "suggestion": "Use --axi --rss flags together when compiling"
+        }));
     }
 
     // LINT037: enable_flow_counters requires --conntrack

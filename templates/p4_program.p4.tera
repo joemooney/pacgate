@@ -540,6 +540,13 @@ Register<bit<2>, bit<16>>(65536) conntrack_register;
 Meter<bit<16>>({{ num_rules }}, PSA_MeterType_t.PACKETS) rate_meter;
 {% endif %}
 
+{% if protocols.has_rss %}
+
+// RSS: ActionSelector with Toeplitz hash for multi-queue dispatch
+// Maps 5-tuple hash to output queue for receive side scaling
+ActionSelector(HashAlgorithm.crc32, 128, 4) rss_selector;
+{% endif %}
+
 // ============================================================
 // Ingress Control
 // ============================================================

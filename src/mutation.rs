@@ -603,6 +603,35 @@ pub fn generate_mutations(config: &FilterConfig) -> Vec<(Mutation, FilterConfig)
         }
     }
 
+    // Mutation 38: Remove rss_queue from a rule
+    for (i, rule) in config.pacgate.rules.iter().enumerate() {
+        if rule.rss_queue.is_some() {
+            let mut mutated = config.clone();
+            mutated.pacgate.rules[i].rss_queue = None;
+            mutations.push((Mutation {
+                name: format!("remove_rss_queue_{}", rule.name),
+                description: format!("Remove rss_queue from rule '{}'", rule.name),
+                mutant_index: index,
+            }, mutated));
+            index += 1;
+        }
+    }
+
+    // Mutation 39: Shift rss_queue value
+    for (i, rule) in config.pacgate.rules.iter().enumerate() {
+        if let Some(q) = rule.rss_queue {
+            let new_q = if q < 15 { q + 1 } else { 0 };
+            let mut mutated = config.clone();
+            mutated.pacgate.rules[i].rss_queue = Some(new_q);
+            mutations.push((Mutation {
+                name: format!("shift_rss_queue_{}", rule.name),
+                description: format!("Shift rss_queue from {} to {} in rule '{}'", q, new_q, rule.name),
+                mutant_index: index,
+            }, mutated));
+            index += 1;
+        }
+    }
+
     mutations
 }
 
