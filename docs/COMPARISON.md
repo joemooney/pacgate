@@ -6,16 +6,16 @@
 
 | Metric | Count |
 |--------|------:|
-| CLI commands | 34 |
-| Match fields | 55 |
+| CLI commands | 36 |
+| Match fields | 57 |
 | Rewrite actions | 15 |
-| Parser states | 22 |
-| Lint rules | 50 |
-| Mutation types | 35 |
-| YAML examples | 45 |
-| Tera templates | 40 |
-| Rust tests | 896 |
-| Python tests | 73 |
+| Parser states | 23 |
+| Lint rules | 57 |
+| Mutation types | 41 |
+| YAML examples | 51 |
+| Tera templates | 42 |
+| Rust tests | 936 |
+| Python tests | 90 |
 | Data path widths | 5 (8/64/128/256/512 bit) |
 | FPGA families | Artix-7, Virtex-7, UltraScale+, Alveo |
 | Platform targets | 3 (standalone, OpenNIC, Corundum) |
@@ -440,7 +440,7 @@ PacGate generates verification artifacts (tests, assertions, coverage) automatic
 | **Hypothesis property tests** | Yes | No | No | No | No | No |
 | **Functional coverage model** | Yes | No | No | Manual | Manual | No |
 | **Coverage-directed generation** | Yes | No | No | Manual | Manual | No |
-| **Mutation testing (YAML, 35 types)** | Yes | No | No | No | No | No |
+| **Mutation testing (YAML, 41 types)** | Yes | No | No | No | No | No |
 | **Mutation testing (Verilog/MCY)** | Yes | No | No | No | No | No |
 | **Boundary test derivation** | Yes | No | No | No | No | No |
 | **Pipeline scoreboard (multi-stage)** | Yes | No | No | No | No | No |
@@ -455,6 +455,7 @@ PacGate generates verification artifacts (tests, assertions, coverage) automatic
 | Feature | PacGate | Vitis Net P4 | Corundum | FlowBlaze | OpenNIC | NetFPGA |
 |---------|:-------:|:------------:|:--------:|:---------:|:-------:|:-------:|
 | **Packet rewrite (in-flight)** | Yes (15 actions) | Yes | Checksum | Yes | User | Yes |
+| **In-band telemetry (INT)** | **Yes** (sideband metadata) | User | No | No | User | No |
 | **RFC 1624 incremental cksum** | Yes | N/A | Yes | No | User | User |
 | **Multi-table pipeline** | **Yes** (N stages, AND) | P4 stages | No | **Yes (EFSM)** | User | User |
 | **Stateful FSM rules** | Yes (HSM) | P4 registers | No | **Yes (EFSM)** | User | User |
@@ -490,10 +491,10 @@ PacGate generates verification artifacts (tests, assertions, coverage) automatic
 
 | Feature | PacGate | P4 Tools | Corundum | FlowBlaze | HLS |
 |---------|:-------:|:--------:|:--------:|:---------:|:---:|
-| **CLI tool** | Yes (34 cmds) | p4c compiler | Make | GUI + CLI | Vivado |
+| **CLI tool** | Yes (36 cmds) | p4c compiler | Make | GUI + CLI | Vivado |
 | **P4 export (YAML → P4_16)** | **Yes** | N/A | No | No | No |
-| **Lint / best-practice rules** | Yes (50 rules) | p4c warnings | No | No | HLS warnings |
-| **Mutation testing** | Yes (35 types) | No | No | No | No |
+| **Lint / best-practice rules** | Yes (57 rules) | p4c warnings | No | No | HLS warnings |
+| **Mutation testing** | Yes (41 types) | No | No | No | No |
 | **FPGA resource estimation** | Yes | Vivado reports | Vivado | No | HLS reports |
 | **Rule diff / change mgmt** | Yes (+ HTML) | No | No | No | No |
 | **HTML documentation gen** | Yes | No | No | No | No |
@@ -518,13 +519,17 @@ PacGate generates verification artifacts (tests, assertions, coverage) automatic
 
 ## Gap Analysis
 
-### Recently Completed (Phase 27)
+### Recently Completed (Phases 27-30)
 
-| Feature | What Was Delivered |
-|---------|-------------------|
-| **Wider data paths** | `--width {8,64,128,256,512}` with parameterized AXI-Stream width converters — 2 Gbps → 100 Gbps |
-| **P4 export** | `p4-export` subcommand generates P4_16 PSA programs with Register/Meter externs — first YAML→P4 tool |
-| **Multi-table pipeline** | Optional `tables:` YAML key with N sequential match-action stages, AND-combined decisions, shared parser |
+| Feature | Phase | What Was Delivered |
+|---------|-------|-------------------|
+| **Wider data paths** | 27 | `--width {8,64,128,256,512}` with parameterized AXI-Stream width converters — 2 Gbps → 100 Gbps |
+| **P4 export** | 27 | `p4-export` subcommand generates P4_16 PSA programs with Register/Meter externs — first YAML→P4 tool |
+| **Multi-table pipeline** | 27 | Optional `tables:` YAML key with N sequential match-action stages, AND-combined decisions, shared parser |
+| **PTP (IEEE 1588)** | 28 | 3 PTP match fields + dual L2/L4 detection + optional ptp_clock.v hardware clock |
+| **RSS multi-queue** | 29 | Toeplitz hash + 128-entry indirection table + per-rule queue override + AXI-Lite |
+| **INT telemetry** | 30 | Sideband metadata capture (switch_id, timestamps, hop_latency, queue_id, rule_idx) |
+| **Synthetic traffic gen** | 30 | `pcap-gen` subcommand — protocol-aware PCAP generation from YAML rules |
 
 ### High Priority (remaining competitive gaps)
 
@@ -542,7 +547,7 @@ PacGate generates verification artifacts (tests, assertions, coverage) automatic
 | **Wireshark display filter input** | `tcp.port == 80` syntax for rules | FFShark | Medium — parser for Wireshark filter grammar |
 | **GUI for FSM design** | Visual state machine editor | FlowBlaze | Medium — web UI generating YAML; Mermaid Live already works |
 | **L7 / DPI (regex match)** | Application-layer protocol detection | FFShark (via BPF), P4 (limited) | Large — regex engine in hardware (BRAM-based NFA) |
-| **In-band telemetry (INT)** | Insert metadata headers for network visibility | VitisNetP4, Tofino | Medium — INT header insertion in rewrite engine |
+| ~~**In-band telemetry (INT)**~~ | ~~Insert metadata headers for network visibility~~ | ~~VitisNetP4, Tofino~~ | ~~**DONE (Phase 30)**~~ |
 | ~~**RSS / multi-queue dispatch**~~ | ~~Distribute flows across CPU queues~~ | ~~Corundum, OpenNIC~~ | ~~**DONE (Phase 29)**~~ |
 | **AI-assisted SVA generation** | Auto-generate complex assertions from design | Questa (Property Assist) | Medium — LLM-based assertion suggestion |
 
@@ -554,7 +559,7 @@ PacGate generates verification artifacts (tests, assertions, coverage) automatic
 | **Multi-Tbps ASIC targeting** | Datacenter-scale throughput | Tofino (EOL) | N/A — different market segment |
 | **Emulation support** | Run on Palladium/Veloce/Protium | Questa, VCS, Xcelium | N/A — requires commercial emulator |
 | **RISC-V control plane** | Software-driven rule updates via embedded CPU | Academic projects | Large — RISC-V SoC integration |
-| **Traffic generation** | Built-in packet generation for testing | T-Rex, Scapy, MoonGen | Small — already has PCAP import; add pcap-gen |
+| ~~**Traffic generation**~~ | ~~Built-in packet generation for testing~~ | ~~T-Rex, Scapy, MoonGen~~ | ~~**DONE (Phase 30)** — `pcap-gen` subcommand~~ |
 
 ---
 
@@ -594,8 +599,8 @@ No other tool in this landscape offers PacGate's combination:
 | Capability | Only PacGate? | Why It Matters |
 |------------|:---:|---|
 | **YAML → RTL + tests + P4** | Yes | Single spec, three outputs — no other tool does this |
-| **50 lint rules for packet rules** | Yes | Static analysis purpose-built for packet filter correctness |
-| **35 mutation types** | Yes | Quantified test quality for network security rules |
+| **57 lint rules for packet rules** | Yes | Static analysis purpose-built for packet filter correctness |
+| **41 mutation types** | Yes | Quantified test quality for network security rules |
 | **Multi-table pipeline from YAML** | Yes | P4-style sequential stages without writing P4 |
 | **8-512 bit parameterized width** | Yes | Same YAML targets Arty ($50) through Alveo ($5K) |
 | **Coverage-directed test gen** | Yes | Automated verification closure for packet processing |
@@ -621,7 +626,9 @@ Based on this analysis, the next features that would most strengthen PacGate's c
 
 4. ~~**RSS / multi-queue dispatch**~~ — **DONE (Phase 29)**: Toeplitz hash + 128-entry indirection table + per-rule queue override.
 
-5. **In-band telemetry (INT)** — Insert metadata headers for network visibility. Natural extension of the existing rewrite engine (15 actions).
+5. ~~**In-band telemetry (INT)**~~ — **DONE (Phase 30)**: Sideband metadata capture (switch_id, timestamps, hop_latency, queue_id, rule_idx) with per-rule int_insert control.
+
+6. ~~**Traffic generation**~~ — **DONE (Phase 30)**: `pcap-gen` subcommand generates protocol-aware synthetic PCAP from YAML rules.
 
 ---
 
@@ -632,3 +639,7 @@ Based on this analysis, the next features that would most strengthen PacGate's c
 | 1 | Wider data paths (64-512 bit) | 27.1/27.4 | `--width {8,64,128,256,512}` — 2-100 Gbps throughput |
 | 2 | P4 export (YAML → P4_16 PSA) | 27.2/27.5 | `p4-export` subcommand — first YAML→P4 tool |
 | 3 | Multi-table pipeline | 27.3/27.6-27.8 | `tables:` YAML key — N sequential match-action stages |
+| 4 | PTP hardware timestamping | 28 | IEEE 1588 PTP matching + dual L2/L4 detection + ptp_clock.v |
+| 5 | RSS multi-queue dispatch | 29 | Toeplitz hash + 128-entry indirection table + per-rule queue override |
+| 6 | In-band telemetry (INT) | 30 | Sideband metadata capture (switch_id, timestamps, hop_latency, rule_idx) |
+| 7 | Synthetic traffic generation | 30 | `pcap-gen` subcommand — protocol-aware PCAP from YAML rules |

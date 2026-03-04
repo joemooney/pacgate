@@ -27,6 +27,8 @@
 - **IP TTL matching**: ip_ttl (0-255) match field for TTL-based security and traceroute detection
 - **PTP (IEEE 1588)**: ptp_message_type (4-bit, 0-15), ptp_domain (8-bit), ptp_version (4-bit) matching via dual L2 (EtherType 0x88F7) and L4 (UDP 319/320) detection; optional `--ptp` flag for hardware timestamping clock (ptp_clock.v)
 - **RSS (Receive Side Scaling)**: `rss_queue` per-rule queue override (0-15), `--rss`/`--rss-queues N` CLI flags, Toeplitz hash engine (Microsoft RSS compatible), 128-entry indirection table with AXI-Lite CSR, hash-based multi-queue dispatch for multi-core packet processing
+- **INT (In-band Network Telemetry)**: per-rule `int_insert` field, `--int`/`--int-switch-id N` CLI flags, sideband metadata output (switch_id, ingress/egress timestamps, hop_latency, queue_id, rule_idx), int_metadata.v RTL module, int_lut.v.tera template for INT enable lookup
+- **Synthetic traffic generation**: `pcap-gen` subcommand generates protocol-aware PCAP files from YAML rules with `--count`/`--seed`/`--json`/`--output` flags
 - **Frame length matching**: frame_len_min/frame_len_max (simulation-only, no RTL) for size-based filtering
 - **L4 port rewrite**: set_src_port, set_dst_port with RFC 1624 incremental L4 checksum update (TCP/UDP, UDP cksum=0 preserved)
 - **Byte-offset matching**: raw byte inspection at any packet offset with value/mask (`byte_match`)
@@ -58,7 +60,7 @@
 - **HTML diff visualization**: color-coded side-by-side HTML diff report (`diff --html`)
 - **Performance benchmarking**: compile time, simulation throughput (pkts/sec), LUT/FF scaling curves (`bench` subcommand)
 - Rule overlap and shadow detection with warnings
-- **Full-stack scoreboard**: Python reference model matches L2/L3/L4/IPv6/VXLAN/GTP-U/MPLS/IGMP/MLD/DSCP/ECN/IPv6-TC/TCP-flags/ICMP/ICMPv6/ARP/IPv6-ext/QinQ/IP-frag/GRE/conntrack-state/OAM/NSH/Geneve/ip_ttl/frame_len/byte-match/PTP/RSS fields
+- **Full-stack scoreboard**: Python reference model matches L2/L3/L4/IPv6/VXLAN/GTP-U/MPLS/IGMP/MLD/DSCP/ECN/IPv6-TC/TCP-flags/ICMP/ICMPv6/ARP/IPv6-ext/QinQ/IP-frag/GRE/conntrack-state/OAM/NSH/Geneve/ip_ttl/frame_len/byte-match/PTP/RSS/INT fields
 - **Directed L3/L4 tests**: generated tests construct proper IPv4/IPv6/TCP/UDP headers
 - **Protocol-specific cocotb packets**: 14 PacketFactory methods (geneve, gre, icmp, icmpv6_msg, arp_msg, qinq, ip_frag, tcp_with_flags, dscp_ecn, ipv6_tc, ipv6_ext, ipv4_tcp_conntrack) with 13 protocol branches in test_harness.py.tera
 - **Byte-match simulation**: software simulator evaluates byte_match rules with raw_bytes
@@ -73,7 +75,7 @@
 - **Packet regression**: high-volume regression testing against scenarios using direct `simulate()` calls (~600K pps)
 - **Topology simulation**: 2-port RMAC/L3 switch topology simulation with subnet gating, ingress validation, egress routing
 - **Scenario store**: import/export scenario files to/from JSON store (merge or replace modes)
-- `lint` subcommand for best-practice analysis and security checks (46 lint rules)
+- `lint` subcommand for best-practice analysis and security checks (57 lint rules)
 - FPGA resource estimation (LUTs/FFs for Artix-7) + timing/pipeline analysis
 - `--json` flag on compile/validate/estimate/diff/formal/lint for CI/scripting integration
 - `diff` subcommand for rule set change management
@@ -87,8 +89,8 @@
 - Coverage XML export with merge support across runs
 - Coverage-directed test generation (verification/coverage_driven.py)
 - Enhanced overlap detection with CIDR containment and port range analysis
-- 49 real-world YAML examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite, OpenNIC, Corundum, TCP flags/ICMP, ARP security, ICMPv6 firewall, QinQ provider, fragment security, port rewrite, GRE tunnel, conntrack firewall, mirror/redirect, flow counters, OAM monitoring, NSH/SFC, Geneve datacenter, TTL security, IPv6 routing, QoS rewrite, wide AXI firewall, P4 export demo, pipeline classify, PTP boundary clock, PTP 5G fronthaul)
-- 536 Rust unit tests + 378 integration tests = 914 total, 85 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
+- 51 real-world YAML examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite, OpenNIC, Corundum, TCP flags/ICMP, ARP security, ICMPv6 firewall, QinQ provider, fragment security, port rewrite, GRE tunnel, conntrack firewall, mirror/redirect, flow counters, OAM monitoring, NSH/SFC, Geneve datacenter, TTL security, IPv6 routing, QoS rewrite, wide AXI firewall, P4 export demo, pipeline classify, PTP boundary clock, PTP 5G fronthaul, RSS datacenter, RSS NIC offload, INT datacenter, pcap-gen demo)
+- 558 Rust unit tests + 378 integration tests = 936 total, 90 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
 
 ## Architecture
 ```
@@ -123,6 +125,8 @@ Mermaid .md --> pacgate from-mermaid --> YAML rules
   - `rss_toeplitz` — Toeplitz hash engine for 5-tuple hashing (rtl/rss_toeplitz.v, optional `--rss`)
   - `rss_indirection` — 128-entry indirection table with AXI-Lite + per-rule override mux (rtl/rss_indirection.v, optional `--rss`)
   - `rss_queue_lut` — generated per-rule queue override ROM (optional, if rss_queue rules present)
+  - `int_metadata` — INT sideband metadata capture (switch_id, timestamps, hop_latency, queue_id, rule_idx) (rtl/int_metadata.v, optional `--int`)
+  - `int_lut` — generated INT enable lookup table per rule (optional, if int_insert rules present)
 - `packet_filter_dynamic_top` — dynamic mode top-level (generated, `--dynamic`)
   - `frame_parser` — same hand-written parser
   - `flow_table` — register-based match entries with AXI-Lite CRUD (generated from template)
@@ -165,6 +169,8 @@ pacgate compile rules.yaml --width 512 --target opennic  # Native 512-bit (no ex
 pacgate compile rules.yaml --axi --ptp                   # Include PTP hardware clock + CSR registers
 pacgate compile rules.yaml --axi --rss                   # Enable RSS multi-queue dispatch (4 queues default)
 pacgate compile rules.yaml --axi --rss --rss-queues 16   # RSS with 16 queues
+pacgate compile rules.yaml --axi --int                   # Enable INT sideband metadata output
+pacgate compile rules.yaml --axi --int --int-switch-id 1 # INT with custom switch ID
 pacgate compile rules.yaml --json      # JSON output with warnings
 # After compile: cd gen/tb && python run_sim.py   # cocotb 2.0 runner (recommended)
 # After compile: cd gen/tb && make                 # Makefile-based (legacy, still supported)
@@ -224,6 +230,9 @@ pacgate doc rules.yaml                 # Generate HTML rule documentation
 pacgate bench rules.yaml               # Benchmark compile time + simulation throughput + LUT/FF scaling
 pacgate bench rules.yaml --json        # JSON benchmark report
 pacgate diff old.yaml new.yaml --html report.html  # Generate HTML diff visualization report
+pacgate pcap-gen rules.yaml                        # Generate synthetic PCAP from rules (stdout)
+pacgate pcap-gen rules.yaml --count 1000 --output traffic.pcap  # 1000 packets to file
+pacgate pcap-gen rules.yaml --seed 42 --json       # Deterministic generation with JSON summary
 pacgate scenario validate *.json       # Validate scenario JSON files
 pacgate scenario validate --json *.json # JSON validation output
 pacgate scenario import --in-dir scenarios/ --store store.json  # Import scenarios to store
@@ -238,7 +247,7 @@ pytest verification/test_scoreboard.py # 67 Python scoreboard unit tests
 ```
 
 ## Key Files
-- `src/model.rs` — Data model (Action, MatchCriteria, ByteMatch, Ipv6Prefix, RateLimit, FsmVariable, HSM types, ConntrackConfig, RssConfig, GtpTeid, MplsLabel, IgmpType, MldType, IpDscp, IpEcn, Ipv6Dscp, Ipv6Ecn, TcpFlags, IcmpType, IcmpCode, ICMPv6Type, ICMPv6Code, ArpOpcode, ArpSpa, ArpTpa, Ipv6HopLimit, Ipv6FlowLabel, OuterVlanId, OuterVlanPcp, IpDontFragment, IpMoreFragments, IpFragOffset, GreProtocol, GreKey, ConntrackState, OamLevel, OamOpcode, NshSpi, NshSi, NshNextProtocol, GeneveVni, IpTtl, FrameLenMin, FrameLenMax, PtpMessageType, PtpDomain, PtpVersion, RewriteAction with set_src_port/set_dst_port/dec_hop_limit/set_hop_limit/set_ecn/set_vlan_pcp/set_outer_vlan_id)
+- `src/model.rs` — Data model (Action, MatchCriteria, ByteMatch, Ipv6Prefix, RateLimit, FsmVariable, HSM types, ConntrackConfig, RssConfig, IntConfig, GtpTeid, MplsLabel, IgmpType, MldType, IpDscp, IpEcn, Ipv6Dscp, Ipv6Ecn, TcpFlags, IcmpType, IcmpCode, ICMPv6Type, ICMPv6Code, ArpOpcode, ArpSpa, ArpTpa, Ipv6HopLimit, Ipv6FlowLabel, OuterVlanId, OuterVlanPcp, IpDontFragment, IpMoreFragments, IpFragOffset, GreProtocol, GreKey, ConntrackState, OamLevel, OamOpcode, NshSpi, NshSi, NshNextProtocol, GeneveVni, IpTtl, FrameLenMin, FrameLenMax, PtpMessageType, PtpDomain, PtpVersion, IntInsert, RewriteAction with set_src_port/set_dst_port/dec_hop_limit/set_hop_limit/set_ecn/set_vlan_pcp/set_outer_vlan_id)
 - `src/loader.rs` — YAML loading + validation + CIDR/port overlap detection + HSM/byte_match/conntrack validation
 - `src/verilog_gen.rs` — Tera-based Verilog generation (L2/L3/L4/IPv6/VXLAN/GTP-U/MPLS/IGMP/MLD/byte-match, HSM flattening, multiport)
 - `src/cocotb_gen.rs` — cocotb test harness + AXI tests + property test generation
@@ -255,7 +264,8 @@ pytest verification/test_scoreboard.py # 67 Python scoreboard unit tests
 - `src/mcy_gen.rs` — MCY (Mutation Cover with Yosys) config generation
 - `src/scenario.rs` — Scenario validation, regression testing, topology simulation (migrated from pacilab)
 - `src/p4_gen.rs` — P4_16 PSA code generation from YAML rules (~950 LOC)
-- `src/main.rs` — clap CLI (33 subcommands)
+- `src/pcap_gen.rs` — Synthetic PCAP traffic generator with protocol-aware packet construction (~720 LOC)
+- `src/main.rs` — clap CLI (35 subcommands)
 - `rtl/frame_parser.v` — Hand-written Ethernet/IPv4/IPv6/TCP/UDP/VXLAN/GTP-U/MPLS/IGMP/MLD/ICMP/ICMPv6/ARP/QinQ/OAM/NSH/Geneve/PTP parser FSM (23 states) with TCP flags + IPv6 TC + hop_limit + flow_label + fragmentation + L4 port offset + OAM/CFM + NSH/SFC + Geneve VNI + ip_ttl + PTP messageType/domain/version extraction
 - `rtl/ptp_clock.v` — Free-running 64-bit PTP hardware clock with SOF/EOF timestamp latching (optional, `--ptp` flag)
 - `rtl/rule_counters.v` — Per-rule 64-bit packet/byte counters
@@ -268,9 +278,10 @@ pytest verification/test_scoreboard.py # 67 Python scoreboard unit tests
 - `rtl/rate_limiter.v` — Token-bucket rate limiter (parameterized PPS, BURST)
 - `rtl/rss_toeplitz.v` — Combinational Toeplitz hash engine (104-bit 5-tuple input, 320-bit key, 32-bit hash output)
 - `rtl/rss_indirection.v` — 128-entry RSS indirection table with AXI-Lite interface and per-rule queue override mux
+- `rtl/int_metadata.v` — INT sideband metadata capture module (switch_id, ingress/egress timestamps, hop_latency, queue_id, rule_idx)
 - `rtl/axis_512_to_8.v` — 512→8-bit AXI-Stream width converter (for platform targets)
 - `rtl/axis_8_to_512.v` — 8→512-bit AXI-Stream width converter (for platform targets)
-- `templates/*.tera` — 27+ Tera templates (+ synth scripts, rate limiter TB, HTML docs, diff report, MCY config, flow table, dynamic top, rewrite_lut, rss_queue_lut, packet_filter_axi_top, cocotb 2.0 runner scripts)
+- `templates/*.tera` — 29+ Tera templates (+ synth scripts, rate limiter TB, HTML docs, diff report, MCY config, flow table, dynamic top, rewrite_lut, rss_queue_lut, int_lut, packet_filter_axi_top, cocotb 2.0 runner scripts)
 - `templates/rewrite_lut.v.tera` — Combinational ROM mapping rule_idx to rewrite operations
 - `templates/egress_lut.v.tera` — Combinational ROM mapping rule_idx to mirror/redirect port parameters
 - `templates/packet_filter_axi_top.v.tera` — Templatized AXI top-level with rewrite engine wiring
@@ -281,8 +292,9 @@ pytest verification/test_scoreboard.py # 67 Python scoreboard unit tests
 - `templates/axis_wide_to_8.v.tera` — Parameterized wide-to-narrow AXI-Stream converter template
 - `templates/axis_8_to_wide.v.tera` — Parameterized narrow-to-wide AXI-Stream converter template
 - `templates/p4_program.p4.tera` — P4_16 PSA program template
+- `templates/int_lut.v.tera` — INT enable lookup table per rule_idx
 - `verification/` — Python verification framework (packet, scoreboard, coverage, driver, properties, coverage_driven, test_scoreboard)
-- `rules/examples/` — 45 YAML examples
+- `rules/examples/` — 51 YAML examples
 - `rules/templates/` — 7 rule template YAML snippets
 - `.github/workflows/ci.yml` — GitHub Actions CI pipeline
 
@@ -404,3 +416,11 @@ pytest verification/test_scoreboard.py # 67 Python scoreboard unit tests
   - **29.5 Tools**: LINT053-055, mutations 38-39, estimate (+200 LUT Toeplitz, +64 FF indirection), stats/diff/doc/graph RSS fields, P4 ActionSelector
   - **29.6 Examples+Docs**: rss_datacenter.yaml, rss_nic_offload.yaml, documentation updates
   - 23 parser states, 53 lint rules, 39 mutation types, 49 examples, 85 Python scoreboard tests, 536 unit + 378 integration = 914 Rust tests
+- **Phase 30**: Complete — INT (In-band Network Telemetry) + synthetic traffic generation:
+  - **30.1 Model+Loader+CLI**: `int_insert` per-rule field (bool), `IntConfig` struct, `--int`/`--int-switch-id N` CLI flags, pcap-gen subcommand model
+  - **30.2 INT RTL**: int_metadata.v (sideband metadata capture: switch_id, ingress/egress timestamps, hop_latency, queue_id, rule_idx)
+  - **30.3 INT VerilogGen+Templates**: int_lut.v.tera (INT enable lookup table), has_int flag in GlobalProtocolFlags, AXI/platform template wiring
+  - **30.4 pcap-gen**: src/pcap_gen.rs (~720 LOC) — protocol-aware synthetic PCAP generator from YAML rules, --count/--seed/--json/--output flags
+  - **30.5 Verification+Tools**: predict_int() in Python scoreboard, SVA assertions, LINT056-057, mutations 40-41, estimate/stats/diff/doc/graph INT support
+  - **30.6 Examples+Docs**: int_datacenter.yaml, pcap_gen_demo.yaml, documentation updates
+  - 23 parser states, 57 lint rules, 41 mutation types, 51 examples, 90 Python scoreboard tests, 558 unit + 378 integration = 936 Rust tests

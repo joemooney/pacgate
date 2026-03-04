@@ -1604,3 +1604,77 @@
 - REQ-3152: 49 YAML examples (47 existing + rss_multiqueue + rss_datacenter)
 - REQ-3153: 53 lint rules (LINT001-055, some skipped)
 - REQ-3154: 39 mutation types
+
+## Phase 30 Requirements — INT (In-band Network Telemetry) + Synthetic Traffic Generation [IMPLEMENTED]
+
+### Overview
+- REQ-3200: INT (In-band Network Telemetry) sideband metadata insertion for network visibility — per-rule `int_insert` field enables metadata capture for selected flows
+- REQ-3201: Synthetic PCAP traffic generation (`pcap-gen` subcommand) for protocol-aware test packet construction from YAML rules
+
+### INT Per-Rule Field
+- REQ-3210: `int_insert` field on StatelessRule (Option<bool>) for per-rule INT metadata insertion [IMPLEMENTED]
+- REQ-3211: IntConfig struct with switch_id (0-65535) configuration [IMPLEMENTED]
+- REQ-3212: YAML deserialization of int_insert: true/false/omitted [IMPLEMENTED]
+- REQ-3213: uses_int() helper method on rule model [IMPLEMENTED]
+
+### INT CLI Flags
+- REQ-3220: `--int` CLI flag on `compile` command to enable INT hardware generation [IMPLEMENTED]
+- REQ-3221: `--int-switch-id N` CLI flag (0-65535, default 0) for switch identification [IMPLEMENTED]
+- REQ-3222: `--int` requires `--axi` for sideband metadata output (compile-time error if `--axi` not set) [IMPLEMENTED]
+
+### INT RTL
+- REQ-3230: int_metadata.v — sideband metadata capture module [IMPLEMENTED]
+- REQ-3231: Captures switch_id (parameterized), ingress timestamp, egress timestamp, hop_latency [IMPLEMENTED]
+- REQ-3232: Captures queue_id (from RSS or default) and rule_idx (from decision logic) [IMPLEMENTED]
+- REQ-3233: INT metadata output valid when decision_valid asserted and int_enable lookup is true [IMPLEMENTED]
+
+### INT Verilog Generation
+- REQ-3240: has_int flag in GlobalProtocolFlags [IMPLEMENTED]
+- REQ-3241: int_lut.v.tera — generated combinational lookup mapping rule_idx to INT enable [IMPLEMENTED]
+- REQ-3242: INT module wiring in AXI top template (int_metadata instantiation) [IMPLEMENTED]
+- REQ-3243: INT metadata ports on platform wrapper templates (OpenNIC/Corundum) [IMPLEMENTED]
+
+### pcap-gen Subcommand
+- REQ-3250: `pcap-gen` subcommand generating synthetic PCAP files from YAML rules [IMPLEMENTED]
+- REQ-3251: Protocol-aware packet construction matching each rule's match criteria [IMPLEMENTED]
+- REQ-3252: `--count N` flag for packet count (default 100) [IMPLEMENTED]
+- REQ-3253: `--seed N` flag for deterministic random generation [IMPLEMENTED]
+- REQ-3254: `--output <file>` flag for output PCAP file path (default stdout) [IMPLEMENTED]
+- REQ-3255: `--json` flag for JSON summary output (packet count, protocol distribution, file size) [IMPLEMENTED]
+- REQ-3256: src/pcap_gen.rs module (~720 LOC) with protocol-aware packet builders [IMPLEMENTED]
+
+### INT Simulation
+- REQ-3260: SimPacket supports int_insert field [IMPLEMENTED]
+- REQ-3261: Simulation results include INT metadata prediction when --int enabled [IMPLEMENTED]
+
+### INT Python Verification
+- REQ-3270: predict_int() function in Python scoreboard for INT metadata prediction [IMPLEMENTED]
+- REQ-3271: Scoreboard Rule dataclass includes int_insert field [IMPLEMENTED]
+- REQ-3272: SVA assertions: INT metadata valid timing, switch_id constant check [IMPLEMENTED]
+- REQ-3273: SVA cover properties: int_metadata_valid, int_enable for specific rules [IMPLEMENTED]
+
+### INT Lint Rules
+- REQ-3280: LINT056 — int_insert without `--int` flag (warning: INT field ignored without INT hardware) [IMPLEMENTED]
+- REQ-3281: LINT057 — `--int` requires `--axi` for sideband metadata output [IMPLEMENTED]
+
+### INT Mutation Testing
+- REQ-3290: Mutation type 40: remove_int_insert — clears int_insert from rules [IMPLEMENTED]
+- REQ-3291: Mutation type 41: toggle_int_insert — flips int_insert true/false [IMPLEMENTED]
+
+### INT Tool Support
+- REQ-3300: Estimate: INT hardware resource costs (metadata capture registers, LUT, mux) [IMPLEMENTED]
+- REQ-3301: Stats: int_insert field usage counter (JSON + text) [IMPLEMENTED]
+- REQ-3302: Diff: int_insert field change detection (text + JSON + HTML) [IMPLEMENTED]
+- REQ-3303: Doc: int_insert in HTML rule documentation [IMPLEMENTED]
+- REQ-3304: Graph: INT label on DOT rule nodes [IMPLEMENTED]
+
+### Examples
+- REQ-3310: int_datacenter.yaml — INT datacenter example with per-flow metadata insertion [IMPLEMENTED]
+- REQ-3311: pcap_gen_demo.yaml — pcap-gen demo example for synthetic traffic generation [IMPLEMENTED]
+
+### Phase 30 Test Counts
+- REQ-3320: 936 Rust tests (558 unit + 378 integration) through Phase 30 [IMPLEMENTED]
+- REQ-3321: 90 Python scoreboard unit tests through Phase 30 [IMPLEMENTED]
+- REQ-3322: 51 YAML examples (49 existing + int_datacenter + pcap_gen_demo) [IMPLEMENTED]
+- REQ-3323: 57 lint rules (LINT001-057) [IMPLEMENTED]
+- REQ-3324: 41 mutation types [IMPLEMENTED]

@@ -2770,3 +2770,74 @@ Implement RSS (Receive Side Scaling) multi-queue dispatch for multi-core packet 
 
 ### Git
 - Committed and pushed Phase 29 implementation
+
+---
+
+## Phase 30 — 2026-03-04: INT (In-band Network Telemetry) + Synthetic Traffic Generation
+
+### Goal
+Implement INT (In-band Network Telemetry) for sideband metadata capture and a synthetic PCAP traffic generator (`pcap-gen` subcommand) for protocol-aware test packet construction from YAML rules.
+
+### Actions Taken
+
+**Phase 30.1 — Model + Loader + CLI**:
+- Added `int_insert: Option<bool>` to StatelessRule for per-rule INT metadata insertion
+- Added `IntConfig` struct with switch_id (0-65535) configuration
+- Added `--int` and `--int-switch-id N` CLI flags to `compile` subcommand
+- YAML validation for int_insert and IntConfig parameters
+- Added pcap-gen subcommand to CLI with --count/--seed/--json/--output flags
+
+**Phase 30.2 — INT RTL**:
+- Created `rtl/int_metadata.v` — sideband metadata capture module
+  - Captures switch_id (parameterized), ingress timestamp, egress timestamp, hop_latency
+  - Captures queue_id (from RSS or default) and rule_idx (from decision logic)
+  - INT metadata output valid when decision_valid asserted and int_enable lookup is true
+
+**Phase 30.3 — INT Verilog Generation + Templates**:
+- Created `templates/int_lut.v.tera` — INT enable lookup table per rule_idx
+- Added has_int flag to GlobalProtocolFlags
+- Updated AXI top template with INT module wiring
+- Updated OpenNIC and Corundum wrapper templates for INT metadata port passthrough
+
+**Phase 30.4 — Traffic Generation (pcap-gen)**:
+- Created `src/pcap_gen.rs` (~720 LOC) — protocol-aware synthetic PCAP generator
+  - Constructs valid Ethernet frames matching each rule's match criteria
+  - Supports all protocol types (IPv4/IPv6/TCP/UDP/VXLAN/GTP-U/GRE/Geneve/MPLS/IGMP/MLD/ICMP/ICMPv6/ARP/OAM/NSH/PTP)
+  - Deterministic with --seed for reproducible test traffic
+  - JSON summary output with packet count, protocol distribution, file size
+
+**Phase 30.5 — Verification + Tool Integration**:
+- Python scoreboard: predict_int() function for INT metadata prediction
+- Scoreboard Rule dataclass includes int_insert field
+- SVA assertions: INT metadata valid timing, switch_id constant check, cover properties
+- LINT056: int_insert without --int flag (warning)
+- LINT057: --int requires --axi for sideband metadata output
+- Mutation type 40: remove_int_insert (clears int_insert from rules)
+- Mutation type 41: toggle_int_insert (flips int_insert true/false)
+- Estimate: INT hardware resource costs
+- Stats/diff/doc/graph: INT field support
+
+**Phase 30.6 — Examples + Documentation**:
+- Created `rules/examples/int_datacenter.yaml` — INT datacenter example with per-flow metadata insertion
+- Created `rules/examples/pcap_gen_demo.yaml` — pcap-gen demo for synthetic traffic generation
+- Updated CLAUDE.md, OVERVIEW.md, REQUIREMENTS.md, PROMPT_HISTORY.md, COMPARISON.md
+
+### Test Results
+- 558 unit tests — all PASS
+- 378 integration tests — all PASS
+- 90 Python scoreboard tests — all PASS
+- Total: 936 Rust tests + 90 Python tests
+
+### New Artifacts
+- 0 new parser states (reuses existing parser infrastructure) — 23 parser states total
+- 1 new RTL module: rtl/int_metadata.v
+- 1 new template: templates/int_lut.v.tera
+- 1 new source file: src/pcap_gen.rs (~720 LOC)
+- 2 new CLI flags: --int, --int-switch-id
+- 1 new subcommand: pcap-gen
+- 4 new lint rules (LINT054-057) — 57 total
+- 2 new mutation types (40-41) — 41 total
+- 2 new examples: int_datacenter.yaml, pcap_gen_demo.yaml (51 total)
+
+### Git
+- Committed and pushed Phase 30 implementation
