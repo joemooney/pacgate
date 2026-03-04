@@ -724,6 +724,11 @@ fn main() -> Result<()> {
             // Copy/generate AXI-Stream wrapper RTL if --axi
             if axi {
                 verilog_gen::copy_axi_rtl(&output, &config, &templates, width, rss, rss_queues)?;
+
+                // Re-render AXI top with INT if --int is enabled
+                if int {
+                    verilog_gen::enable_int_in_axi_top(&output, &config, &templates, width, rss, rss_queues, int_switch_id, ptp)?;
+                }
             }
 
             // Copy counter RTL if --counters

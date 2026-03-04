@@ -43,6 +43,17 @@ module pacgate_corundum_app #(
     output wire [3:0]  rss_queue_id,
     output wire        rss_queue_valid
 {% endif %}
+{% if int_enabled %}
+    ,
+    // INT telemetry metadata output
+    output wire        int_meta_valid,
+    output wire [15:0] int_switch_id,
+    output wire [63:0] int_ingress_ts,
+    output wire [63:0] int_egress_ts,
+    output wire [31:0] int_hop_latency,
+    output wire [3:0]  int_queue_id,
+    output wire [7:0]  int_rule_idx
+{% endif %}
 {% if has_flow_counters %}
     ,
     // Flow counter read-back interface (conntrack per-flow counters)
@@ -126,6 +137,16 @@ module pacgate_corundum_app #(
         ,
         .rss_queue_id   (rss_queue_id),
         .rss_queue_valid(rss_queue_valid)
+{% endif %}
+{% if int_enabled %}
+        ,
+        .int_meta_valid (int_meta_valid),
+        .int_switch_id  (int_switch_id),
+        .int_ingress_ts (int_ingress_ts),
+        .int_egress_ts  (int_egress_ts),
+        .int_hop_latency(int_hop_latency),
+        .int_queue_id   (int_queue_id),
+        .int_rule_idx   (int_rule_idx)
 {% endif %}
 {% if has_flow_counters %}
         ,

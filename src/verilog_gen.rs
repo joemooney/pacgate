@@ -1302,9 +1302,59 @@ pub fn copy_axi_rtl(output_dir: &Path, config: &FilterConfig, templates_dir: &Pa
     let has_rss_queue_lut = config.pacgate.rules.iter().any(|r| r.has_rss_queue());
     ctx.insert("has_rss_queue_lut", &has_rss_queue_lut);
 
+    // INT (In-band Network Telemetry) — disabled at this level
+    // Use enable_int_in_axi_top() after copy_axi_rtl() to enable
+    ctx.insert("int_enabled", &false);
+    ctx.insert("int_switch_id", &0u16);
+    ctx.insert("has_int_lut", &false);
+    ctx.insert("has_ptp", &false);
+
     let rendered = tera.render("packet_filter_axi_top.v.tera", &ctx)?;
     std::fs::write(rtl_dir.join("packet_filter_axi_top.v"), &rendered)?;
     log::info!("Generated packet_filter_axi_top.v (has_rewrite={}, data_width={}, rss={})", has_rewrite, data_width, rss_enabled);
+
+    Ok(())
+}
+
+/// Re-render AXI top with INT enabled. Call after copy_axi_rtl().
+pub fn enable_int_in_axi_top(output_dir: &Path, config: &FilterConfig, templates_dir: &Path, data_width: u16, rss_enabled: bool, rss_queues: u8, int_switch_id: u16, has_ptp: bool) -> Result<()> {
+    let rtl_dir = output_dir.join("rtl");
+    let glob = format!("{}/**/*.tera", templates_dir.display());
+    let tera = Tera::new(&glob)
+        .with_context(|| format!("Failed to load templates from {}", templates_dir.display()))?;
+
+    let rules = &config.pacgate.rules;
+    let idx_bits = if rules.is_empty() { 1 } else {
+        ((rules.len() as f64).log2().ceil() as usize).max(1)
+    };
+    let has_rewrite = rules.iter().any(|r| r.has_rewrite());
+    let has_mirror = rules.iter().any(|r| r.has_mirror());
+    let has_redirect = rules.iter().any(|r| r.has_redirect());
+    let has_flow_counters = config.pacgate.conntrack.as_ref().and_then(|c| c.enable_flow_counters).unwrap_or(false);
+    let has_rss_queue_lut = rules.iter().any(|r| r.has_rss_queue());
+    let has_int_lut = rules.iter().any(|r| r.has_int_insert());
+
+    let mut ctx = tera::Context::new();
+    ctx.insert("has_rewrite", &has_rewrite);
+    ctx.insert("has_mirror", &has_mirror);
+    ctx.insert("has_redirect", &has_redirect);
+    ctx.insert("has_flow_counters", &has_flow_counters);
+    ctx.insert("idx_bits", &idx_bits);
+    ctx.insert("num_rules", &rules.len());
+    ctx.insert("data_width", &data_width);
+    ctx.insert("data_width_bytes", &(data_width / 8));
+    ctx.insert("tkeep_width", &(data_width / 8));
+    ctx.insert("rss_enabled", &rss_enabled);
+    ctx.insert("rss_queues", &rss_queues);
+    ctx.insert("has_rss_queue_lut", &has_rss_queue_lut);
+    ctx.insert("int_enabled", &true);
+    ctx.insert("int_switch_id", &int_switch_id);
+    ctx.insert("has_int_lut", &has_int_lut);
+    ctx.insert("has_ptp", &has_ptp);
+
+    let rendered = tera.render("packet_filter_axi_top.v.tera", &ctx)?;
+    std::fs::write(rtl_dir.join("packet_filter_axi_top.v"), &rendered)?;
+    log::info!("Re-generated packet_filter_axi_top.v with INT enabled (switch_id={})", int_switch_id);
 
     Ok(())
 }
@@ -1472,6 +1522,7 @@ pub fn generate_opennic_wrapper(config: &FilterConfig, templates_dir: &Path, out
     ctx.insert("rss_queues", &rss_queues);
     ctx.insert("idx_bits", &idx_bits);
     ctx.insert("num_rules", &rules.len());
+    ctx.insert("int_enabled", &false);
 
     let rendered = tera.render("pacgate_opennic_250.v.tera", &ctx)?;
     std::fs::write(rtl_dir.join("pacgate_opennic_250.v"), &rendered)?;
@@ -1508,6 +1559,7 @@ pub fn generate_corundum_wrapper(config: &FilterConfig, templates_dir: &Path, ou
     ctx.insert("rss_queues", &rss_queues);
     ctx.insert("idx_bits", &idx_bits);
     ctx.insert("num_rules", &rules.len());
+    ctx.insert("int_enabled", &false);
 
     let rendered = tera.render("pacgate_corundum_app.v.tera", &ctx)?;
     std::fs::write(rtl_dir.join("pacgate_corundum_app.v"), &rendered)?;

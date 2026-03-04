@@ -71,6 +71,17 @@ module packet_filter_axi_top #(
     output wire [3:0]  rss_queue_id,
     output wire        rss_queue_valid
 {% endif %}
+{% if int_enabled %}
+    ,
+    // INT telemetry metadata output
+    output wire        int_meta_valid,
+    output wire [15:0] int_switch_id,
+    output wire [63:0] int_ingress_ts,
+    output wire [63:0] int_egress_ts,
+    output wire [31:0] int_hop_latency,
+    output wire [3:0]  int_queue_id,
+    output wire [7:0]  int_rule_idx
+{% endif %}
 {% if has_flow_counters %}
     ,
     // Flow counter read-back interface (conntrack per-flow counters)
@@ -520,6 +531,85 @@ module packet_filter_axi_top #(
         .axi_arready      (),
         .axi_rdata        (),
         .axi_rvalid       ()
+    );
+{% endif %}
+
+{% if int_enabled %}
+    // --- INT (In-band Network Telemetry) metadata capture ---
+    wire int_lut_enable;
+
+{% if has_int_lut %}
+    int_lut u_int_lut (
+        .rule_idx   (decision_rule_idx),
+        .rule_valid (decision_valid & ~decision_default),
+        .int_enable (int_lut_enable)
+    );
+{% else %}
+    assign int_lut_enable = 1'b0;
+{% endif %}
+
+    // Free-running 64-bit timestamp for INT (or use PTP clock if available)
+{% if has_ptp %}
+    // PTP clock timestamp is available externally
+    wire [63:0] int_timestamp;
+    reg [63:0] int_free_counter;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n)
+            int_free_counter <= 64'd0;
+        else
+            int_free_counter <= int_free_counter + 1;
+    end
+    assign int_timestamp = int_free_counter;
+{% else %}
+    reg [63:0] int_timestamp;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n)
+            int_timestamp <= 64'd0;
+        else
+            int_timestamp <= int_timestamp + 1;
+    end
+{% endif %}
+
+    int_metadata #(
+        .SWITCH_ID_DEFAULT ({{ int_switch_id }})
+    ) u_int_metadata (
+        .clk             (clk),
+        .rst             (~rst_n),
+        .pkt_sof         (pkt_sof),
+        .pkt_eof         (pkt_eof),
+        .pkt_valid       (pkt_valid),
+        .decision_valid  (decision_valid),
+        .decision_pass   (decision_pass),
+        .decision_rule_idx ({% if idx_bits < 8 %}{ {{8 - idx_bits}}'d0, decision_rule_idx }{% else %}decision_rule_idx{% endif %}),
+        .int_enable_pkt  (int_lut_enable),
+{% if rss_enabled %}
+        .rss_queue_id    (rss_queue_id),
+        .rss_queue_valid (rss_queue_valid),
+{% else %}
+        .rss_queue_id    (4'd0),
+        .rss_queue_valid (1'b0),
+{% endif %}
+        .timestamp       (int_timestamp),
+        // AXI-Lite interface (active but unused for now — tie off)
+        .axi_awvalid     (1'b0),
+        .axi_awready     (),
+        .axi_awaddr      (4'd0),
+        .axi_wdata       (32'd0),
+        .axi_wvalid      (1'b0),
+        .axi_wready      (),
+        .axi_araddr      (4'd0),
+        .axi_arvalid     (1'b0),
+        .axi_arready     (),
+        .axi_rdata       (),
+        .axi_rvalid      (),
+        // INT metadata output
+        .int_meta_valid  (int_meta_valid),
+        .int_switch_id   (int_switch_id),
+        .int_ingress_ts  (int_ingress_ts),
+        .int_egress_ts   (int_egress_ts),
+        .int_hop_latency (int_hop_latency),
+        .int_queue_id    (int_queue_id),
+        .int_rule_idx    (int_rule_idx)
     );
 {% endif %}
 
