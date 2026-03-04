@@ -29,7 +29,7 @@
 - **Python 3** (3.8+): For cocotb simulation
 - **Icarus Verilog** (11+): `sudo apt install iverilog` or `brew install icarus-verilog`
 - **Questa/QuestaSim** (optional): Alternative simulator (`vlog`/`vsim` in PATH, valid license)
-- **cocotb**: `pip install cocotb cocotb-coverage`
+- **cocotb** (2.0+): `pip install cocotb cocotb-tools cocotb-coverage`
 - **Hypothesis** (optional): `pip install hypothesis` (for property testing)
 - **SymbiYosys** (optional): For formal verification
 - **Yosys** (optional): For synthesis
@@ -67,8 +67,9 @@ pacgate compile my_filter.yaml -o gen/
 ls gen/rtl/   # Verilog files
 ls gen/tb/    # cocotb tests
 
-# Step 6: Simulate (requires iverilog + cocotb)
-cd gen/tb && make
+# Step 6: Simulate (requires iverilog or Questa + cocotb)
+cd gen/tb && python run_sim.py    # cocotb 2.0 runner (recommended)
+# or: cd gen/tb && make           # Makefile (legacy, still supported)
 ```
 
 ---

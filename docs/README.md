@@ -27,7 +27,7 @@
 
 ## Examples
 
-21 production-quality YAML examples covering real-world deployments:
+42 production-quality YAML examples covering real-world deployments:
 
 | Example | Rules | Category | Description |
 |---------|:-----:|----------|-------------|
@@ -52,3 +52,24 @@
 | `gtp_5g.yaml` | 5 | Tunnel | GTP-U 5G mobile core (TEID-based filtering) |
 | `mpls_network.yaml` | 5 | Provider | MPLS provider network (label stack matching) |
 | `multicast.yaml` | 5 | Multicast | IGMP/MLD multicast filtering |
+| `dynamic_firewall.yaml` | 5 | Dynamic | Runtime-updateable flow table (`--dynamic`) |
+| `qos_classification.yaml` | 7 | QoS | DSCP/ECN QoS classification |
+| `rewrite_actions.yaml` | 5 | Rewrite | Packet rewrite (MAC/IP/TTL/DSCP) |
+| `tcp_flags_icmp.yaml` | 7 | Security | TCP SYN/Xmas/ICMP detection |
+| `arp_security.yaml` | 5 | Security | ARP security (opcode/spa/tpa) |
+| `icmpv6_firewall.yaml` | 5 | Firewall | ICMPv6 NDP/echo filtering |
+| `qinq_provider.yaml` | 5 | Carrier | QinQ (802.1ad) provider edge |
+| `fragment_security.yaml` | 5 | Security | IPv4 fragmentation attack detection |
+| `port_rewrite.yaml` | 5 | Rewrite | L4 port rewrite (PAT/port forwarding) |
+| `gre_tunnel.yaml` | 5 | Tunnel | GRE tunnel matching (IP proto 47) |
+| `conntrack_firewall.yaml` | 5 | Stateful | Stateful connection tracking firewall |
+| `mirror_redirect.yaml` | 5 | Egress | Mirror/redirect egress actions |
+| `flow_counters.yaml` | 5 | Counters | Per-flow packet/byte counters |
+| `oam_monitoring.yaml` | 5 | OAM | IEEE 802.1ag OAM/CFM monitoring |
+| `nsh_sfc.yaml` | 5 | SFC | NSH/SFC service function chaining (RFC 8300) |
+| `geneve_datacenter.yaml` | 5 | Tunnel | Geneve cloud overlay (RFC 8926) |
+| `ttl_security.yaml` | 5 | Security | TTL-based security + runt frame detection |
+| `ipv6_routing.yaml` | 5 | Rewrite | IPv6 routing (hop limit + ECN rewrite) |
+| `qos_rewrite.yaml` | 5 | Rewrite | VLAN PCP remarking + QinQ outer tag rewrite |
+| `opennic_l3l4.yaml` | 5 | Platform | OpenNIC Shell platform target |
+| `corundum_datacenter.yaml` | 5 | Platform | Corundum NIC platform target |

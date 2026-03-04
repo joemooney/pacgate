@@ -45,7 +45,7 @@ PacGate employs a multi-layer verification strategy inspired by the UVM (Univers
                     │    - Corner cases                │
                     ├──────────────────────────────────┤
                     │    Rust Unit Tests (cargo test)  │  Compiler
-                    │    - 44 unit + 19 integration    │  correctness
+                    │    - 479 unit + 327 integration  │  correctness
                     └──────────────────────────────────┘
 ```
 
@@ -86,7 +86,7 @@ PacGate employs a multi-layer verification strategy inspired by the UVM (Univers
 ### Rust Compiler Tests
 
 ```bash
-# Run all 63 tests (44 unit + 19 integration)
+# Run all 806 tests (479 unit + 327 integration)
 cargo test
 
 # Run only unit tests
@@ -108,13 +108,19 @@ cargo test -- --nocapture
 # Full pipeline: compile + simulate
 make sim RULES=rules/examples/enterprise.yaml
 
-# Step-by-step:
+# Step-by-step (cocotb 2.0 runner — recommended):
 pacgate compile rules/examples/enterprise.yaml -o gen/
+cd gen/tb && python run_sim.py
+
+# Step-by-step (Makefile — legacy, still supported):
 cd gen/tb && make
+
+# Using Questa/QuestaSim instead of Icarus:
+make sim RULES=rules/examples/enterprise.yaml SIM=questa
 
 # AXI-Stream simulation
 pacgate compile rules/examples/enterprise.yaml --axi -o gen/
-cd gen/tb-axi && make
+cd gen/tb-axi && python run_sim.py
 ```
 
 ### Property-Based Tests
@@ -791,7 +797,9 @@ jobs:
     strategy:
       matrix:
         example: [allow_arp, enterprise, blacklist, datacenter,
-                  industrial_ot, automotive_gateway, 5g_fronthaul]
+                  industrial_ot, automotive_gateway, 5g_fronthaul,
+                  l3l4_firewall, gtp_5g, mpls_network, multicast,
+                  geneve_datacenter, ttl_security]
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get install -y iverilog
@@ -873,12 +881,15 @@ echo "All checks passed"
 
 | Metric | Value | Target |
 |--------|-------|--------|
-| Rust unit tests | 44 | All pass |
-| Rust integration tests | 19 | All pass |
-| cocotb simulation tests | 13+ | All pass |
+| Rust unit tests | 479 | All pass |
+| Rust integration tests | 327 | All pass |
+| Python scoreboard tests | 67 | All pass |
+| cocotb simulation tests | 13+ directed + 5 conntrack | All pass |
 | Random packet matches | 500/500 | 100% |
 | Functional coverage | 85%+ | >85% |
-| Property tests | 500/500 | 100% |
+| Hypothesis property tests | 21 tests (14 strategies) | 100% |
+| Lint rules | 46 (LINT001-046) | All pass |
+| Mutation strategies | 33 YAML + MCY Verilog | Kill rate >80% |
 | Formal BMC (depth 20) | PROVEN | No counterexample |
 | Cover reachability | PASS | All rules reachable |
 

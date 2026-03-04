@@ -276,6 +276,71 @@ PacGate supports **stateful sequence detection** using finite state machines wit
             action: pass
 ```
 
+### Mermaid FSM Import/Export
+
+PacGate supports bidirectional conversion between Mermaid `stateDiagram-v2` and YAML rules — design your FSM visually, then compile to hardware:
+
+**Mermaid diagram** (`port_scan_detect.md`):
+
+````
+```mermaid
+stateDiagram-v2
+    [*] --> idle
+    idle --> syn_seen : ethertype=0x0800, ip_protocol=6, tcp_flags=0x02 / pass
+    syn_seen --> scan_detected : ethertype=0x0800, ip_protocol=6, tcp_flags=0x02 / drop
+    syn_seen --> idle : ethertype=0x0800, ip_protocol=6, tcp_flags=0x10 / pass
+    scan_detected --> idle : timeout(5000)
+```
+````
+
+**Import Mermaid to YAML:**
+```bash
+pacgate from-mermaid port_scan_detect.md --name port_scan --priority 100
+```
+
+**Produces this YAML rule:**
+```yaml
+- name: port_scan
+  type: stateful
+  priority: 100
+  fsm:
+    initial_state: idle
+    states:
+      idle:
+        transitions:
+          - match:
+              ethertype: "0x0800"
+              ip_protocol: 6
+              tcp_flags: 2        # SYN
+            next_state: syn_seen
+            action: pass
+      syn_seen:
+        timeout_cycles: 5000
+        transitions:
+          - match:
+              ethertype: "0x0800"
+              ip_protocol: 6
+              tcp_flags: 2        # Another SYN = scan
+            next_state: scan_detected
+            action: drop
+          - match:
+              ethertype: "0x0800"
+              ip_protocol: 6
+              tcp_flags: 16       # ACK = legitimate
+            next_state: idle
+            action: pass
+      scan_detected:
+        timeout_cycles: 5000
+        transitions: []
+```
+
+**Export YAML back to Mermaid:**
+```bash
+pacgate to-mermaid rules.yaml    # Outputs stateDiagram-v2 to stdout
+```
+
+This enables a visual design workflow: sketch the FSM in any Mermaid-compatible editor (GitHub, VS Code, Mermaid Live), import to YAML, compile to hardware.
+
 ### Generated Hardware
 
 The compiler generates a pipelined Verilog architecture:

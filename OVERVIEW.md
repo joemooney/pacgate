@@ -11,7 +11,7 @@ PacGate is an FPGA-based packet filtering switch where YAML-defined rules compil
    - **SVA assertions** — formal properties for bounded model checking
    - **Property tests** — Hypothesis-based invariant testing
    - **HTML coverage report** — visual coverage analysis
-3. Run simulation with Icarus Verilog + cocotb 2.0 to verify correctness (via `python run_sim.py` or `make`)
+3. Run simulation with Icarus Verilog, Questa/QuestaSim, VCS, or Xcelium + cocotb 2.0 to verify correctness (via `python run_sim.py` or `make`)
 4. Synthesize for Xilinx Artix-7 FPGA using Yosys (open-source) or Vivado
 5. Run formal verification with SymbiYosys for mathematical proof of correctness
 6. Import PCAP captures for real-traffic test stimulus
@@ -108,12 +108,12 @@ rules.yaml ──> Compiler (Rust) ──┬──> Verilog (DUT)
 
 ## Verification Framework
 UVM-inspired Python verification environment with:
-- **PacketFactory** — generates directed, random, boundary, and corner-case Ethernet frames (with L3/L4/IPv6 headers, 14 protocol-specific methods)
+- **PacketFactory** — generates directed, random, boundary, and corner-case Ethernet frames (with L3/L4/IPv6 headers, 20+ protocol-specific methods including GRE, OAM, NSH, ARP, ICMP, ICMPv6, QinQ, Geneve, TCP-flags)
 - **PacketDriver** (BFM) — drives frames into the DUT byte-by-byte
 - **DecisionMonitor** — captures pass/drop decisions from the DUT
 - **Scoreboard** — Python reference model with full L2/L3/L4/IPv6/QinQ/VXLAN/GTP-U/Geneve/MPLS/IGMP/MLD/DSCP/ECN/IPv6-TC/TCP-flags/ICMP/ICMPv6/ARP/IPv6-ext/IPv4-frag/ip_ttl/byte-match matching, checks against DUT
 - **Coverage** — functional coverage with cover points, bins, cross coverage, and XML export
-- **Properties** — Hypothesis-based property testing (determinism, priority, conservation, independence, L3/L4 determinism, 8 protocol-specific strategies)
+- **Properties** — Hypothesis-based property testing (determinism, priority, conservation, independence, L3/L4 determinism, 12 protocol-specific strategies: GTP-U/MPLS/IGMP/MLD/GRE/OAM/NSH/ARP/ICMP/ICMPv6/QinQ/TCP-flags)
 - **Conntrack Tests** — 5 cocotb tests for connection tracking (new flow, return traffic, timeout, collision, overflow)
 - Enterprise example: 7 rules, 13 tests, 500 random packets with 0 scoreboard mismatches
 

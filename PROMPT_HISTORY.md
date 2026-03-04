@@ -2410,3 +2410,54 @@ Update main.rs tools (lint, estimate, stats, diff, doc, graph), create OAM examp
 - 4 new mutation types (30-33) — 33 total
 - 1 new parser state (S_GENEVE_HDR)
 - 5 new rewrite flag bits (10-14)
+
+---
+
+## Session 35 — 2026-03-03: Documentation Refresh & Mermaid Example
+
+### Prompt
+"In the README.md we talk about icarus but is questa(?) a equally valid toolset?" → "yes do a full refresh of the README" → "Also check over the OVERVIEW.md and any other documentation that is stale or missing. Maybe in the README show a mermaid diagram and its translation to YAML?"
+
+### Actions Taken
+
+1. **README.md full refresh**
+   - Match Fields table: 21 → 49 entries (all protocols current)
+   - Added Rewrite Actions table (15 actions)
+   - Examples table: 22 → 42 entries (all examples listed)
+   - CLI Reference: added missing commands (scenario, regress, topology), updated flag list
+   - Quality table: all counts updated (479+327 Rust, 67 Python, 17 Hypothesis strategies, 46 lint, 33 mutations)
+   - Technology Stack: made simulator-agnostic (Icarus/Questa/VCS/Xcelium)
+   - Added Mermaid FSM Import/Export section with port scan detection example showing bidirectional conversion
+
+2. **docs/WHY_PACGATE.md** — critically stale → refreshed
+   - Phase count: 16 → 26
+   - Test counts: 388 → 806 Rust, 47 → 67 Python
+   - Hypothesis: 9 tests / 4 strategies → 21 tests / 14 strategies
+   - Examples: 21 → 42
+   - Lint rules: 15 → 46
+   - Mutation strategies: 11 → 33
+   - CLI subcommands: 29 → 32
+   - Updated limitations (removed "no dynamic rules", added width converter note)
+   - Updated code quality metrics (templates 19→36, RTL modules 8→12, compiler 10K→15K lines)
+
+3. **docs/verification/TEST_GUIDE.md** — critically stale → refreshed
+   - Verification pyramid: 44+19 → 479+327
+   - Cargo test count: 63 → 806
+   - Added cocotb 2.0 runner instructions alongside Makefile
+   - Added Questa simulator instructions
+   - Metrics table: expanded with Python tests, Hypothesis, lint, mutation counts
+   - CI matrix: expanded to 13 examples
+
+4. **docs/README.md** — examples table expanded from 21 → 42
+
+5. **OVERVIEW.md** — minor fixes
+   - Simulator reference: Icarus only → Icarus/Questa/VCS/Xcelium
+   - Hypothesis strategies: 8 → 12 protocol-specific
+   - PacketFactory methods: 14 → 20+
+
+6. **docs/user-guide/USERS_GUIDE.md** — minor updates
+   - cocotb prereq: added cocotb-tools, version 2.0+
+   - Quick start: `make` → `python run_sim.py` (recommended) with Makefile as legacy
+
+### Git
+- Committed and pushed all documentation updates

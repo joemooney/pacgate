@@ -41,7 +41,7 @@ P4 is excellent for programming switch ASICs (Tofino, memory-mapped). But P4:
 - **Is overkill for Layer 2** — P4 is designed for L3/L4 processing pipelines
 - **Has no formal verification path** — no SVA, no bounded model checking
 
-PacGate targets a different niche: **dedicated L2-L4 FPGA filters with built-in verification**. It handles Ethernet through TCP/UDP, plus tunnels (VXLAN, GTP-U), MPLS, multicast (IGMP/MLD), IPv6, byte-offset matching, and stateful connection tracking. If you're building a Tofino-based datacenter switch, use P4. If you're building an FPGA-based security boundary, OT gateway, 5G filter, or SmartNIC — PacGate is purpose-built.
+PacGate targets a different niche: **dedicated L2-L4 FPGA filters with built-in verification**. It handles Ethernet through TCP/UDP, plus tunnels (VXLAN, GTP-U, Geneve, GRE), MPLS, multicast (IGMP/MLD), OAM/CFM, NSH/SFC, IPv6, byte-offset matching, stateful connection tracking, and packet rewrite (NAT/PAT). If you're building a Tofino-based datacenter switch, use P4. If you're building an FPGA-based security boundary, OT gateway, 5G filter, or SmartNIC — PacGate is purpose-built.
 
 Future roadmap includes P4 import/export for interoperability.
 
@@ -83,23 +83,26 @@ PacGate doesn't compete with Questa on general-purpose verification. It competes
 
 ## "Is it production-ready?"
 
-PacGate is well beyond prototype stage — through 16 development phases:
+PacGate is well beyond prototype stage — through 26 development phases:
 
-- **388 Rust tests** (237 unit + 151 integration) — compiler correctness across all features
-- **47 Python scoreboard tests** — full-stack L2/L3/L4/IPv6/tunnel/multicast/byte-match reference model
+- **806 Rust tests** (479 unit + 327 integration) — compiler correctness across all features
+- **67 Python scoreboard tests** — full-stack L2/L3/L4/IPv6/tunnel/multicast/OAM/SFC/rewrite reference model
 - **13+ cocotb simulation tests** + **5 conntrack tests** with 500 random packets — hardware simulation
 - **85%+ functional coverage** — coverage-driven verification with XML export and CoverageDirector
-- **20+ SVA formal assertions** — protocol prerequisites, bounds checking, cover statements
-- **9 Hypothesis property tests** with 4 protocol-specific strategies (GTP-U, MPLS, IGMP, MLD)
-- **21 real-world examples** spanning data centers, industrial OT, automotive, 5G, IoT, MPLS, GTP-U, multicast
-- **L2-L4 + tunnel matching** — IPv4/IPv6 CIDR, TCP/UDP ports, VXLAN VNI, GTP-U TEID, MPLS labels, IGMP/MLD
-- **AXI-Stream interface** — standard FPGA integration with store-and-forward FIFO
+- **30+ SVA formal assertions** — protocol prerequisites, bounds checking, cover statements
+- **21 Hypothesis property tests** with 14 strategies (GTP-U, MPLS, IGMP, MLD, GRE, OAM, NSH, ARP, ICMP, ICMPv6, QinQ, TCP flags)
+- **42 real-world examples** spanning data centers, industrial OT, automotive, 5G, IoT, MPLS, GTP-U, multicast, OAM/CFM, NSH/SFC, Geneve, QinQ, ARP security, conntrack, rewrite, platform targets
+- **50+ match fields** — L2/L3/L4/IPv6/QinQ/tunnel(VXLAN/GTP-U/Geneve/GRE)/MPLS/IGMP/MLD/OAM/NSH/TCP-flags/ICMP/ICMPv6/ARP/fragmentation/TTL
+- **15 rewrite actions** — MAC/VLAN/TTL/IP/DSCP/ECN/hop-limit/PCP/port rewriting with RFC 1624 checksums
+- **AXI-Stream interface** — standard FPGA integration with store-and-forward FIFO + packet rewrite engine
+- **Platform targets** — drop-in wrappers for OpenNIC Shell and Corundum NIC (`--target opennic/corundum`)
 - **Multi-port switch fabric** — N independent filter instances (`--ports N`)
-- **Connection tracking** — CRC-based hash table with timeout (`--conntrack`)
+- **Connection tracking** — CRC-based hash table with TCP state machine + per-flow counters (`--conntrack`)
 - **Rate limiting** — per-rule token-bucket rate limiter (`--rate-limit`)
-- **15 lint rules** — security, performance, maintainability, protocol prerequisite checks
-- **11 mutation strategies** + MCY Verilog-level mutation testing with kill-rate analysis
-- **29 CLI subcommands** — compile, simulate, lint, formal, reachability, bench, pcap-analyze, and more
+- **Runtime flow tables** — register-based AXI-Lite-writable match entries (`--dynamic`)
+- **46 lint rules** — security, performance, maintainability, protocol prerequisite checks
+- **33 mutation strategies** + MCY Verilog-level mutation testing with kill-rate analysis
+- **32 CLI subcommands** — compile, simulate, lint, formal, reachability, bench, pcap-analyze, topology, and more
 
 The verification depth exceeds what most hand-written FPGA filters achieve.
 
@@ -107,12 +110,12 @@ The verification depth exceeds what most hand-written FPGA filters achieve.
 
 Honest limitations:
 
-1. **L2-L4 scope** — handles Ethernet through TCP/UDP, plus tunnels (VXLAN, GTP-U), MPLS, and multicast (IGMP/MLD). No L7/application-layer deep packet inspection.
+1. **L2-L4 scope** — handles Ethernet through TCP/UDP, plus tunnels (VXLAN, GTP-U, Geneve, GRE), MPLS, multicast (IGMP/MLD), OAM/CFM, NSH/SFC, and packet rewrite. No L7/application-layer deep packet inspection.
 2. **Xilinx-focused** — synthesis scripts target 7-series. The Verilog is portable, but constraints and synthesis need adaptation for Intel/Lattice.
 3. **No P4 interop yet** — P4 import/export is on the roadmap for protocol compatibility.
-4. **No dynamic rule updates** — rules are compiled statically. Runtime reconfiguration via RISC-V co-processor is planned.
+4. **Width converter bottleneck** — platform targets (OpenNIC, Corundum) use 512↔8-bit width converters, limiting V1 to ~2 Gbps. Suitable for 1GbE/development/prototyping.
 
-These are **scope boundaries**, not bugs. PacGate solves L2-L4 packet filtering with tunnel and multicast support extremely well. If you need L7 DPI, use a different tool.
+These are **scope boundaries**, not bugs. PacGate solves L2-L4 packet filtering with comprehensive protocol and tunnel support extremely well. If you need L7 DPI, use a different tool.
 
 ## "Who is this for?"
 
@@ -154,10 +157,10 @@ Latency:     16 cycles = 128 ns
 
 ### Code Quality
 ```
-Compiler:    10,000+ lines of Rust (type-safe, memory-safe)
-Templates:   19 Tera templates (Verilog, cocotb, SVA, Hypothesis, HTML, synthesis, MCY)
-RTL:         8 hand-written modules + generated per-rule matchers/FSMs
-Tests:       388 Rust + 47 Python + 18+ cocotb + formal + property
+Compiler:    15,000+ lines of Rust (type-safe, memory-safe)
+Templates:   36 Tera templates (Verilog, cocotb, SVA, Hypothesis, HTML, synthesis, MCY, platforms)
+RTL:         12 hand-written modules + generated per-rule matchers/FSMs
+Tests:       806 Rust + 67 Python + 18+ cocotb + formal + property
 ```
 
 ## The Bottom Line
