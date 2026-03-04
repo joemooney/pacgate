@@ -1887,12 +1887,12 @@ fn chrono_lite_now() -> String {
 }
 
 fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
-    let rules = &config.pacgate.rules;
-    let total = rules.len();
-    let stateless = rules.iter().filter(|r| !r.is_stateful()).count();
-    let stateful = rules.iter().filter(|r| r.is_stateful()).count();
-    let pass_rules = rules.iter().filter(|r| matches!(r.action(), model::Action::Pass)).count();
-    let drop_rules = rules.iter().filter(|r| matches!(r.action(), model::Action::Drop)).count();
+    let all_rules = config.all_rules();
+    let total = all_rules.len();
+    let stateless = all_rules.iter().filter(|r| !r.is_stateful()).count();
+    let stateful = all_rules.iter().filter(|r| r.is_stateful()).count();
+    let pass_rules = all_rules.iter().filter(|r| matches!(r.action(), model::Action::Pass)).count();
+    let drop_rules = all_rules.iter().filter(|r| matches!(r.action(), model::Action::Drop)).count();
 
     // Field usage
     let mut uses_ethertype = 0;
@@ -1942,7 +1942,7 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
     let mut uses_ip_ttl = 0;
     let mut match_field_count = Vec::new();
 
-    for rule in rules.iter().filter(|r| !r.is_stateful()) {
+    for rule in all_rules.iter().filter(|r| !r.is_stateful()) {
         let mc = &rule.match_criteria;
         let mut count = 0;
         if mc.ethertype.is_some() { uses_ethertype += 1; count += 1; }
@@ -1999,7 +1999,7 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
     let uses_redirect = config.pacgate.rules.iter().filter(|r| r.redirect_port.is_some()).count();
 
     // Priority spacing
-    let mut priorities: Vec<u32> = rules.iter().map(|r| r.priority).collect();
+    let mut priorities: Vec<u32> = all_rules.iter().map(|r| r.priority).collect();
     priorities.sort();
     let min_gap = if priorities.len() > 1 {
         priorities.windows(2).map(|w| w[1] - w[0]).min().unwrap_or(0)
@@ -2084,16 +2084,30 @@ fn compute_stats(config: &model::FilterConfig) -> serde_json::Value {
             "min_gap": min_gap,
             "max_gap": max_gap,
         },
+        "pipeline": {
+            "is_pipeline": config.is_pipeline(),
+            "stage_count": config.stage_count(),
+            "stages": if let Some(tables) = &config.pacgate.tables {
+                tables.iter().map(|s| serde_json::json!({
+                    "name": s.name,
+                    "rules": s.rules.len(),
+                    "default_action": match s.default_action { model::Action::Pass => "pass", model::Action::Drop => "drop" },
+                    "next_table": s.next_table,
+                })).collect()
+            } else {
+                Vec::new()
+            },
+        },
     })
 }
 
 fn print_stats(config: &model::FilterConfig) {
-    let rules = &config.pacgate.rules;
-    let total = rules.len();
-    let stateless = rules.iter().filter(|r| !r.is_stateful()).count();
-    let stateful = rules.iter().filter(|r| r.is_stateful()).count();
-    let pass_rules = rules.iter().filter(|r| matches!(r.action(), model::Action::Pass)).count();
-    let drop_rules = rules.iter().filter(|r| matches!(r.action(), model::Action::Drop)).count();
+    let all_rules = config.all_rules();
+    let total = all_rules.len();
+    let stateless = all_rules.iter().filter(|r| !r.is_stateful()).count();
+    let stateful = all_rules.iter().filter(|r| r.is_stateful()).count();
+    let pass_rules = all_rules.iter().filter(|r| matches!(r.action(), model::Action::Pass)).count();
+    let drop_rules = all_rules.iter().filter(|r| matches!(r.action(), model::Action::Drop)).count();
     let default_str = match config.pacgate.defaults.action {
         model::Action::Pass => "pass",
         model::Action::Drop => "drop",
@@ -2132,7 +2146,7 @@ fn print_stats(config: &model::FilterConfig) {
     let mut uses_geneve_vni = 0usize;
     let mut uses_ip_ttl = 0usize;
 
-    for rule in rules.iter().filter(|r| !r.is_stateful()) {
+    for rule in all_rules.iter().filter(|r| !r.is_stateful()) {
         let mc = &rule.match_criteria;
         if mc.ethertype.is_some() { uses_ethertype += 1; }
         if mc.dst_mac.is_some() { uses_dst_mac += 1; }
@@ -2168,12 +2182,15 @@ fn print_stats(config: &model::FilterConfig) {
     }
 
     // Priority spacing
-    let mut priorities: Vec<u32> = rules.iter().map(|r| r.priority).collect();
+    let mut priorities: Vec<u32> = all_rules.iter().map(|r| r.priority).collect();
     priorities.sort();
 
     println!();
     println!("  PacGate Rule Set Analytics");
     println!("  ════════════════════════════════════════════");
+    if config.is_pipeline() {
+        println!("  Pipeline:        {} stages", config.stage_count());
+    }
     println!("  Total rules:     {}", total);
     println!("  Stateless:       {}    Stateful: {}", stateless, stateful);
     println!("  Pass rules:      {}    Drop rules: {}", pass_rules, drop_rules);
@@ -2326,6 +2343,28 @@ fn print_dot_graph(config: &model::FilterConfig) {
     println!("  input -> parser;");
     println!();
 
+    // Pipeline stage overview nodes (if pipeline)
+    if let Some(tables) = &config.pacgate.tables {
+        println!("  // Pipeline stages");
+        for (i, stage) in tables.iter().enumerate() {
+            let da = match stage.default_action { model::Action::Pass => "pass", model::Action::Drop => "drop" };
+            println!("  stage_{} [label=\"Stage {}\\n'{}'\\n{} rules\\ndefault: {}\", shape=box3d, style=filled, fillcolor=\"#d4e6f1\"];",
+                i, i, stage.name, stage.rules.len(), da);
+            if i == 0 {
+                println!("  parser -> stage_{};", i);
+            } else {
+                println!("  stage_{} -> stage_{};", i - 1, i);
+            }
+        }
+        let last = tables.len() - 1;
+        println!("  pass_out [label=\"PASS\", shape=oval, style=filled, fillcolor=\"#82e0aa\"];");
+        println!("  drop_out [label=\"DROP\", shape=oval, style=filled, fillcolor=\"#f1948a\"];");
+        println!("  stage_{} -> pass_out [label=\"all pass\"];", last);
+        println!("  stage_{} -> drop_out [label=\"any drop\"];", last);
+        println!("}}");
+        return;
+    }
+
     // Rule nodes
     for (i, rule) in config.pacgate.rules.iter().enumerate() {
         let color = if rule.is_stateful() { "#fde9d9" } else { "#d5f5e3" };
@@ -2427,10 +2466,12 @@ fn print_dot_graph(config: &model::FilterConfig) {
 fn diff_rules(old: &model::FilterConfig, new: &model::FilterConfig, json: bool) -> Result<()> {
     use std::collections::HashMap;
 
-    let old_map: HashMap<&str, &model::StatelessRule> = old.pacgate.rules.iter()
-        .map(|r| (r.name.as_str(), r)).collect();
-    let new_map: HashMap<&str, &model::StatelessRule> = new.pacgate.rules.iter()
-        .map(|r| (r.name.as_str(), r)).collect();
+    let old_all = old.all_rules();
+    let new_all = new.all_rules();
+    let old_map: HashMap<&str, &model::StatelessRule> = old_all.iter()
+        .map(|r| (r.name.as_str(), *r)).collect();
+    let new_map: HashMap<&str, &model::StatelessRule> = new_all.iter()
+        .map(|r| (r.name.as_str(), *r)).collect();
 
     let mut added = Vec::new();
     let mut removed = Vec::new();
@@ -3371,13 +3412,13 @@ fn width_converter_estimate(width: u16, is_platform: bool) -> (u64, u64) {
 }
 
 fn compute_resource_estimate(config: &model::FilterConfig) -> serde_json::Value {
-    let rules = &config.pacgate.rules;
-    let num_stateless = rules.iter().filter(|r| !r.is_stateful()).count();
-    let num_stateful = rules.iter().filter(|r| r.is_stateful()).count();
-    let total = rules.len();
+    let all_rules = config.all_rules();
+    let num_stateless = all_rules.iter().filter(|r| !r.is_stateful()).count();
+    let num_stateful = all_rules.iter().filter(|r| r.is_stateful()).count();
+    let total = all_rules.len();
 
     // Check if any rule uses L3/L4 fields (affects parser complexity)
-    let has_l3l4 = rules.iter().any(|r| r.match_criteria.uses_l3l4());
+    let has_l3l4 = all_rules.iter().any(|r| r.match_criteria.uses_l3l4());
 
     // Parser: base L2 + additional for L3/L4 (IPv4 header + TCP/UDP port parsing)
     let parser_luts = if has_l3l4 { 180 } else { 120 };
@@ -3386,7 +3427,7 @@ fn compute_resource_estimate(config: &model::FilterConfig) -> serde_json::Value 
     let mut rule_luts = 0usize;
     let mut rule_ffs = 0usize;
 
-    for rule in rules {
+    for rule in all_rules.iter() {
         if rule.is_stateful() {
             let fsm = rule.fsm.as_ref().unwrap();
             let num_states = fsm.states.len();
@@ -3454,32 +3495,35 @@ fn compute_resource_estimate(config: &model::FilterConfig) -> serde_json::Value 
     }
 
     // OAM: +8 LUTs per rule with OAM fields (3-bit level + 8-bit opcode comparators)
-    let num_oam = rules.iter().filter(|r| r.match_criteria.uses_oam()).count();
+    let num_oam = all_rules.iter().filter(|r| r.match_criteria.uses_oam()).count();
     if num_oam > 0 {
         rule_luts += num_oam * 8;
     }
 
     // NSH: +8 LUTs per rule with NSH fields (24-bit SPI + 8-bit SI + 8-bit next_protocol comparators)
-    let num_nsh = rules.iter().filter(|r| r.match_criteria.uses_nsh()).count();
+    let num_nsh = all_rules.iter().filter(|r| r.match_criteria.uses_nsh()).count();
     if num_nsh > 0 {
         rule_luts += num_nsh * 8;
     }
 
     // Egress LUT: +4 LUTs per rule with mirror/redirect (8-bit port + valid per action)
-    let egress_rules = config.pacgate.rules.iter()
+    let egress_rules = all_rules.iter()
         .filter(|r| r.mirror_port.is_some() || r.redirect_port.is_some())
         .count();
     if egress_rules > 0 {
         rule_luts += egress_rules * 4;
     }
 
+    // Pipeline registers: +16 FFs per stage for inter-stage pipeline registers
+    let pipeline_ffs = if config.is_pipeline() { (config.stage_count() - 1) * 16 } else { 0 };
+
     // Rate limiter: +50 LUTs, +64 FFs per rate-limited rule
-    let num_rate_limited = rules.iter().filter(|r| r.rate_limit.is_some()).count();
+    let num_rate_limited = all_rules.iter().filter(|r| r.rate_limit.is_some()).count();
     let rate_luts = num_rate_limited * 50;
     let rate_ffs = num_rate_limited * 64;
 
     // Rewrite engine: ~50 LUTs + ~100 FFs (fixed) + ~20 LUTs per rewrite rule (LUT entries)
-    let num_rewrite = rules.iter().filter(|r| r.has_rewrite()).count();
+    let num_rewrite = all_rules.iter().filter(|r| r.has_rewrite()).count();
     let rewrite_luts = if num_rewrite > 0 { 50 + num_rewrite * 20 } else { 0 };
     let rewrite_ffs = if num_rewrite > 0 { 100 } else { 0 };
 
@@ -3493,7 +3537,7 @@ fn compute_resource_estimate(config: &model::FilterConfig) -> serde_json::Value 
     let decision_ffs = 4;
     let io_luts = 20;
     let total_luts = parser_luts + rule_luts + decision_luts + io_luts + rate_luts + rewrite_luts + flow_counter_luts;
-    let total_ffs = parser_ffs + rule_ffs + decision_ffs + rate_ffs + rewrite_ffs + flow_counter_ffs;
+    let total_ffs = parser_ffs + rule_ffs + decision_ffs + rate_ffs + rewrite_ffs + flow_counter_ffs + pipeline_ffs;
 
     let rule_limit_warning = if total > 64 {
         Some(format!("{} rules exceeds recommended limit of 64 for Artix-7", total))
@@ -3809,6 +3853,7 @@ fn print_dynamic_estimate(num_entries: u16) {
 }
 
 fn lint_rules(config: &model::FilterConfig, warnings: &[String], dynamic: bool, dynamic_entries: u16, platform: &verilog_gen::PlatformTarget, width: u16) -> serde_json::Value {
+    let all_rules = config.all_rules();
     let rules = &config.pacgate.rules;
     let mut findings: Vec<serde_json::Value> = Vec::new();
 
@@ -4595,6 +4640,38 @@ fn lint_rules(config: &model::FilterConfig, warnings: &[String], dynamic: bool, 
         }));
     }
 
+    // LINT049: Pipeline stage with no rules
+    if let Some(tables) = &config.pacgate.tables {
+        for stage in tables {
+            if stage.rules.is_empty() {
+                findings.push(serde_json::json!({
+                    "level": "warning",
+                    "code": "LINT049",
+                    "message": format!("Pipeline stage '{}' has no rules — will always use default action ({})",
+                        stage.name, match stage.default_action { model::Action::Pass => "pass", model::Action::Drop => "drop" }),
+                    "suggestion": "Add rules to this stage or remove it from the pipeline"
+                }));
+            }
+        }
+    }
+
+    // LINT050: Unreachable pipeline stage (not referenced by any next_table and not first)
+    if let Some(tables) = &config.pacgate.tables {
+        let referenced: std::collections::HashSet<&str> = tables.iter()
+            .filter_map(|s| s.next_table.as_deref())
+            .collect();
+        for (idx, stage) in tables.iter().enumerate() {
+            if idx > 0 && !referenced.contains(stage.name.as_str()) {
+                findings.push(serde_json::json!({
+                    "level": "warning",
+                    "code": "LINT050",
+                    "message": format!("Pipeline stage '{}' is not referenced by any next_table — may be unreachable", stage.name),
+                    "suggestion": "Add a next_table reference from a preceding stage or remove this stage"
+                }));
+            }
+        }
+    }
+
     // Include overlap warnings
     for w in warnings {
         findings.push(serde_json::json!({
@@ -4610,7 +4687,7 @@ fn lint_rules(config: &model::FilterConfig, warnings: &[String], dynamic: bool, 
 
     serde_json::json!({
         "rules_file": "analyzed",
-        "total_rules": rules.len(),
+        "total_rules": all_rules.len(),
         "findings": findings,
         "summary": {
             "errors": error_count,

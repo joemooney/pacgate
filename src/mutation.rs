@@ -539,6 +539,39 @@ pub fn generate_mutations(config: &FilterConfig) -> Vec<(Mutation, FilterConfig)
         }
     }
 
+    // Mutation 34: Swap pipeline stage order (adjacent stages)
+    if let Some(ref tables) = config.pacgate.tables {
+        if tables.len() >= 2 {
+            for i in 0..tables.len() - 1 {
+                let mut mutated = config.clone();
+                let tables_mut = mutated.pacgate.tables.as_mut().unwrap();
+                tables_mut.swap(i, i + 1);
+                mutations.push((Mutation {
+                    name: format!("swap_stage_{}_{}", tables[i].name, tables[i + 1].name),
+                    description: format!("Swap pipeline stages '{}' and '{}'", tables[i].name, tables[i + 1].name),
+                    mutant_index: index,
+                }, mutated));
+                index += 1;
+            }
+        }
+    }
+
+    // Mutation 35: Remove a pipeline stage
+    if let Some(ref tables) = config.pacgate.tables {
+        for (i, stage) in tables.iter().enumerate() {
+            if tables.len() > 1 {
+                let mut mutated = config.clone();
+                mutated.pacgate.tables.as_mut().unwrap().remove(i);
+                mutations.push((Mutation {
+                    name: format!("remove_stage_{}", stage.name),
+                    description: format!("Remove pipeline stage '{}'", stage.name),
+                    mutant_index: index,
+                }, mutated));
+                index += 1;
+            }
+        }
+    }
+
     mutations
 }
 

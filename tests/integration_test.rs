@@ -7164,3 +7164,164 @@ pacgate:
     assert_eq!(json["action"], "pass");
     assert_eq!(json["matched_rule"], "web");
 }
+
+#[test]
+fn pipeline_stats_json_shows_stages() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("pipeline.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules: []
+  tables:
+    - name: classify
+      default_action: pass
+      next_table: enforce
+      rules:
+        - name: mark_web
+          priority: 100
+          match:
+            dst_port: 80
+          action: pass
+    - name: enforce
+      default_action: drop
+      rules:
+        - name: allow_web
+          priority: 100
+          match:
+            dst_port: 80
+          action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["stats", yaml.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["pipeline"]["is_pipeline"], true);
+    assert_eq!(json["pipeline"]["stage_count"], 2);
+    assert_eq!(json["pipeline"]["stages"][0]["name"], "classify");
+    assert_eq!(json["pipeline"]["stages"][1]["name"], "enforce");
+}
+
+#[test]
+fn pipeline_lint_warns_empty_stage() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("pipeline.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules: []
+  tables:
+    - name: classify
+      default_action: pass
+      next_table: enforce
+      rules: []
+    - name: enforce
+      default_action: drop
+      rules:
+        - name: allow_web
+          priority: 100
+          match:
+            dst_port: 80
+          action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["lint", yaml.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let findings = json["findings"].as_array().unwrap();
+    let has_lint049 = findings.iter().any(|f| f["code"] == "LINT049");
+    assert!(has_lint049, "Expected LINT049 for empty stage: {}", stdout);
+}
+
+#[test]
+fn pipeline_mutate_generates_stage_mutations() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("pipeline.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules: []
+  tables:
+    - name: classify
+      default_action: pass
+      next_table: enforce
+      rules:
+        - name: mark_web
+          priority: 100
+          match:
+            dst_port: 80
+          action: pass
+    - name: enforce
+      default_action: drop
+      rules:
+        - name: allow_web
+          priority: 100
+          match:
+            dst_port: 80
+          action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["mutate", yaml.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let mutations = json["mutations"].as_array().unwrap();
+    let has_swap_stage = mutations.iter().any(|m| m["name"].as_str().unwrap().starts_with("swap_stage_"));
+    let has_remove_stage = mutations.iter().any(|m| m["name"].as_str().unwrap().starts_with("remove_stage_"));
+    assert!(has_swap_stage, "Expected swap_stage mutation: {}", stdout);
+    assert!(has_remove_stage, "Expected remove_stage mutation: {}", stdout);
+}
+
+#[test]
+fn pipeline_graph_shows_stages() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("pipeline.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules: []
+  tables:
+    - name: classify
+      default_action: pass
+      next_table: enforce
+      rules:
+        - name: mark_web
+          priority: 100
+          match:
+            dst_port: 80
+          action: pass
+    - name: enforce
+      default_action: drop
+      rules:
+        - name: allow_web
+          priority: 100
+          match:
+            dst_port: 80
+          action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["graph", yaml.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("stage_0"), "Expected stage_0 node: {}", stdout);
+    assert!(stdout.contains("stage_1"), "Expected stage_1 node: {}", stdout);
+    assert!(stdout.contains("classify"), "Expected classify label: {}", stdout);
+}
