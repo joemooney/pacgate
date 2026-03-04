@@ -683,6 +683,17 @@ fn default_conntrack_fields() -> Vec<String> {
     ]
 }
 
+/// Pipeline stage: a named set of rules with a default action and optional next stage
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct PipelineStage {
+    pub name: String,
+    pub rules: Vec<StatelessRule>,
+    pub default_action: Action,
+    /// Next stage to evaluate after this one (None = end of pipeline)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_table: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PacgateConfig {
     pub version: String,
@@ -690,11 +701,40 @@ pub struct PacgateConfig {
     pub rules: Vec<StatelessRule>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conntrack: Option<ConntrackConfig>,
+    /// Multi-table pipeline stages (optional, backward compatible)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tables: Option<Vec<PipelineStage>>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct FilterConfig {
     pub pacgate: PacgateConfig,
+}
+
+impl FilterConfig {
+    /// Returns true if this config uses multi-table pipeline
+    pub fn is_pipeline(&self) -> bool {
+        self.pacgate.tables.is_some()
+    }
+
+    /// Returns the number of pipeline stages (1 for single-table)
+    pub fn stage_count(&self) -> usize {
+        self.pacgate.tables.as_ref().map(|t| t.len()).unwrap_or(1)
+    }
+
+    /// Get a pipeline stage by name
+    pub fn get_stage(&self, name: &str) -> Option<&PipelineStage> {
+        self.pacgate.tables.as_ref()?.iter().find(|s| s.name == name)
+    }
+
+    /// Get all rules (from all stages if pipeline, or from rules if single-table)
+    pub fn all_rules(&self) -> Vec<&StatelessRule> {
+        if let Some(ref tables) = self.pacgate.tables {
+            tables.iter().flat_map(|s| s.rules.iter()).collect()
+        } else {
+            self.pacgate.rules.iter().collect()
+        }
+    }
 }
 
 /// Parsed MAC address with value and mask (for wildcard support)
@@ -2254,6 +2294,7 @@ pacgate:
                 fields: default_conntrack_fields(),
                 enable_flow_counters: Some(true),
             }),
+            tables: None,
         };
         assert!(StatelessRule::has_flow_counters(&config));
     }
@@ -2270,6 +2311,7 @@ pacgate:
                 fields: default_conntrack_fields(),
                 enable_flow_counters: None,
             }),
+            tables: None,
         };
         assert!(!StatelessRule::has_flow_counters(&config));
     }
@@ -2281,6 +2323,7 @@ pacgate:
             defaults: Defaults { action: Action::Drop },
             rules: vec![],
             conntrack: None,
+            tables: None,
         };
         assert!(!StatelessRule::has_flow_counters(&config));
     }

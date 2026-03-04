@@ -64,6 +64,7 @@ fn synthetic_config(num_rules: usize) -> FilterConfig {
             defaults: Defaults { action: Action::Drop },
             rules,
             conntrack: None,
+            tables: None,
         },
     }
 }

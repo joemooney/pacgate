@@ -260,6 +260,7 @@ pub fn to_yaml(diagram: ParsedDiagram, rule_name: &str, priority: u32) -> Filter
                 redirect_port: None,
             }],
             conntrack: None,
+            tables: None,
         },
     }
 }

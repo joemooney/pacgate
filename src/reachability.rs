@@ -364,6 +364,7 @@ mod tests {
                 defaults: Defaults { action: default },
                 rules,
                 conntrack: None,
+                tables: None,
             },
         }
     }

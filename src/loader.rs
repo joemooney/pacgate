@@ -30,7 +30,19 @@ pub fn load_rules_from_str_with_warnings(contents: &str) -> Result<(FilterConfig
         .with_context(|| "Failed to parse YAML")?;
 
     validate(&config)?;
-    let warnings = check_rule_overlaps(&config.pacgate.rules);
+
+    let mut warnings = Vec::new();
+    if let Some(ref tables) = config.pacgate.tables {
+        // Per-stage overlap detection for pipeline configs
+        for stage in tables {
+            let stage_warnings = check_rule_overlaps(&stage.rules);
+            for w in stage_warnings {
+                warnings.push(format!("[stage '{}'] {}", stage.name, w));
+            }
+        }
+    } else {
+        warnings = check_rule_overlaps(&config.pacgate.rules);
+    }
     Ok((config, warnings))
 }
 
@@ -396,91 +408,29 @@ fn validate_rewrite(rw: &crate::model::RewriteAction, rule: &crate::model::State
 }
 
 fn validate(config: &FilterConfig) -> Result<()> {
-    if config.pacgate.rules.is_empty() {
+    // Validate pipeline tables if present
+    if let Some(ref tables) = config.pacgate.tables {
+        validate_pipeline(tables)?;
+    }
+
+    if config.pacgate.rules.is_empty() && config.pacgate.tables.is_none() {
         anyhow::bail!("No rules defined");
+    }
+    // Allow empty rules if tables are present (rules are in stages)
+    if config.pacgate.tables.is_some() && config.pacgate.rules.is_empty() {
+        // Validate rules within each stage instead
+        if let Some(ref tables) = config.pacgate.tables {
+            for stage in tables {
+                for rule in &stage.rules {
+                    validate_rule(rule)?;
+                }
+            }
+        }
+        return Ok(());
     }
 
     for rule in &config.pacgate.rules {
-        if rule.name.is_empty() {
-            anyhow::bail!("Rule name cannot be empty");
-        }
-
-        if rule.is_stateful() {
-            // Stateful rule validation
-            let fsm = rule.fsm.as_ref()
-                .ok_or_else(|| anyhow::anyhow!("Stateful rule '{}' missing fsm definition", rule.name))?;
-
-            if !fsm.states.contains_key(&fsm.initial_state) {
-                anyhow::bail!("FSM initial_state '{}' not found in states for rule '{}'",
-                    fsm.initial_state, rule.name);
-            }
-
-            // Validate HSM: check nesting depth, initial_substate, variables
-            validate_fsm_hierarchy(&fsm.states, &rule.name, 0)?;
-
-            // Validate variables
-            if let Some(ref vars) = fsm.variables {
-                for v in vars {
-                    if v.width < 1 || v.width > 32 {
-                        anyhow::bail!("FSM variable '{}' width must be 1-32, got {} in rule '{}'",
-                            v.name, v.width, rule.name);
-                    }
-                    if !v.name.chars().all(|c| c.is_alphanumeric() || c == '_') || v.name.is_empty() {
-                        anyhow::bail!("FSM variable name '{}' must be a valid identifier in rule '{}'",
-                            v.name, rule.name);
-                    }
-                }
-            }
-
-            // Collect all state names (including flattened) for transition validation
-            let all_state_names = collect_all_state_names(&fsm.states, "");
-
-            for (state_name, state) in &fsm.states {
-                validate_state_transitions(state, state_name, &all_state_names, &rule.name, &fsm.states)?;
-            }
-        } else {
-            // Stateless rule validation
-            validate_match_criteria(&rule.match_criteria, &rule.name)?;
-        }
-
-        // Validate rate_limit if specified
-        if let Some(ref rl) = rule.rate_limit {
-            if rl.pps == 0 {
-                anyhow::bail!("rate_limit pps must be > 0 in rule '{}'", rule.name);
-            }
-            if rl.burst == 0 {
-                anyhow::bail!("rate_limit burst must be > 0 in rule '{}'", rule.name);
-            }
-        }
-
-        // Validate ports list if specified
-        if let Some(ref ports) = rule.ports {
-            if ports.is_empty() {
-                anyhow::bail!("Empty ports list in rule '{}'", rule.name);
-            }
-        }
-
-        // Validate rewrite actions if specified
-        if let Some(ref rw) = rule.rewrite {
-            validate_rewrite(rw, rule, &rule.name)?;
-        }
-
-        // Validate mirror_port
-        if rule.mirror_port.is_some() && rule.is_stateful() {
-            anyhow::bail!("mirror_port not supported on stateful rules (rule '{}')", rule.name);
-        }
-
-        // Validate redirect_port
-        if rule.redirect_port.is_some() && rule.is_stateful() {
-            anyhow::bail!("redirect_port not supported on stateful rules (rule '{}')", rule.name);
-        }
-
-        // Validate redirect_port requires action: pass
-        if rule.redirect_port.is_some() {
-            if rule.action == Some(crate::model::Action::Drop) {
-                anyhow::bail!("redirect_port requires action: pass (rule '{}')", rule.name);
-            }
-        }
+        validate_rule(rule)?;
     }
 
     // Check for duplicate priorities
@@ -508,6 +458,190 @@ fn validate(config: &FilterConfig) -> Result<()> {
     for w in names.windows(2) {
         if w[0] == w[1] {
             anyhow::bail!("Duplicate rule name: '{}'", w[0]);
+        }
+    }
+
+    Ok(())
+}
+
+/// Validate a single rule (stateless or stateful)
+fn validate_rule(rule: &crate::model::StatelessRule) -> Result<()> {
+    if rule.name.is_empty() {
+        anyhow::bail!("Rule name cannot be empty");
+    }
+
+    if rule.is_stateful() {
+        // Stateful rule validation
+        let fsm = rule.fsm.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Stateful rule '{}' missing fsm definition", rule.name))?;
+
+        if !fsm.states.contains_key(&fsm.initial_state) {
+            anyhow::bail!("FSM initial_state '{}' not found in states for rule '{}'",
+                fsm.initial_state, rule.name);
+        }
+
+        // Validate HSM: check nesting depth, initial_substate, variables
+        validate_fsm_hierarchy(&fsm.states, &rule.name, 0)?;
+
+        // Validate variables
+        if let Some(ref vars) = fsm.variables {
+            for v in vars {
+                if v.width < 1 || v.width > 32 {
+                    anyhow::bail!("FSM variable '{}' width must be 1-32, got {} in rule '{}'",
+                        v.name, v.width, rule.name);
+                }
+                if !v.name.chars().all(|c| c.is_alphanumeric() || c == '_') || v.name.is_empty() {
+                    anyhow::bail!("FSM variable name '{}' must be a valid identifier in rule '{}'",
+                        v.name, rule.name);
+                }
+            }
+        }
+
+        // Collect all state names (including flattened) for transition validation
+        let all_state_names = collect_all_state_names(&fsm.states, "");
+
+        for (state_name, state) in &fsm.states {
+            validate_state_transitions(state, state_name, &all_state_names, &rule.name, &fsm.states)?;
+        }
+    } else {
+        // Stateless rule validation
+        validate_match_criteria(&rule.match_criteria, &rule.name)?;
+    }
+
+    // Validate rate_limit if specified
+    if let Some(ref rl) = rule.rate_limit {
+        if rl.pps == 0 {
+            anyhow::bail!("rate_limit pps must be > 0 in rule '{}'", rule.name);
+        }
+        if rl.burst == 0 {
+            anyhow::bail!("rate_limit burst must be > 0 in rule '{}'", rule.name);
+        }
+    }
+
+    // Validate ports list if specified
+    if let Some(ref ports) = rule.ports {
+        if ports.is_empty() {
+            anyhow::bail!("Empty ports list in rule '{}'", rule.name);
+        }
+    }
+
+    // Validate rewrite actions if specified
+    if let Some(ref rw) = rule.rewrite {
+        validate_rewrite(rw, rule, &rule.name)?;
+    }
+
+    // Validate mirror_port
+    if rule.mirror_port.is_some() && rule.is_stateful() {
+        anyhow::bail!("mirror_port not supported on stateful rules (rule '{}')", rule.name);
+    }
+
+    // Validate redirect_port
+    if rule.redirect_port.is_some() && rule.is_stateful() {
+        anyhow::bail!("redirect_port not supported on stateful rules (rule '{}')", rule.name);
+    }
+
+    // Validate redirect_port requires action: pass
+    if rule.redirect_port.is_some() {
+        if rule.action == Some(crate::model::Action::Drop) {
+            anyhow::bail!("redirect_port requires action: pass (rule '{}')", rule.name);
+        }
+    }
+
+    Ok(())
+}
+
+/// Validate pipeline tables: unique names, valid next_table references, no cycles
+fn validate_pipeline(tables: &[crate::model::PipelineStage]) -> Result<()> {
+    if tables.is_empty() {
+        anyhow::bail!("Pipeline must have at least one stage");
+    }
+
+    // Check for unique stage names
+    let mut stage_names: Vec<&str> = tables.iter().map(|s| s.name.as_str()).collect();
+    stage_names.sort();
+    for w in stage_names.windows(2) {
+        if w[0] == w[1] {
+            anyhow::bail!("Duplicate pipeline stage name: '{}'", w[0]);
+        }
+    }
+
+    // Validate next_table references
+    let name_set: std::collections::HashSet<&str> = tables.iter().map(|s| s.name.as_str()).collect();
+    for stage in tables {
+        if let Some(ref next) = stage.next_table {
+            if !name_set.contains(next.as_str()) {
+                anyhow::bail!("Pipeline stage '{}' references unknown next_table '{}'",
+                    stage.name, next);
+            }
+            if next == &stage.name {
+                anyhow::bail!("Pipeline stage '{}' has self-referencing next_table", stage.name);
+            }
+        }
+    }
+
+    // DAG cycle detection using DFS with coloring
+    // 0 = unvisited, 1 = in current path, 2 = fully visited
+    let mut color: std::collections::HashMap<&str, u8> = tables.iter().map(|s| (s.name.as_str(), 0u8)).collect();
+    let next_map: std::collections::HashMap<&str, Option<&str>> = tables.iter()
+        .map(|s| (s.name.as_str(), s.next_table.as_deref()))
+        .collect();
+
+    fn dfs<'a>(
+        node: &'a str,
+        color: &mut std::collections::HashMap<&'a str, u8>,
+        next_map: &std::collections::HashMap<&'a str, Option<&'a str>>,
+    ) -> Result<()> {
+        color.insert(node, 1); // mark as in-progress
+        if let Some(Some(next)) = next_map.get(node) {
+            match color.get(next) {
+                Some(1) => anyhow::bail!("Pipeline has a cycle involving stage '{}'", next),
+                Some(0) | None => dfs(next, color, next_map)?,
+                _ => {} // already fully visited
+            }
+        }
+        color.insert(node, 2); // mark as done
+        Ok(())
+    }
+
+    for stage in tables {
+        if color.get(stage.name.as_str()) == Some(&0) {
+            dfs(&stage.name, &mut color, &next_map)?;
+        }
+    }
+
+    // Validate per-stage: check for duplicate rule names and priorities within each stage
+    for stage in tables {
+        if stage.rules.is_empty() {
+            // Empty stages are allowed but will generate a lint warning later
+        }
+
+        // Check for duplicate priorities within stage
+        let mut priorities: Vec<u32> = stage.rules.iter().map(|r| r.priority).collect();
+        priorities.sort();
+        for w in priorities.windows(2) {
+            if w[0] == w[1] {
+                anyhow::bail!("Duplicate priority {} in pipeline stage '{}'", w[0], stage.name);
+            }
+        }
+
+        // Check for duplicate rule names within stage
+        let mut rule_names: Vec<&str> = stage.rules.iter().map(|r| r.name.as_str()).collect();
+        rule_names.sort();
+        for w in rule_names.windows(2) {
+            if w[0] == w[1] {
+                anyhow::bail!("Duplicate rule name '{}' in pipeline stage '{}'", w[0], stage.name);
+            }
+        }
+    }
+
+    // Check for globally duplicate rule names across all stages
+    let mut all_rule_names: Vec<&str> = tables.iter()
+        .flat_map(|s| s.rules.iter().map(|r| r.name.as_str()))
+        .collect();
+    all_rule_names.sort();
+    for w in all_rule_names.windows(2) {
+        if w[0] == w[1] {
+            anyhow::bail!("Duplicate rule name '{}' across pipeline stages", w[0]);
         }
     }
 
@@ -2678,5 +2812,299 @@ pacgate:
         let result = load_rules_from_str(yaml);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("set_outer_vlan_id requires"));
+    }
+
+    #[test]
+    fn test_pipeline_basic_loading() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules: []
+  tables:
+    - name: classify
+      default_action: pass
+      next_table: enforce
+      rules:
+        - name: mark_web
+          priority: 100
+          match:
+            dst_port: 80
+          action: pass
+    - name: enforce
+      default_action: drop
+      rules:
+        - name: allow_web
+          priority: 100
+          match:
+            dst_port: 80
+          action: pass
+"#;
+        let config = load_rules_from_str(yaml).unwrap();
+        assert!(config.is_pipeline());
+        assert_eq!(config.stage_count(), 2);
+        assert!(config.get_stage("classify").is_some());
+        assert!(config.get_stage("enforce").is_some());
+        assert!(config.get_stage("nonexistent").is_none());
+        assert_eq!(config.all_rules().len(), 2);
+    }
+
+    #[test]
+    fn test_pipeline_duplicate_stage_name() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules: []
+  tables:
+    - name: stage1
+      default_action: pass
+      rules:
+        - name: r1
+          priority: 100
+          match:
+            dst_port: 80
+          action: pass
+    - name: stage1
+      default_action: drop
+      rules:
+        - name: r2
+          priority: 100
+          match:
+            dst_port: 443
+          action: pass
+"#;
+        let result = load_rules_from_str(yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Duplicate pipeline stage name"));
+    }
+
+    #[test]
+    fn test_pipeline_invalid_next_table() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules: []
+  tables:
+    - name: classify
+      default_action: pass
+      next_table: nonexistent
+      rules:
+        - name: r1
+          priority: 100
+          match:
+            dst_port: 80
+          action: pass
+"#;
+        let result = load_rules_from_str(yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("unknown next_table"));
+    }
+
+    #[test]
+    fn test_pipeline_self_referencing() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules: []
+  tables:
+    - name: loop_stage
+      default_action: pass
+      next_table: loop_stage
+      rules:
+        - name: r1
+          priority: 100
+          match:
+            dst_port: 80
+          action: pass
+"#;
+        let result = load_rules_from_str(yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("self-referencing"));
+    }
+
+    #[test]
+    fn test_pipeline_cycle_detection() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules: []
+  tables:
+    - name: a
+      default_action: pass
+      next_table: b
+      rules:
+        - name: r1
+          priority: 100
+          match:
+            dst_port: 80
+          action: pass
+    - name: b
+      default_action: pass
+      next_table: a
+      rules:
+        - name: r2
+          priority: 100
+          match:
+            dst_port: 443
+          action: pass
+"#;
+        let result = load_rules_from_str(yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("cycle"));
+    }
+
+    #[test]
+    fn test_pipeline_duplicate_rule_name_across_stages() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules: []
+  tables:
+    - name: stage1
+      default_action: pass
+      next_table: stage2
+      rules:
+        - name: same_name
+          priority: 100
+          match:
+            dst_port: 80
+          action: pass
+    - name: stage2
+      default_action: drop
+      rules:
+        - name: same_name
+          priority: 100
+          match:
+            dst_port: 443
+          action: pass
+"#;
+        let result = load_rules_from_str(yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Duplicate rule name"));
+    }
+
+    #[test]
+    fn test_pipeline_duplicate_priority_within_stage() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules: []
+  tables:
+    - name: stage1
+      default_action: pass
+      rules:
+        - name: r1
+          priority: 100
+          match:
+            dst_port: 80
+          action: pass
+        - name: r2
+          priority: 100
+          match:
+            dst_port: 443
+          action: pass
+"#;
+        let result = load_rules_from_str(yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Duplicate priority"));
+    }
+
+    #[test]
+    fn test_pipeline_validates_rules() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules: []
+  tables:
+    - name: stage1
+      default_action: pass
+      rules:
+        - name: ""
+          priority: 100
+          match:
+            dst_port: 80
+          action: pass
+"#;
+        let result = load_rules_from_str(yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Rule name cannot be empty"));
+    }
+
+    #[test]
+    fn test_pipeline_empty_tables() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules: []
+  tables: []
+"#;
+        let result = load_rules_from_str(yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("at least one stage"));
+    }
+
+    #[test]
+    fn test_pipeline_overlap_warnings_per_stage() {
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules: []
+  tables:
+    - name: classify
+      default_action: pass
+      rules:
+        - name: catch_all
+          priority: 200
+          match: {}
+          action: pass
+        - name: specific
+          priority: 100
+          match:
+            dst_port: 80
+          action: drop
+"#;
+        let (_, warnings) = load_rules_from_str_with_warnings(yaml).unwrap();
+        assert!(!warnings.is_empty());
+        assert!(warnings[0].contains("[stage 'classify']"));
+    }
+
+    #[test]
+    fn test_pipeline_single_table_backward_compat() {
+        // Existing single-table config should still work identically
+        let yaml = r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_http
+      priority: 100
+      match:
+        dst_port: 80
+      action: pass
+"#;
+        let config = load_rules_from_str(yaml).unwrap();
+        assert!(!config.is_pipeline());
+        assert_eq!(config.stage_count(), 1);
+        assert_eq!(config.all_rules().len(), 1);
     }
 }

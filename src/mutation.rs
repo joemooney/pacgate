@@ -743,6 +743,7 @@ mod tests {
                     },
                 ],
                 conntrack: None,
+                tables: None,
             },
         }
     }
@@ -828,6 +829,7 @@ mod tests {
                     },
                 ],
                 conntrack: None,
+                tables: None,
             },
         };
         let mutations = generate_mutations(&config);
@@ -855,6 +857,7 @@ mod tests {
                     },
                 ],
                 conntrack: None,
+                tables: None,
             },
         };
         let mutations = generate_mutations(&config);
@@ -881,6 +884,7 @@ mod tests {
                     },
                 ],
                 conntrack: None,
+                tables: None,
             },
         };
         let mutations = generate_mutations(&config);
@@ -907,6 +911,7 @@ mod tests {
                     },
                 ],
                 conntrack: None,
+                tables: None,
             },
         };
         let mutations = generate_mutations(&config);
@@ -933,6 +938,7 @@ mod tests {
                     },
                 ],
                 conntrack: None,
+                tables: None,
             },
         };
         let mutations = generate_mutations(&config);
@@ -959,6 +965,7 @@ mod tests {
                     },
                 ],
                 conntrack: None,
+                tables: None,
             },
         };
         let mutations = generate_mutations(&config);
@@ -986,6 +993,7 @@ mod tests {
                     },
                 ],
                 conntrack: None,
+                tables: None,
             },
         };
         let mutations = generate_mutations(&config);
@@ -1014,6 +1022,7 @@ mod tests {
                     },
                 ],
                 conntrack: None,
+                tables: None,
             },
         };
         let mutations = generate_mutations(&config);
@@ -1041,6 +1050,7 @@ mod tests {
                     },
                 ],
                 conntrack: None,
+                tables: None,
             },
         };
         let mutations = generate_mutations(&config);
@@ -1068,6 +1078,7 @@ mod tests {
                     },
                 ],
                 conntrack: None,
+                tables: None,
             },
         };
         let mutations = generate_mutations(&config);
@@ -1097,6 +1108,7 @@ mod tests {
                     },
                 ],
                 conntrack: None,
+                tables: None,
             },
         };
         let mutations = generate_mutations(&config);
@@ -1126,6 +1138,7 @@ mod tests {
                     },
                 ],
                 conntrack: None,
+                tables: None,
             },
         };
         let mutations = generate_mutations(&config);
@@ -1154,6 +1167,7 @@ mod tests {
                     },
                 ],
                 conntrack: None,
+                tables: None,
             },
         };
         let mutations = generate_mutations(&config);
@@ -1183,6 +1197,7 @@ mod tests {
                     },
                 ],
                 conntrack: None,
+                tables: None,
             },
         };
         let mutations = generate_mutations(&config);
@@ -1212,6 +1227,7 @@ mod tests {
                     },
                 ],
                 conntrack: None,
+                tables: None,
             },
         };
         let mutations = generate_mutations(&config);
@@ -1239,6 +1255,7 @@ mod tests {
                     },
                 ],
                 conntrack: None,
+                tables: None,
             },
         };
         let mutations = generate_mutations(&config);
@@ -1286,6 +1303,7 @@ mod tests {
                     },
                 ],
                 conntrack: None,
+                tables: None,
             },
         };
         let mutations = generate_mutations(&config);
@@ -1314,6 +1332,7 @@ mod tests {
                     },
                 ],
                 conntrack: None,
+                tables: None,
             },
         };
         let mutations = generate_mutations(&config);
@@ -1342,6 +1361,7 @@ mod tests {
                     },
                 ],
                 conntrack: None,
+                tables: None,
             },
         };
         let mutations = generate_mutations(&config);
@@ -1377,6 +1397,7 @@ mod tests {
                     ],
                     enable_flow_counters: Some(true),
                 }),
+                tables: None,
             },
         };
         let mutations = generate_mutations(&config);
@@ -1404,6 +1425,7 @@ mod tests {
                     },
                 ],
                 conntrack: None,
+                tables: None,
             },
         };
         let mutations = generate_mutations(&config);
@@ -1433,6 +1455,7 @@ mod tests {
                     },
                 ],
                 conntrack: None,
+                tables: None,
             },
         };
         let mutations = generate_mutations(&config);
@@ -1470,6 +1493,7 @@ mod tests {
                     ],
                     enable_flow_counters: None,
                 }),
+                tables: None,
             },
         };
         let mutations = generate_mutations(&config);
@@ -1495,6 +1519,7 @@ mod tests {
                     },
                 ],
                 conntrack: None,
+                tables: None,
             },
         };
         let mutations = generate_mutations(&config);
@@ -1521,6 +1546,7 @@ mod tests {
                     },
                 ],
                 conntrack: None,
+                tables: None,
             },
         };
         let mutations = generate_mutations(&config);
@@ -1568,6 +1594,7 @@ mod tests {
                     },
                 ],
                 conntrack: None,
+                tables: None,
             },
         };
         let mutations = generate_mutations(&config);
@@ -1616,6 +1643,7 @@ mod tests {
                     },
                 ],
                 conntrack: None,
+                tables: None,
             },
         };
         let mutations = generate_mutations(&config);

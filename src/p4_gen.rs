@@ -665,6 +665,7 @@ mod tests {
                 defaults: Defaults { action: Action::Drop },
                 rules,
                 conntrack: None,
+                tables: None,
             },
         }
     }

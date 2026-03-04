@@ -6415,3 +6415,270 @@ fn p4_export_all_examples() {
         assert!(output.status.success(), "p4-export failed for {}: {}", ex, String::from_utf8_lossy(&output.stderr));
     }
 }
+
+// ========================== Pipeline Tests ==========================
+
+#[test]
+fn pipeline_basic_compile() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("pipeline.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules: []
+  tables:
+    - name: classify
+      default_action: pass
+      next_table: enforce
+      rules:
+        - name: mark_web
+          priority: 100
+          match:
+            dst_port: 80
+          action: pass
+    - name: enforce
+      default_action: drop
+      rules:
+        - name: allow_web
+          priority: 100
+          match:
+            dst_port: 80
+          action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["validate", yaml.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "pipeline validate failed: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn pipeline_rejects_cycle() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("cycle.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules: []
+  tables:
+    - name: a
+      default_action: pass
+      next_table: b
+      rules:
+        - name: r1
+          priority: 100
+          match:
+            dst_port: 80
+          action: pass
+    - name: b
+      default_action: pass
+      next_table: a
+      rules:
+        - name: r2
+          priority: 100
+          match:
+            dst_port: 443
+          action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["validate", yaml.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("cycle"), "Expected cycle error, got: {}", stderr);
+}
+
+#[test]
+fn pipeline_rejects_invalid_next_table() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("bad_next.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules: []
+  tables:
+    - name: stage1
+      default_action: pass
+      next_table: nonexistent
+      rules:
+        - name: r1
+          priority: 100
+          match:
+            dst_port: 80
+          action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["validate", yaml.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("unknown next_table"), "Expected unknown next_table error, got: {}", stderr);
+}
+
+#[test]
+fn pipeline_rejects_duplicate_stage_name() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("dup_stage.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules: []
+  tables:
+    - name: same
+      default_action: pass
+      rules:
+        - name: r1
+          priority: 100
+          match:
+            dst_port: 80
+          action: pass
+    - name: same
+      default_action: drop
+      rules:
+        - name: r2
+          priority: 100
+          match:
+            dst_port: 443
+          action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["validate", yaml.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Duplicate pipeline stage name"), "Expected duplicate stage error, got: {}", stderr);
+}
+
+#[test]
+fn pipeline_backward_compat_single_table() {
+    // Existing single-table rules still work
+    let output = pacgate_bin()
+        .args(["validate", "rules/examples/l3l4_firewall.yaml"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "single-table validate failed: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn pipeline_stats() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("pipeline.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules: []
+  tables:
+    - name: classify
+      default_action: pass
+      next_table: enforce
+      rules:
+        - name: mark_web
+          priority: 100
+          match:
+            dst_port: 80
+          action: pass
+    - name: enforce
+      default_action: drop
+      rules:
+        - name: allow_web
+          priority: 200
+          match:
+            dst_port: 443
+          action: pass
+        - name: allow_ssh
+          priority: 100
+          match:
+            dst_port: 22
+          action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["stats", yaml.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "pipeline stats failed: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn pipeline_three_stage_linear() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("three_stage.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules: []
+  tables:
+    - name: classify
+      default_action: pass
+      next_table: rate_check
+      rules:
+        - name: mark_web
+          priority: 100
+          match:
+            dst_port: 80
+          action: pass
+    - name: rate_check
+      default_action: pass
+      next_table: enforce
+      rules:
+        - name: limit_web
+          priority: 100
+          match:
+            dst_port: 80
+          action: pass
+    - name: enforce
+      default_action: drop
+      rules:
+        - name: allow_web
+          priority: 100
+          match:
+            dst_port: 80
+          action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["validate", yaml.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "3-stage pipeline validate failed: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn pipeline_single_stage_no_next() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("single_stage.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules: []
+  tables:
+    - name: only_stage
+      default_action: pass
+      rules:
+        - name: allow_http
+          priority: 100
+          match:
+            dst_port: 80
+          action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["validate", yaml.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "single-stage pipeline validate failed: {}", String::from_utf8_lossy(&output.stderr));
+}

@@ -151,6 +151,7 @@ mod tests {
                     },
                 ],
                 conntrack: None,
+                tables: None,
             },
         }
     }
