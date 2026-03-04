@@ -1,0 +1,55 @@
+# p4_export_demo.yaml — Rules optimized for P4 export
+# Usage: pacgate p4-export rules/examples/p4_export_demo.yaml -o gen/p4/
+#
+# Demonstrates P4 export: all match fields map cleanly to P4_16 PSA
+# table entries with exact/lpm/ternary/range match kinds.
+
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+
+  rules:
+    - name: allow_web_traffic
+      priority: 200
+      match:
+        ethertype: "0x0800"
+        dst_ip: "10.0.0.0/8"
+        ip_protocol: 6
+        dst_port: 80
+      action: pass
+      rewrite:
+        set_dscp: 46
+
+    - name: allow_dns
+      priority: 190
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17
+        dst_port: 53
+      action: pass
+
+    - name: allow_vxlan_tenant
+      priority: 180
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17
+        dst_port: 4789
+        vxlan_vni: 1000
+      action: pass
+
+    - name: allow_arp
+      priority: 170
+      match:
+        ethertype: "0x0806"
+      action: pass
+
+    - name: rate_limit_icmp
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 1
+      action: pass
+      rate_limit:
+        pps: 100
+        burst: 50

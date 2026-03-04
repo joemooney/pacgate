@@ -2504,3 +2504,96 @@ Update main.rs tools (lint, estimate, stats, diff, doc, graph), create OAM examp
 
 ### Git
 - Created docs/COMPARISON.md, updated docs/README.md index, updated README.md nav
+
+---
+
+## Phase 27 — 2026-03-03: Wide Data Path + P4 Export + Multi-Table Pipeline (Session ~30)
+
+### Goal
+Address the top 3 gaps identified in the competitive analysis (docs/COMPARISON.md): wider data paths for 10G+ line-rate, P4 export for interoperability with P4-programmable hardware, and multi-table pipeline for sequential match-action stages.
+
+### Actions Taken
+
+**Phase 27.1 — Parameterized Data Path Width (Core)**:
+- Added `--width {8,64,128,256,512}` CLI flag to `compile` subcommand
+- Created `templates/axis_wide_to_8.v.tera` — parameterized wide-to-8-bit AXI-Stream width converter template
+- Created `templates/axis_8_to_wide.v.tera` — parameterized 8-to-wide AXI-Stream width converter template
+- Updated `templates/packet_filter_axi_top.v.tera` for conditional width converter instantiation based on `--width` parameter
+- Width=8 (default) bypasses converters entirely for backward compatibility
+
+**Phase 27.2 — P4 Export (Core)**:
+- New `p4-export` subcommand in `src/main.rs`
+- Created `src/p4_gen.rs` module (~950 LOC) implementing YAML-to-P4_16 translation
+- Created `templates/p4_program.p4.tera` template targeting P4_16 PSA (Portable Switch Architecture)
+- Maps all 55 match fields to P4 match kinds (exact, ternary, lpm, range as appropriate)
+- Generates P4 parser, control block, deparser, and table definitions from YAML rules
+
+**Phase 27.3 — Multi-Table Pipeline (Model and Loading)**:
+- Added `PipelineStage` struct to `src/model.rs` with stage name, priority, and rule references
+- Added optional `tables:` YAML key for defining pipeline stages
+- DAG cycle detection using DFS 3-color algorithm in `src/loader.rs`
+- Pipeline validation: stage ordering, rule assignment, cross-stage reference checks
+- Fully backward compatible — single-table rules (no `tables:` key) work unchanged
+
+**Phase 27.4 — Width Platform Integration**:
+- Added LINT047: width > 8 without `--axi` flag (warning)
+- Added LINT048: width mismatch with platform target (width != 512 for OpenNIC/Corundum)
+- Parameterized platform converter templates (OpenNIC/Corundum) to use `--width` instead of hardcoded 512
+- Width converter LUT/FF estimation in `estimate` subcommand (scales with width)
+
+**Phase 27.5 — P4 Export Full Coverage**:
+- Conntrack mapped to P4 Register extern for state tracking
+- Rate limiting mapped to P4 Meter extern
+- Pipeline-aware P4 export: multi-table pipelines generate separate P4 tables per stage with apply() chain
+
+**Phase 27.6 — Pipeline Verilog Generation**:
+- Created `templates/pipeline_top.v.tera` with shared `frame_parser` instance
+- Per-stage rule matchers named `rule_match_s{N}_r{M}` for stage N, rule M
+- Per-stage `decision_logic_s{N}` priority encoders
+- AND-combined final decision across all pipeline stages (all stages must pass)
+
+**Phase 27.7 — Pipeline Simulation and Verification**:
+- `simulate()` evaluates pipeline stages sequentially with AND semantics (packet must pass all stages)
+- Per-stage decision results reported in simulation output
+- Added `PipelineScoreboard` Python class to `verification/scoreboard.py` for multi-stage verification
+- 7 new unit tests for pipeline model/loading/validation
+- 3 new integration tests for pipeline compile/simulate/estimate
+- 6 new Python scoreboard tests for PipelineScoreboard
+
+**Phase 27.8 — Pipeline Tool Integration**:
+- `stats`: per-stage rule counts and field usage breakdown
+- `lint`: LINT049 (empty pipeline stage warning), LINT050 (single-rule stage info)
+- `estimate`: per-stage LUT/FF estimation with pipeline overhead
+- `graph`: per-stage subgraph nodes in DOT output
+- `diff`: pipeline stage addition/removal/modification detection
+- Mutation type 34: swap_stage_order (reorder pipeline stages)
+- Mutation type 35: remove_stage (drop a pipeline stage)
+
+**Phase 27.9 — Cross-Feature Integration**:
+- Created `rules/examples/wide_axi_firewall.yaml` — 256-bit AXI firewall example
+- Created `rules/examples/p4_export_demo.yaml` — P4 export demonstration with multi-protocol rules
+- Created `rules/examples/pipeline_classify.yaml` — 3-stage pipeline (L2 classify → L3 filter → L4 rate-limit)
+- Updated CLAUDE.md: new CLI flags, subcommands, file entries, design decisions, phase status
+- Updated OVERVIEW.md: wide data path, P4 export, pipeline architecture
+- Updated REQUIREMENTS.md: width/P4/pipeline requirements
+
+**Lint Rules**: LINT047 (width > 8 without --axi), LINT048 (width/platform mismatch), LINT049 (empty pipeline stage), LINT050 (single-rule pipeline stage)
+
+**Mutation Types**: 34 (swap_stage_order), 35 (remove_stage)
+
+### Test Results
+- 518 unit tests — all PASS
+- 378 integration tests — all PASS
+- 73 Python scoreboard tests — all PASS
+- Total: 896 Rust tests + 73 Python tests
+
+### New Artifacts
+- 3 new YAML examples (wide_axi_firewall, p4_export_demo, pipeline_classify) — 45 total
+- 4 new lint rules (LINT047-050) — 50 total
+- 2 new mutation types (34-35) — 35 total
+- 1 new subcommand (p4-export) — 33 total
+- 1 new source module (src/p4_gen.rs ~950 LOC)
+- 3 new templates (axis_wide_to_8.v.tera, axis_8_to_wide.v.tera, p4_program.p4.tera, pipeline_top.v.tera)
+
+### Git
+- Committed and pushed Phase 27 implementation

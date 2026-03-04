@@ -36,6 +36,9 @@
 - **Mirror/redirect egress**: mirror_port (copy packet to egress port), redirect_port (override egress port) per-rule egress actions
 - **Packet rewrite actions**: set_dst_mac, set_src_mac, set_vlan_id, set_vlan_pcp, set_outer_vlan_id, set_ttl, dec_ttl, set_src_ip, set_dst_ip, set_dscp, set_ecn, set_src_port, set_dst_port, dec_hop_limit, set_hop_limit (NAT, PAT, TTL management, MAC rewrite, VLAN modification, QoS remarking, port forwarding, IPv6 hop limit, ECN marking)
 - **Platform integration**: `--target opennic` and `--target corundum` generate drop-in NIC wrappers with 512↔8-bit width converters (~2 Gbps at 250MHz)
+- **Parameterized data path width**: `--width {8,64,128,256,512}` generates AXI-Stream width converters for higher throughput (128-bit @ 250MHz = ~32 Gbps)
+- **P4 export**: `p4-export` subcommand generates P4_16 PSA program from YAML rules, targeting P4-programmable ASICs/SmartNICs
+- **Multi-table pipeline**: optional `tables:` YAML key for sequential match-action stages with AND decision combining; per-stage rule matchers and decision logic
 - **cocotb 2.0 runner**: `run_sim.py` generated alongside Makefiles using `cocotb_tools.runner` API for programmatic, cross-platform simulation
 - **IPv6 matching**: src_ipv6, dst_ipv6 (CIDR prefix), ipv6_next_header
 - **Packet simulation**: software dry-run with `simulate` subcommand (no hardware needed)
@@ -82,8 +85,8 @@
 - Coverage XML export with merge support across runs
 - Coverage-directed test generation (verification/coverage_driven.py)
 - Enhanced overlap detection with CIDR containment and port range analysis
-- 42 real-world YAML examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite, OpenNIC, Corundum, TCP flags/ICMP, ARP security, ICMPv6 firewall, QinQ provider, fragment security, port rewrite, GRE tunnel, conntrack firewall, mirror/redirect, flow counters, OAM monitoring, NSH/SFC, Geneve datacenter, TTL security, IPv6 routing, QoS rewrite)
-- 479 Rust unit tests + 327 integration tests = 806 total, 67 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
+- 45 real-world YAML examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite, OpenNIC, Corundum, TCP flags/ICMP, ARP security, ICMPv6 firewall, QinQ provider, fragment security, port rewrite, GRE tunnel, conntrack firewall, mirror/redirect, flow counters, OAM monitoring, NSH/SFC, Geneve datacenter, TTL security, IPv6 routing, QoS rewrite, wide AXI firewall, P4 export demo, pipeline classify)
+- 518 Rust unit tests + 378 integration tests = 896 total, 73 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
 
 ## Architecture
 ```
@@ -124,6 +127,11 @@ Mermaid .md --> pacgate from-mermaid --> YAML rules
   - `axis_8_to_512` — 8→512-bit width converter (rtl/axis_8_to_512.v)
 - `pacgate_corundum_app` — Corundum mqnic_app_block replacement (generated, `--target corundum`)
   - Same internal structure: axis_512_to_8 → filter → axis_8_to_512
+- `pipeline_top` — multi-table pipeline wrapper (generated, `tables:` present)
+  - `frame_parser` — shared parser instance
+  - N x `rule_match_s{N}_r{M}` — per-stage per-rule matchers
+  - N x `decision_logic_s{N}` — per-stage priority encoders
+  - Pipeline decision combining: AND of all stage decisions
 - `rule_counters` — per-rule 64-bit packet/byte counters (rtl/rule_counters.v)
 - `axi_lite_csr` — AXI4-Lite register interface for counter readout (rtl/axi_lite_csr.v)
 - `conntrack_table` — connection tracking hash table with per-flow 64-bit pkt/byte counters + flow read-back interface (rtl/conntrack_table.v)
@@ -147,6 +155,8 @@ pacgate compile rules.yaml --dynamic   # Runtime-updateable flow table (AXI-Lite
 pacgate compile rules.yaml --dynamic --dynamic-entries 32  # 32-entry flow table
 pacgate compile rules.yaml --target opennic   # OpenNIC Shell 250MHz wrapper
 pacgate compile rules.yaml --target corundum  # Corundum mqnic_app_block wrapper
+pacgate compile rules.yaml --width 128 --axi  # 128-bit AXI-Stream width converters
+pacgate compile rules.yaml --width 512 --target opennic  # Native 512-bit (no extra converters)
 pacgate compile rules.yaml --json      # JSON output with warnings
 # After compile: cd gen/tb && python run_sim.py   # cocotb 2.0 runner (recommended)
 # After compile: cd gen/tb && make                 # Makefile-based (legacy, still supported)
@@ -158,6 +168,8 @@ pacgate graph rules.yaml               # DOT graph output (pipe to dot -Tpng)
 pacgate stats rules.yaml               # Rule set analytics
 pacgate lint rules.yaml                # Best-practice analysis
 pacgate formal rules.yaml              # Generate SVA + SymbiYosys files
+pacgate p4-export rules.yaml -o gen/p4/ # Generate P4_16 PSA program from YAML rules
+pacgate p4-export rules.yaml -o gen/p4/ --json  # P4 export with JSON summary
 pacgate report rules.yaml              # Generate HTML coverage report
 pacgate pcap capture.pcap              # Import PCAP for cocotb test stimulus
 pacgate from-mermaid fsm.md --name rule --priority 100  # Mermaid → YAML
@@ -232,7 +244,8 @@ pytest verification/test_scoreboard.py # 67 Python scoreboard unit tests
 - `src/benchmark.rs` — Performance benchmarking engine (compile time, sim throughput, LUT/FF scaling)
 - `src/mcy_gen.rs` — MCY (Mutation Cover with Yosys) config generation
 - `src/scenario.rs` — Scenario validation, regression testing, topology simulation (migrated from pacilab)
-- `src/main.rs` — clap CLI (32 subcommands)
+- `src/p4_gen.rs` — P4_16 PSA code generation from YAML rules (~950 LOC)
+- `src/main.rs` — clap CLI (33 subcommands)
 - `rtl/frame_parser.v` — Hand-written Ethernet/IPv4/IPv6/TCP/UDP/VXLAN/GTP-U/MPLS/IGMP/MLD/ICMP/ICMPv6/ARP/QinQ/OAM/NSH/Geneve parser FSM (22 states) with TCP flags + IPv6 TC + hop_limit + flow_label + fragmentation + L4 port offset + OAM/CFM + NSH/SFC + Geneve VNI + ip_ttl extraction
 - `rtl/rule_counters.v` — Per-rule 64-bit packet/byte counters
 - `rtl/axi_lite_csr.v` — AXI4-Lite register interface for counters
@@ -251,8 +264,12 @@ pytest verification/test_scoreboard.py # 67 Python scoreboard unit tests
 - `templates/diff_report.html.tera` — HTML diff visualization template (color-coded additions/removals/modifications)
 - `templates/pacgate_opennic_250.v.tera` — OpenNIC Shell 250MHz user box wrapper template
 - `templates/pacgate_corundum_app.v.tera` — Corundum mqnic_app_block wrapper template
+- `templates/pipeline_top.v.tera` — Multi-table pipeline wrapper template
+- `templates/axis_wide_to_8.v.tera` — Parameterized wide-to-narrow AXI-Stream converter template
+- `templates/axis_8_to_wide.v.tera` — Parameterized narrow-to-wide AXI-Stream converter template
+- `templates/p4_program.p4.tera` — P4_16 PSA program template
 - `verification/` — Python verification framework (packet, scoreboard, coverage, driver, properties, coverage_driven, test_scoreboard)
-- `rules/examples/` — 42 YAML examples
+- `rules/examples/` — 45 YAML examples
 - `rules/templates/` — 7 rule template YAML snippets
 - `.github/workflows/ci.yml` — GitHub Actions CI pipeline
 
@@ -346,3 +363,14 @@ pytest verification/test_scoreboard.py # 67 Python scoreboard unit tests
   - **26.5 Hypothesis completeness**: 8 new strategies (gre_frames, oam_frames, nsh_frames, arp_frames, icmp_frames, icmpv6_frames, qinq_frames, tcp_flags_frames), test_properties.py.tera updated with 9 conditional blocks
   - **26.6 VLAN rewrite**: set_vlan_pcp (0-7, flag bit 13), set_outer_vlan_id (0-4095, flag bit 14), LINT044-046, mutation type 33, qos_rewrite.yaml example
   - 22 parser states, 15 rewrite flag bits (0-14, 1 remaining), 46 lint rules, 33 mutation types, 42 examples, 67 Python scoreboard tests, 479 unit + 327 integration = 806 tests
+- **Phase 27**: Complete — Wide data path + P4 export + multi-table pipeline:
+  - **27.1 Width Core**: `--width {8,64,128,256,512}` CLI flag, parameterized axis_wide_to_8.v.tera / axis_8_to_wide.v.tera templates, AXI top conditional width converter instantiation
+  - **27.2 P4 Export Core**: `p4-export` subcommand, p4_gen.rs module (~950 LOC), p4_program.p4.tera template, P4_16 PSA with all 55 match fields mapped
+  - **27.3 Pipeline Model**: PipelineStage struct, optional `tables:` YAML key, DAG cycle detection, backward-compatible single-table mode
+  - **27.4 Width Platform**: Width-aware estimate (converter LUTs), LINT047-048, parameterized platform converters
+  - **27.5 P4 Full Coverage**: Conntrack Register extern, Meter extern, pipeline-aware P4 export, rewrite action mapping
+  - **27.6 Pipeline Verilog**: pipeline_top.v.tera, per-stage rule matchers (rule_match_s{N}_r{M}), per-stage decision logic, AND-combined final decision
+  - **27.7 Pipeline Sim/Ver**: Pipeline simulation (stage-sequential AND semantics), PipelineScoreboard Python class
+  - **27.8 Pipeline Tools**: Pipeline-aware stats/lint/estimate/graph/diff/mutations, LINT049-050, mutations 34-35 (swap/remove stage)
+  - **27.9 Integration**: 3 new examples (wide_axi_firewall, p4_export_demo, pipeline_classify), docs refresh
+  - 48 lint rules, 35 mutation types, 45 examples, 73 Python scoreboard tests, 518 unit + 378 integration = 896 Rust tests

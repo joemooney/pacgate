@@ -1,0 +1,50 @@
+# wide_axi_firewall.yaml — L3/L4 firewall with wide AXI data path
+# Usage: pacgate compile rules/examples/wide_axi_firewall.yaml --axi --width 128
+#
+# Demonstrates parameterized data path width for higher throughput:
+#   --width 128 generates 128-bit AXI-Stream width converters
+#   (128-bit @ 250MHz = ~32 Gbps line rate)
+
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+
+  rules:
+    - name: allow_dns
+      priority: 200
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17
+        dst_port: 53
+      action: pass
+
+    - name: allow_http
+      priority: 190
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 80
+      action: pass
+
+    - name: allow_https
+      priority: 180
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 443
+      action: pass
+
+    - name: allow_ssh
+      priority: 170
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 22
+      action: pass
+
+    - name: allow_arp
+      priority: 160
+      match:
+        ethertype: "0x0806"
+      action: pass

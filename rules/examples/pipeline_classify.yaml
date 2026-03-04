@@ -1,0 +1,63 @@
+# pipeline_classify.yaml — 2-stage pipeline: classify then enforce
+# Usage: pacgate compile rules/examples/pipeline_classify.yaml
+#        pacgate simulate rules/examples/pipeline_classify.yaml --packet "ethertype=0x0800,dst_port=80"
+#
+# Demonstrates multi-table pipeline with sequential match-action stages.
+# Stage 1 (classify): identifies traffic type
+# Stage 2 (enforce): applies security policy
+# Packet passes only if ALL stages pass (AND semantics).
+
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules: []
+
+  tables:
+    - name: classify
+      default_action: drop
+      next_table: enforce
+      rules:
+        - name: is_web
+          priority: 200
+          match:
+            ethertype: "0x0800"
+            ip_protocol: 6
+            dst_port: 80
+          action: pass
+
+        - name: is_dns
+          priority: 190
+          match:
+            ethertype: "0x0800"
+            ip_protocol: 17
+            dst_port: 53
+          action: pass
+
+        - name: is_arp
+          priority: 180
+          match:
+            ethertype: "0x0806"
+          action: pass
+
+    - name: enforce
+      default_action: drop
+      rules:
+        - name: allow_internal_web
+          priority: 200
+          match:
+            src_ip: "10.0.0.0/8"
+            dst_port: 80
+          action: pass
+
+        - name: allow_all_dns
+          priority: 190
+          match:
+            dst_port: 53
+          action: pass
+
+        - name: allow_arp
+          priority: 180
+          match:
+            ethertype: "0x0806"
+          action: pass

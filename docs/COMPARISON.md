@@ -115,7 +115,7 @@
 | **Min FPGA size** | XC7A35T | Alveo U250 | Alveo U50 | NetFPGA | Alveo U250 | NetFPGA |
 | **Open-source sim** | Yes (Icarus) | No | Yes (cocotb) | No | Vivado | No |
 | **Synthesis (open-source)** | Yes (Yosys) | No | No | No | No | No |
-| **Data path width** | 8-bit | 64-512 bit | 64-512 bit | 256 bit | 512 bit | Custom |
+| **Data path width** | 8-512 bit | 64-512 bit | 64-512 bit | 256 bit | 512 bit | Custom |
 | **Clock frequency** | 125 MHz | 250-350 MHz | 250 MHz | 200 MHz | 250 MHz | 156 MHz |
 
 ### Tooling & Ecosystem
@@ -152,11 +152,11 @@
 
 | Feature | Benefit | Competitors That Have It | Effort |
 |---------|---------|--------------------------|--------|
-| **Wider data paths (64/128/256-bit)** | 10G-100G throughput; currently limited to ~2 Gbps | Corundum, VitisNetP4, OpenNIC | Large — requires rearchitecting frame_parser and rewrite engine |
+| ~~**Wider data paths (64/128/256-bit)**~~ | ~~10G-100G throughput~~ | ~~Corundum, VitisNetP4, OpenNIC~~ | **IMPLEMENTED** (Phase 27.1/27.4) — `--width {8,64,128,256,512}` with parameterized AXI-Stream width converters |
 | **P4 import** | Accept P4 programs as input; tap into P4 ecosystem | All P4 tools | Large — P4 parser frontend + mapping to PacGate model |
-| **P4 export** | Generate P4 from YAML rules for P4-compatible targets | Original — no tool does YAML→P4 | Medium — template-based P4 code generation |
+| ~~**P4 export**~~ | ~~Generate P4 from YAML rules for P4-compatible targets~~ | ~~Original — no tool does YAML→P4~~ | **IMPLEMENTED** (Phase 27.2/27.5) — `p4-export` subcommand generates P4_16 PSA programs |
 | **DMA / host interface** | Software packet injection/extraction; CPU offload | Corundum, NetFPGA, OpenNIC | Large — PCIe DMA is complex; or leverage existing Corundum/OpenNIC |
-| **Multi-table pipeline** | Sequential match-action stages (like P4 pipelines) | All P4 tools, FlowBlaze | Medium — extend decision_logic to chain stages |
+| ~~**Multi-table pipeline**~~ | ~~Sequential match-action stages (like P4 pipelines)~~ | ~~All P4 tools, FlowBlaze~~ | **IMPLEMENTED** (Phase 27.3/27.6-27.8) — optional `tables:` YAML key with AND-combined stage decisions |
 | **Hardware timestamping (PTP)** | Precise packet timing for telemetry / 5G | Corundum | Medium — PTP timestamp capture at MAC interface |
 
 ### Medium Priority (useful differentiators)
@@ -222,11 +222,11 @@ The closest competitors in specific dimensions:
 
 Based on this analysis, the features that would most strengthen PacGate's competitive position:
 
-1. **Wider data paths** — Moving from 8-bit to 64/128-bit would unlock 10G-25G line-rate, making PacGate viable for production SmartNIC deployments rather than prototyping only. This is the single biggest gap.
+1. ~~**Wider data paths**~~ — **DONE** (Phase 27). `--width {8,64,128,256,512}` with parameterized AXI-Stream width converters unlocks 10G-100G throughput.
 
-2. **P4 export** — No tool currently converts declarative YAML rules to P4. This would let PacGate users target both FPGA (via Verilog) and P4-programmable ASICs/SmartNICs from the same YAML spec.
+2. ~~**P4 export**~~ — **DONE** (Phase 27). `p4-export` subcommand generates P4_16 PSA programs from YAML rules — the first tool to offer YAML→P4 conversion.
 
-3. **Multi-table pipeline** — Sequential match-action stages would enable more complex processing (e.g., "classify then act") without increasing single-stage complexity.
+3. ~~**Multi-table pipeline**~~ — **DONE** (Phase 27). Optional `tables:` YAML key enables sequential match-action stages with AND-combined decision semantics.
 
 4. **Hardware timestamping** — Critical for 5G/telecom use cases where PacGate already has strong protocol support (GTP-U, eCPRI, PTP).
 
