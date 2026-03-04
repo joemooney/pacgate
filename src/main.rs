@@ -697,6 +697,24 @@ fn main() -> Result<()> {
                 }
             }
 
+            // Copy INT RTL if --int
+            if int {
+                let rtl_dir = output.join("rtl");
+                std::fs::create_dir_all(&rtl_dir)?;
+                let src = std::path::Path::new("rtl").join("int_metadata.v");
+                if src.exists() {
+                    let dst = rtl_dir.join("int_metadata.v");
+                    std::fs::copy(&src, &dst)?;
+                    log::info!("Copied int_metadata.v to {}", dst.display());
+                }
+
+                // Generate INT LUT from rules
+                let has_int_rules = config.pacgate.rules.iter().any(|r| r.has_int_insert());
+                if has_int_rules {
+                    verilog_gen::generate_int_lut(&config, &templates, &output)?;
+                }
+            }
+
             // Copy rate limiter RTL if --rate-limit or any rule has rate_limit
             let has_rate_limit = rate_limit || config.pacgate.rules.iter().any(|r| r.rate_limit.is_some());
             if has_rate_limit {

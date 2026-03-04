@@ -1411,6 +1411,38 @@ pub fn copy_width_converter_rtl(output_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Generate INT LUT from rules with int_insert enabled.
+pub fn generate_int_lut(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) -> Result<()> {
+    let rtl_dir = output_dir.join("rtl");
+    std::fs::create_dir_all(&rtl_dir)?;
+
+    let glob = format!("{}/**/*.tera", templates_dir.display());
+    let tera = Tera::new(&glob)
+        .with_context(|| format!("Failed to load templates from {}", templates_dir.display()))?;
+
+    let mut int_rules = Vec::new();
+    for (idx, rule) in config.pacgate.rules.iter().enumerate() {
+        if rule.has_int_insert() {
+            let mut map = std::collections::HashMap::new();
+            map.insert("idx".to_string(), serde_json::json!(idx));
+            map.insert("name".to_string(), serde_json::json!(rule.name));
+            int_rules.push(map);
+        }
+    }
+
+    let mut ctx = tera::Context::new();
+    ctx.insert("int_rules", &int_rules);
+
+    let rendered = tera.render("int_lut.v.tera", &ctx)
+        .context("Failed to render int_lut.v.tera")?;
+
+    let path = rtl_dir.join("int_lut.v");
+    std::fs::write(&path, rendered)?;
+    log::info!("Generated {}", path.display());
+
+    Ok(())
+}
+
 /// Generate OpenNIC platform wrapper from template.
 pub fn generate_opennic_wrapper(config: &FilterConfig, templates_dir: &Path, output_dir: &Path, rss_enabled: bool, rss_queues: u8) -> Result<()> {
     let rtl_dir = output_dir.join("rtl");
