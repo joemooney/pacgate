@@ -119,6 +119,10 @@ enum Commands {
         /// Platform target: standalone (default), opennic, or corundum
         #[arg(long, default_value = "standalone")]
         target: String,
+
+        /// AXI-Stream data path width in bits (8, 64, 128, 256, 512)
+        #[arg(long, default_value = "8")]
+        width: u16,
     },
     /// Output a DOT graph of the rule set for visualization
     Graph {
@@ -179,6 +183,10 @@ enum Commands {
         /// Platform target for lint checks
         #[arg(long, default_value = "standalone")]
         target: String,
+
+        /// AXI-Stream data path width in bits (8, 64, 128, 256, 512)
+        #[arg(long, default_value = "8")]
+        width: u16,
     },
     /// Generate SVA assertions and SymbiYosys formal verification files
     Formal {
@@ -622,7 +630,13 @@ fn main() -> Result<()> {
             // Platform target: copy width converters and generate wrapper
             // If --width 512 matches platform native width, skip redundant converters
             if platform.is_platform() {
-                if width != 512 {
+                if width == 512 {
+                    // Native width matches — no converters needed
+                } else if width > 8 {
+                    // Use parameterized converters for non-native widths
+                    verilog_gen::generate_width_converters(&templates, &output.join("rtl"), width)?;
+                } else {
+                    // Default 8-bit: use hardcoded 512↔8 converters
                     verilog_gen::copy_width_converter_rtl(&output)?;
                 }
                 match &platform {
@@ -807,10 +821,10 @@ fn main() -> Result<()> {
                 diff_rules(&old_config, &new_config, json)?;
             }
         }
-        Commands::Lint { rules, json, dynamic, dynamic_entries, target } => {
+        Commands::Lint { rules, json, dynamic, dynamic_entries, target, width } => {
             let platform = verilog_gen::PlatformTarget::from_str(&target)?;
             let (config, warnings) = loader::load_rules_with_warnings(&rules)?;
-            let findings = lint_rules(&config, &warnings, dynamic, dynamic_entries, &platform);
+            let findings = lint_rules(&config, &warnings, dynamic, dynamic_entries, &platform, width);
             if json {
                 println!("{}", serde_json::to_string_pretty(&findings)?);
             } else {
@@ -857,7 +871,7 @@ fn main() -> Result<()> {
                 println!("  cd {}/formal && sby -f packet_filter.sby", output.display());
             }
         }
-        Commands::Estimate { rules, json, dynamic, dynamic_entries, target } => {
+        Commands::Estimate { rules, json, dynamic, dynamic_entries, target, width } => {
             let platform = verilog_gen::PlatformTarget::from_str(&target)?;
             let (config, warnings) = loader::load_rules_with_warnings(&rules)?;
             if dynamic {
@@ -873,29 +887,48 @@ fn main() -> Result<()> {
                     print_dynamic_estimate(dynamic_entries);
                 }
             } else {
+                // Calculate width converter overhead
+                let (converter_luts, converter_ffs) = width_converter_estimate(width, platform.is_platform());
+
                 if json {
                     let mut estimate = compute_resource_estimate(&config);
                     // Add platform target overhead
                     if platform.is_platform() {
                         let obj = estimate.as_object_mut().unwrap();
                         obj.insert("platform_target".to_string(), serde_json::json!(platform.name()));
-                        obj.insert("width_converters".to_string(), serde_json::json!({
-                            "luts": 80,
-                            "ffs": 1100,
-                            "note": "axis_512_to_8 + axis_8_to_512 width converters"
-                        }));
                         obj.insert("platform_wrapper".to_string(), serde_json::json!({
                             "luts": 20,
                             "ffs": 50,
                             "note": format!("{} wrapper overhead", platform.name())
                         }));
+                    }
+                    if converter_luts > 0 || converter_ffs > 0 {
+                        let obj = estimate.as_object_mut().unwrap();
+                        obj.insert("data_width".to_string(), serde_json::json!(width));
+                        obj.insert("width_converters".to_string(), serde_json::json!({
+                            "luts": converter_luts,
+                            "ffs": converter_ffs,
+                            "note": format!("axis_{}_to_8 + axis_8_to_{} width converters", width, width)
+                        }));
                         // Update totals
+                        let wrapper_luts = if platform.is_platform() { 20u64 } else { 0 };
+                        let wrapper_ffs = if platform.is_platform() { 50u64 } else { 0 };
                         if let Some(total) = obj.get_mut("total") {
                             let cur_luts = total["luts"].as_u64().unwrap_or(0);
                             let cur_ffs = total["ffs"].as_u64().unwrap_or(0);
                             *total = serde_json::json!({
-                                "luts": cur_luts + 100,
-                                "ffs": cur_ffs + 1150,
+                                "luts": cur_luts + converter_luts + wrapper_luts,
+                                "ffs": cur_ffs + converter_ffs + wrapper_ffs,
+                            });
+                        }
+                    } else if platform.is_platform() {
+                        // Platform without extra converters (width==512 matches native)
+                        if let Some(total) = estimate.as_object_mut().unwrap().get_mut("total") {
+                            let cur_luts = total["luts"].as_u64().unwrap_or(0);
+                            let cur_ffs = total["ffs"].as_u64().unwrap_or(0);
+                            *total = serde_json::json!({
+                                "luts": cur_luts + 20,
+                                "ffs": cur_ffs + 50,
                             });
                         }
                     }
@@ -908,7 +941,14 @@ fn main() -> Result<()> {
                     print_resource_estimate(&config);
                     if platform.is_platform() {
                         println!();
-                        println!("  Platform target: {} (adds ~80 LUTs + ~1100 FFs for width converters)", platform.name());
+                        if width == 512 {
+                            println!("  Platform target: {} (native 512-bit — no extra width converters needed)", platform.name());
+                        } else {
+                            println!("  Platform target: {} (adds ~{} LUTs + ~{} FFs for width converters)", platform.name(), converter_luts, converter_ffs);
+                        }
+                    } else if width > 8 {
+                        println!();
+                        println!("  Data path width: {}-bit (adds ~{} LUTs + ~{} FFs for width converters)", width, converter_luts, converter_ffs);
                     }
                 }
             }
@@ -3303,6 +3343,31 @@ fn chrono_timestamp() -> String {
     }
 }
 
+/// Estimate LUTs/FFs for width converters based on data path width.
+/// Returns (luts, ffs) for both ingress and egress converters combined.
+/// For platform targets with default width (8), includes the inherent 512↔8 converters.
+fn width_converter_estimate(width: u16, is_platform: bool) -> (u64, u64) {
+    // Platform targets at native 512-bit need no extra converters
+    if is_platform && width == 512 {
+        return (0, 0);
+    }
+    // Platform targets with default width still need 512↔8 converters
+    if is_platform && width <= 8 {
+        // Hardcoded 512↔8: ~80 LUTs + ~1100 FFs (established from Phase 19)
+        return (80, 1100);
+    }
+    // Width 8 standalone means no converters
+    if width <= 8 {
+        return (0, 0);
+    }
+    // Converter cost scales with width: wider = more shift register / mux logic
+    // Each direction (in + out) costs roughly: LUTs ~= width/8 * 3, FFs ~= width + width/8
+    let per_dir_luts = (width as u64 / 8) * 3;
+    let per_dir_ffs = width as u64 + (width as u64 / 8);
+    // Both directions (ingress wide→8 + egress 8→wide)
+    (per_dir_luts * 2, per_dir_ffs * 2)
+}
+
 fn compute_resource_estimate(config: &model::FilterConfig) -> serde_json::Value {
     let rules = &config.pacgate.rules;
     let num_stateless = rules.iter().filter(|r| !r.is_stateful()).count();
@@ -3741,7 +3806,7 @@ fn print_dynamic_estimate(num_entries: u16) {
     println!();
 }
 
-fn lint_rules(config: &model::FilterConfig, warnings: &[String], dynamic: bool, dynamic_entries: u16, platform: &verilog_gen::PlatformTarget) -> serde_json::Value {
+fn lint_rules(config: &model::FilterConfig, warnings: &[String], dynamic: bool, dynamic_entries: u16, platform: &verilog_gen::PlatformTarget, width: u16) -> serde_json::Value {
     let rules = &config.pacgate.rules;
     let mut findings: Vec<serde_json::Value> = Vec::new();
 
@@ -4505,6 +4570,26 @@ fn lint_rules(config: &model::FilterConfig, warnings: &[String], dynamic: bool, 
             "code": "LINT037",
             "message": "enable_flow_counters is enabled — requires --conntrack flag at compile time for per-flow counter hardware",
             "suggestion": "Use --conntrack flag when compiling to enable connection tracking with per-flow counters"
+        }));
+    }
+
+    // LINT047: --width > 8 without --axi (width converters require AXI wrapper)
+    if width > 8 {
+        findings.push(serde_json::json!({
+            "level": "info",
+            "code": "LINT047",
+            "message": format!("Data path width set to {}-bit — width converters will be instantiated at AXI boundary", width),
+            "suggestion": "Ensure --axi flag is used when compiling (width converters are part of the AXI pipeline)"
+        }));
+    }
+
+    // LINT048: --width 512 with standalone target
+    if width == 512 && !platform.is_platform() {
+        findings.push(serde_json::json!({
+            "level": "info",
+            "code": "LINT048",
+            "message": "512-bit data path typically requires a platform NIC (OpenNIC/Corundum) with native 512-bit AXI-Stream",
+            "suggestion": "Consider --target opennic or --target corundum for 512-bit deployment"
         }));
     }
 

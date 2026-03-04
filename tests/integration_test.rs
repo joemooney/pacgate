@@ -6682,3 +6682,118 @@ pacgate:
         .unwrap();
     assert!(output.status.success(), "single-stage pipeline validate failed: {}", String::from_utf8_lossy(&output.stderr));
 }
+
+// ========================== Width Platform Integration Tests ==========================
+
+#[test]
+fn estimate_width_128_json() {
+    let output = pacgate_bin()
+        .args(["estimate", "rules/examples/l3l4_firewall.yaml", "--json", "--width", "128"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["data_width"], 128);
+    assert!(json["width_converters"]["luts"].as_u64().unwrap() > 0);
+}
+
+#[test]
+fn estimate_width_512_platform_skips_converters() {
+    let output = pacgate_bin()
+        .args(["estimate", "rules/examples/l3l4_firewall.yaml", "--json", "--width", "512", "--target", "opennic"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    // No width_converters key when 512 matches native
+    assert!(json.get("width_converters").is_none());
+}
+
+#[test]
+fn estimate_width_default_no_converters() {
+    let output = pacgate_bin()
+        .args(["estimate", "rules/examples/l3l4_firewall.yaml", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    // No width_converters key at default width 8
+    assert!(json.get("width_converters").is_none());
+}
+
+#[test]
+fn lint_width_128_shows_lint047() {
+    let output = pacgate_bin()
+        .args(["lint", "rules/examples/l3l4_firewall.yaml", "--json", "--width", "128"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let findings = json["findings"].as_array().unwrap();
+    assert!(findings.iter().any(|f| f["code"] == "LINT047"),
+        "Expected LINT047 for width > 8");
+}
+
+#[test]
+fn lint_width_512_standalone_shows_lint048() {
+    let output = pacgate_bin()
+        .args(["lint", "rules/examples/l3l4_firewall.yaml", "--json", "--width", "512"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let findings = json["findings"].as_array().unwrap();
+    assert!(findings.iter().any(|f| f["code"] == "LINT048"),
+        "Expected LINT048 for 512-bit standalone");
+}
+
+#[test]
+fn lint_width_512_opennic_no_lint048() {
+    let output = pacgate_bin()
+        .args(["lint", "rules/examples/l3l4_firewall.yaml", "--json", "--width", "512", "--target", "opennic"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let findings = json["findings"].as_array().unwrap();
+    assert!(!findings.iter().any(|f| f["code"] == "LINT048"),
+        "LINT048 should not appear when using platform target");
+}
+
+#[test]
+fn width_platform_opennic_512_compiles() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml",
+               "-o", tmp.path().to_str().unwrap(),
+               "--axi", "--width", "512", "--target", "opennic"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "Failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Should mention native width match
+    assert!(stdout.contains("no extra converters") || stdout.contains("512"),
+        "Expected note about native width, got: {}", stdout);
+}
+
+#[test]
+fn width_platform_opennic_128_parameterized_converters() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml",
+               "-o", tmp.path().to_str().unwrap(),
+               "--axi", "--width", "128", "--target", "opennic"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "Failed: {}", String::from_utf8_lossy(&output.stderr));
+    // Should have parameterized 128-bit converters
+    let rtl_dir = tmp.path().join("rtl");
+    assert!(rtl_dir.join("axis_128_to_8.v").exists(), "Expected parameterized 128→8 converter");
+    assert!(rtl_dir.join("axis_8_to_128.v").exists(), "Expected parameterized 8→128 converter");
+}
