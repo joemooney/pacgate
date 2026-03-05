@@ -1,0 +1,89 @@
+# Optimize Demo — exercises all 5 OPT passes
+# Run: pacgate optimize rules/examples/optimize_demo.yaml --json
+#
+# OPT001: dead_rule_http is shadowed by block_all_ipv4
+# OPT002: dup_https_a and dup_https_b are exact duplicates
+# OPT003: port_80, port_81, port_82 are adjacent ports → range 80-82
+# OPT004: subnet_10_0_0 and subnet_10_0_1 are adjacent /24s → /23
+# OPT005: irregular priorities get renumbered to uniform 100-spacing
+
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    # OPT003: Adjacent ports — will be merged into range 80-82
+    - name: port_80
+      priority: 800
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 80
+      action: pass
+
+    - name: port_81
+      priority: 790
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 81
+      action: pass
+
+    - name: port_82
+      priority: 780
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 82
+      action: pass
+
+    # OPT004: Adjacent CIDRs — will be merged into 10.0.0.0/23
+    - name: subnet_10_0_0
+      priority: 700
+      match:
+        src_ip: "10.0.0.0/24"
+      action: pass
+
+    - name: subnet_10_0_1
+      priority: 690
+      match:
+        src_ip: "10.0.1.0/24"
+      action: pass
+
+    # OPT001: Dead rule — block_all_ipv4 shadows dead_rule_http
+    - name: block_all_ipv4
+      priority: 500
+      match:
+        ethertype: "0x0800"
+      action: drop
+
+    - name: dead_rule_http
+      priority: 100
+      match:
+        ethertype: "0x0800"
+        dst_port: 80
+      action: pass
+
+    # OPT002: Exact duplicates (same criteria+action, different name/priority)
+    - name: dup_https_a
+      priority: 650
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 443
+      action: pass
+
+    - name: dup_https_b
+      priority: 640
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 443
+      action: pass
+
+    # Allow ARP (no optimization needed — just a regular rule)
+    - name: allow_arp
+      priority: 900
+      match:
+        ethertype: "0x0806"
+      action: pass

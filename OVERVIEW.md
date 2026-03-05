@@ -17,6 +17,7 @@ PacGate is an FPGA-based packet filtering switch where YAML-defined rules compil
 6. Import PCAP captures for real-traffic test stimulus
 7. Export to P4_16 PSA programs for software switch / SmartNIC targets (`p4-export` subcommand)
 8. Import from P4_16 PSA programs (`p4-import`), Wireshark display filters (`wireshark-import`), or iptables-save dumps (`iptables-import`) — quad input format (YAML + P4 + Wireshark + iptables)
+9. Optimize imported/hand-written rule sets with `optimize` subcommand — dead rule removal, deduplication, port/CIDR consolidation, priority normalization
 
 ## Innovation / Unique Value
 PacGate is unique in that no other tool generates both the hardware implementation (Verilog) and the verification environment (cocotb) from a single specification. Commercial tools like Agnisys IDS-Verify generate tests from register specs but assume the RTL already exists. LLM-based approaches generate one or the other non-deterministically. PacGate generates both, ensuring perfect alignment between specification, implementation, and verification.
@@ -184,6 +185,8 @@ UVM-inspired Python verification environment with:
 - `pacgate wireshark-import --filter "tcp.port == 80"` — Import Wireshark display filter to YAML rules
 - `pacgate iptables-import --file iptables.save` — Import iptables-save dump to YAML rules
 - `pacgate iptables-import --file iptables.save --json` — iptables import with JSON summary
+- `pacgate optimize rules.yaml` — Optimize rule set (dead rules, duplicates, port/CIDR consolidation)
+- `pacgate optimize rules.yaml --json` — JSON optimization summary
 - `pacgate pcap-gen rules.yaml` — Generate synthetic PCAP traffic from rules
 - `pacgate pcap-gen rules.yaml --count 1000 --output traffic.pcap` — 1000 packets to file
 - `pacgate pcap-gen rules.yaml --seed 42 --json` — Deterministic generation with JSON summary
@@ -284,6 +287,7 @@ UVM-inspired Python verification environment with:
 - **Phase 31** (complete): P4 Import (Bidirectional P4 Bridge) — `p4-import` subcommand parses P4_16 PSA programs into PacGate YAML rules, completing the bidirectional P4 bridge (YAML↔P4). Line-by-line state machine parser extracts table keys, const entries, rewrite actions, and extern declarations. Reverse mapping for all 55+ P4 match fields back to PacGate model. Rewrite action parsing (15 operations), extern detection (Register/Meter/ActionSelector warnings), round-trip validation (YAML→P4→YAML equivalence comparison), clean YAML output (null-stripped), JSON summary mode. 2 P4 example files (simple_firewall.p4, datacenter_filter.p4). src/p4_import.rs (~750 LOC), 37 CLI subcommands, 602 unit + 389 integration = 991 Rust tests + 90 Python tests
 - **Phase 32** (complete): Wireshark Display Filter Import — `wireshark-import` subcommand converts Wireshark display filter syntax (`tcp.port == 80 && ip.src == 10.0.0.0/8`) into PacGate YAML rules. Tokenizer + recursive descent parser with ~45 field mappings, protocol inference, bidirectional port expansion (tcp.port/udp.port), TCP flag bit accumulation, AND/OR/NOT logic handling. `--filter`/`--filter-file`/`--json`/`--default-action`/`--name` flags. 2 Wireshark filter examples. src/wireshark_import.rs (~700 LOC), 38 CLI subcommands, 638 unit + 399 integration = 1037 Rust tests + 90 Python tests
 - **Phase 33** (complete): iptables-save Import — `iptables-import` subcommand parses iptables-save output into PacGate YAML rules, completing the quad input format (YAML + P4 + Wireshark + iptables). Chain-aware rule extraction with protocol/address/port/interface/state/ICMP mapping, LOG/REJECT/MARK target support, `--file`/`--chain`/`--table`/`--json`/`--default-action`/`--name` flags. src/iptables_import.rs, 39 CLI subcommands, 1095 Rust tests + 90 Python tests
+- **Phase 34** (complete): Rule Set Optimizer — `optimize` subcommand performs 5 semantics-preserving optimization passes on rule sets: OPT001 dead rule removal (shadow-based), OPT002 duplicate merging (structural equality), OPT003 adjacent port consolidation, OPT004 adjacent CIDR consolidation, OPT005 priority renumbering. Pipeline-aware (per-stage), stateful rules preserved, `--json`/`-o`/`--apply` flags. src/optimize.rs (~500 LOC), 40 CLI subcommands, 1127 Rust tests + 90 Python tests
 
 ## Documentation
 - `README.md` — Project showcase and quick start

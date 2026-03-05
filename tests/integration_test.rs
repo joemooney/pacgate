@@ -7857,3 +7857,128 @@ fn iptables_import_forward_chain() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Imported"), "Expected import message: {}", stdout);
 }
+
+// ── Optimize subcommand integration tests ────────────────────────────
+
+#[test]
+fn optimize_json() {
+    let output = pacgate_bin()
+        .args(["optimize", "rules/examples/optimize_demo.yaml", "--json"])
+        .output().unwrap();
+    assert!(output.status.success(), "optimize --json failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    assert!(json["original_count"].as_u64().unwrap() > 0);
+    assert!(json["optimized_count"].as_u64().unwrap() < json["original_count"].as_u64().unwrap());
+    assert!(json["suggestions"].as_array().unwrap().len() > 0);
+}
+
+#[test]
+fn optimize_output_file() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml_out = tmp.path().join("optimized.yaml");
+    let output = pacgate_bin()
+        .args(["optimize", "rules/examples/optimize_demo.yaml", "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "optimize -o failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(yaml_out.exists());
+    let content = std::fs::read_to_string(&yaml_out).unwrap();
+    assert!(content.contains("pacgate"));
+    assert!(content.contains("rules"));
+}
+
+#[test]
+fn optimize_apply() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml_file = tmp.path().join("rules.yaml");
+    std::fs::copy("rules/examples/optimize_demo.yaml", &yaml_file).unwrap();
+    let output = pacgate_bin()
+        .args(["optimize", yaml_file.to_str().unwrap(), "--apply"])
+        .output().unwrap();
+    assert!(output.status.success(), "optimize --apply failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("in-place"), "Expected in-place message: {}", stdout);
+}
+
+#[test]
+fn optimize_validates_after() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml_out = tmp.path().join("optimized.yaml");
+    // Optimize
+    let output = pacgate_bin()
+        .args(["optimize", "rules/examples/optimize_demo.yaml", "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "optimize failed: {}", String::from_utf8_lossy(&output.stderr));
+    // Validate optimized output
+    let output = pacgate_bin()
+        .args(["validate", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "validate after optimize failed: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn optimize_example() {
+    let output = pacgate_bin()
+        .args(["optimize", "rules/examples/optimize_demo.yaml", "--json"])
+        .output().unwrap();
+    assert!(output.status.success(), "optimize example failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    // Should have suggestions from multiple OPT codes
+    let suggestions = json["suggestions"].as_array().unwrap();
+    let codes: Vec<&str> = suggestions.iter().map(|s| s["code"].as_str().unwrap()).collect();
+    assert!(codes.contains(&"OPT001"), "Expected OPT001 in {:?}", codes);
+    assert!(codes.contains(&"OPT005"), "Expected OPT005 in {:?}", codes);
+}
+
+#[test]
+fn optimize_no_suggestions() {
+    // A simple example with no optimization opportunities (apart from OPT005 renumber)
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml_file = tmp.path().join("simple.yaml");
+    std::fs::write(&yaml_file, "pacgate:\n  version: \"1.0\"\n  defaults:\n    action: drop\n  rules:\n    - name: allow_arp\n      priority: 100\n      match:\n        ethertype: \"0x0806\"\n      action: pass\n").unwrap();
+    let output = pacgate_bin()
+        .args(["optimize", yaml_file.to_str().unwrap(), "--json"])
+        .output().unwrap();
+    assert!(output.status.success(), "optimize failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    assert_eq!(json["original_count"], json["optimized_count"]);
+}
+
+#[test]
+fn optimize_stdout() {
+    let output = pacgate_bin()
+        .args(["optimize", "rules/examples/optimize_demo.yaml"])
+        .output().unwrap();
+    assert!(output.status.success(), "optimize stdout failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("pacgate"), "Expected YAML on stdout: {}", stdout);
+}
+
+#[test]
+fn optimize_idempotent() {
+    let tmp = tempfile::tempdir().unwrap();
+    // Create a simple input with adjacent ports (no shadows)
+    let yaml_in = tmp.path().join("input.yaml");
+    std::fs::write(&yaml_in, "pacgate:\n  version: \"1.0\"\n  defaults:\n    action: drop\n  rules:\n    - name: port_80\n      priority: 200\n      match:\n        ethertype: \"0x0800\"\n        ip_protocol: 6\n        dst_port: 80\n      action: pass\n    - name: port_81\n      priority: 100\n      match:\n        ethertype: \"0x0800\"\n        ip_protocol: 6\n        dst_port: 81\n      action: pass\n").unwrap();
+    let yaml_out = tmp.path().join("pass1.yaml");
+    // First pass
+    let output = pacgate_bin()
+        .args(["optimize", yaml_in.to_str().unwrap(), "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success());
+    // Second pass on optimized output
+    let output = pacgate_bin()
+        .args(["optimize", yaml_out.to_str().unwrap(), "--json"])
+        .output().unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    // Second pass should have no OPT001-OPT004 (only possible OPT005 renumber)
+    let suggestions = json["suggestions"].as_array().unwrap();
+    for s in suggestions {
+        let code = s["code"].as_str().unwrap();
+        assert!(code == "OPT005", "Unexpected suggestion on idempotent pass: {}", code);
+    }
+}

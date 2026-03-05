@@ -21,6 +21,7 @@ mod p4_import;
 mod pcap_gen;
 mod wireshark_import;
 mod iptables_import;
+mod optimize;
 
 use std::path::{Path, PathBuf};
 use clap::{CommandFactory, Parser, Subcommand};
@@ -589,6 +590,23 @@ enum Commands {
         /// Name prefix for generated rules
         #[arg(long, default_value = "iptables")]
         name: String,
+    },
+    /// Optimize rule set: dead rule removal, deduplication, port/CIDR consolidation, priority renumbering
+    Optimize {
+        /// Path to the YAML rules file
+        rules: PathBuf,
+
+        /// Output optimized YAML file (stdout if omitted)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Output JSON summary instead of YAML
+        #[arg(long)]
+        json: bool,
+
+        /// Apply optimization in-place (overwrite input file)
+        #[arg(long)]
+        apply: bool,
     },
 }
 
@@ -1843,6 +1861,38 @@ fn main() -> Result<()> {
                     std::fs::write(out_path, &yaml)
                         .with_context(|| format!("Failed to write YAML: {}", out_path.display()))?;
                     println!("Imported {} rules from iptables → {}", config.pacgate.rules.len(), out_path.display());
+                } else {
+                    print!("{}", yaml);
+                }
+            }
+        }
+        Commands::Optimize { rules, output, json, apply } => {
+            let (config, _warnings) = loader::load_rules_with_warnings(&rules)?;
+
+            if json {
+                let summary = optimize::optimize_summary(&config);
+                println!("{}", serde_json::to_string_pretty(&summary)?);
+            } else {
+                let result = optimize::optimize_rules(&config)?;
+                for w in &result.warnings {
+                    eprintln!("Warning: {}", w);
+                }
+                for s in &result.suggestions {
+                    eprintln!("[{}] {}", s.code, s.description);
+                }
+
+                let yaml = p4_import::config_to_yaml(&result.optimized_config)?;
+
+                if apply {
+                    std::fs::write(&rules, &yaml)
+                        .with_context(|| format!("Failed to write YAML: {}", rules.display()))?;
+                    println!("Optimized {} → {} rules (in-place) — {}",
+                        result.original_count, result.optimized_count, rules.display());
+                } else if let Some(ref out_path) = output {
+                    std::fs::write(out_path, &yaml)
+                        .with_context(|| format!("Failed to write YAML: {}", out_path.display()))?;
+                    println!("Optimized {} → {} rules → {}",
+                        result.original_count, result.optimized_count, out_path.display());
                 } else {
                     print!("{}", yaml);
                 }

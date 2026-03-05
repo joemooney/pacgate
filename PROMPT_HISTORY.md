@@ -3002,3 +3002,52 @@ Implement iptables-save import — parsing Linux iptables-save output into YAML 
 
 #### Git
 - Committed and pushed: Phase 33: iptables-save Import
+
+---
+
+### Session 37 — Phase 34: Rule Set Optimizer (2026-03-05)
+
+#### Prompt
+"Implement Phase 34: Rule Set Optimizer (`optimize` subcommand) — 5 semantics-preserving optimization passes: dead rule removal, duplicate merging, adjacent port consolidation, adjacent CIDR consolidation, priority renumbering."
+
+#### Actions Taken
+
+**34.1 — Optimizer Core + CLI + Tests**
+- Created `src/optimize.rs` (~500 LOC) with 5 optimization passes:
+  - **OPT001** — Dead rule removal using `loader::criteria_shadows()` shadow detection
+  - **OPT002** — Duplicate merging via JSON structural equality (name/priority zeroed)
+  - **OPT003** — Adjacent port consolidation (Exact+Exact, Exact+Range, Range+Range merging)
+  - **OPT004** — Adjacent CIDR consolidation (two /N halves → /(N-1), iterative cascading)
+  - **OPT005** — Priority renumbering to uniform 100-spacing
+- Added `mod optimize` to main.rs
+- Added `Commands::Optimize` variant with `--json`, `-o`, `--apply` flags
+- Added handler following iptables-import pattern (load → optimize → output)
+- Reuses `p4_import::config_to_yaml()` for YAML serialization
+- Pipeline-aware: optimizes each stage independently
+- Stateful rules pass through unmodified
+- 24 unit tests in optimize.rs (5 per pass + 4 end-to-end + 1 pipeline)
+- 8 integration tests in tests/integration_test.rs
+
+**34.2 — Example + Documentation**
+- Created `rules/examples/optimize_demo.yaml` — exercises all 5 OPT passes (shadowed rules, duplicates, adjacent ports 80-82, adjacent CIDRs 10.0.0.0/24+10.0.1.0/24, irregular priorities)
+- Updated CLAUDE.md: feature summary, CLI commands, key files, Phase 34 status, test counts
+- Updated OVERVIEW.md: feature list, CLI commands, Phase 34 entry
+- Updated REQUIREMENTS.md: REQ-3700 through REQ-3732
+- Updated PROMPT_HISTORY.md: Session 37 entry
+- Updated memory/MEMORY.md: Phase 34 state
+
+#### Test Results
+- 709 unit + 418 integration = 1127 Rust tests (all passing)
+- 90 Python scoreboard tests
+- 40 CLI subcommands
+
+#### New Artifacts
+- 1 new source file: src/optimize.rs (~500 LOC)
+- 1 new CLI subcommand: optimize (40 total)
+- 1 new YAML example: rules/examples/optimize_demo.yaml
+- 0 new parser states (23 total — pure software feature)
+- 0 new lint rules (57 total)
+- 0 new mutation types (41 total)
+
+#### Git
+- Committed and pushed: Phase 34: Rule Set Optimizer

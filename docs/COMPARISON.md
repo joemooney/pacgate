@@ -12,9 +12,9 @@
 | Parser states | 23 |
 | Lint rules | 57 |
 | Mutation types | 41 |
-| YAML examples | 51 (+2 P4, +2 Wireshark, +2 iptables) |
+| YAML examples | 52 (+2 P4, +2 Wireshark, +2 iptables) |
 | Tera templates | 42 |
-| Rust tests | 1095 |
+| Rust tests | 1127 |
 | Python tests | 90 |
 | Data path widths | 5 (8/64/128/256/512 bit) |
 | FPGA families | Artix-7, Virtex-7, UltraScale+, Alveo |

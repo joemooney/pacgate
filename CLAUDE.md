@@ -45,6 +45,7 @@
 - **P4 import**: `p4-import` subcommand parses P4_16 PSA programs into YAML rules, completing the bidirectional P4↔YAML bridge with rewrite action mapping, extern detection, and round-trip validation
 - **Wireshark display filter import**: `wireshark-import` subcommand converts Wireshark display filter syntax (`tcp.port == 80 && ip.src == 10.0.0.0/8`) into YAML rules with ~45 field mappings, protocol inference, bidirectional port expansion, and TCP flag accumulation
 - **iptables-save import**: `iptables-import` subcommand converts Linux `iptables-save` output into YAML rules with protocol/port/CIDR/TCP-flags/ICMP/conntrack-state/MAC/multiport mapping, DNAT/SNAT rewrite extraction, chain selection — quad input format (YAML + P4 + Wireshark + iptables)
+- **Rule set optimizer**: `optimize` subcommand performs 5 semantics-preserving passes: dead rule removal (OPT001), duplicate merging (OPT002), adjacent port consolidation (OPT003), adjacent CIDR consolidation (OPT004), priority renumbering (OPT005) — with `--json`/`-o`/`--apply` flags
 - **Multi-table pipeline**: optional `tables:` YAML key for sequential match-action stages with AND decision combining; per-stage rule matchers and decision logic
 - **cocotb 2.0 runner**: `run_sim.py` generated alongside Makefiles using `cocotb_tools.runner` API for programmatic, cross-platform simulation
 - **IPv6 matching**: src_ipv6, dst_ipv6 (CIDR prefix), ipv6_next_header
@@ -92,8 +93,8 @@
 - Coverage XML export with merge support across runs
 - Coverage-directed test generation (verification/coverage_driven.py)
 - Enhanced overlap detection with CIDR containment and port range analysis
-- 51 real-world YAML examples + 2 P4 + 2 Wireshark + 2 iptables examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite, OpenNIC, Corundum, TCP flags/ICMP, ARP security, ICMPv6 firewall, QinQ provider, fragment security, port rewrite, GRE tunnel, conntrack firewall, mirror/redirect, flow counters, OAM monitoring, NSH/SFC, Geneve datacenter, TTL security, IPv6 routing, QoS rewrite, wide AXI firewall, P4 export demo, pipeline classify, PTP boundary clock, PTP 5G fronthaul, RSS datacenter, RSS NIC offload, INT datacenter, pcap-gen demo)
-- 685 Rust unit tests + 410 integration tests = 1095 total, 90 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
+- 52 real-world YAML examples + 2 P4 + 2 Wireshark + 2 iptables examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite, OpenNIC, Corundum, TCP flags/ICMP, ARP security, ICMPv6 firewall, QinQ provider, fragment security, port rewrite, GRE tunnel, conntrack firewall, mirror/redirect, flow counters, OAM monitoring, NSH/SFC, Geneve datacenter, TTL security, IPv6 routing, QoS rewrite, wide AXI firewall, P4 export demo, pipeline classify, PTP boundary clock, PTP 5G fronthaul, RSS datacenter, RSS NIC offload, INT datacenter, pcap-gen demo, optimize demo)
+- 709 Rust unit tests + 418 integration tests = 1127 total, 90 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
 
 ## Architecture
 ```
@@ -200,6 +201,10 @@ pacgate iptables-import firewall.rules -o rules.yaml         # iptables-save →
 pacgate iptables-import firewall.rules --chain FORWARD        # Import FORWARD chain
 pacgate iptables-import firewall.rules --chain all            # Import all chains
 pacgate iptables-import firewall.rules --json                 # JSON import summary
+pacgate optimize rules.yaml                        # Optimize rule set (stdout YAML)
+pacgate optimize rules.yaml -o optimized.yaml      # Optimize → output file
+pacgate optimize rules.yaml --apply                # Optimize in-place
+pacgate optimize rules.yaml --json                 # JSON optimization summary
 pacgate report rules.yaml              # Generate HTML coverage report
 pacgate pcap capture.pcap              # Import PCAP for cocotb test stimulus
 pacgate from-mermaid fsm.md --name rule --priority 100  # Mermaid → YAML
@@ -283,8 +288,9 @@ pytest verification/test_scoreboard.py # 67 Python scoreboard unit tests
 - `src/p4_import.rs` — P4_16 PSA import: line-by-line state machine parser, reverse field mapping, rewrite/extern parsing (~750 LOC)
 - `src/wireshark_import.rs` — Wireshark display filter import: tokenizer, recursive descent parser, ~45 field mappings with protocol inference (~700 LOC)
 - `src/iptables_import.rs` — iptables-save import: line-based parser, protocol/port/CIDR/TCP-flags/ICMP/conntrack mapping, DNAT/SNAT rewrite, multiport expansion (~600 LOC)
+- `src/optimize.rs` — Rule set optimizer: 5 passes (dead rule removal, duplicate merging, port consolidation, CIDR consolidation, priority renumber) (~500 LOC)
 - `src/pcap_gen.rs` — Synthetic PCAP traffic generator with protocol-aware packet construction (~720 LOC)
-- `src/main.rs` — clap CLI (39 subcommands)
+- `src/main.rs` — clap CLI (40 subcommands)
 - `rtl/frame_parser.v` — Hand-written Ethernet/IPv4/IPv6/TCP/UDP/VXLAN/GTP-U/MPLS/IGMP/MLD/ICMP/ICMPv6/ARP/QinQ/OAM/NSH/Geneve/PTP parser FSM (23 states) with TCP flags + IPv6 TC + hop_limit + flow_label + fragmentation + L4 port offset + OAM/CFM + NSH/SFC + Geneve VNI + ip_ttl + PTP messageType/domain/version extraction
 - `rtl/ptp_clock.v` — Free-running 64-bit PTP hardware clock with SOF/EOF timestamp latching (optional, `--ptp` flag)
 - `rtl/rule_counters.v` — Per-rule 64-bit packet/byte counters
@@ -458,3 +464,7 @@ pytest verification/test_scoreboard.py # 67 Python scoreboard unit tests
   - **33.1 Core Parser+CLI+Tests**: `iptables-import` subcommand, line-based iptables-save parser, protocol/port/CIDR/TCP-flags/ICMP/conntrack-state/MAC mapping, multiport expansion, DNAT/SNAT rewrite extraction, chain selection (INPUT/FORWARD/OUTPUT/all), `--json`/`-o`/`--chain`/`--name` flags
   - **33.2 Examples+Docs**: basic_firewall.rules, nat_gateway.rules, documentation updates
   - src/iptables_import.rs (~600 LOC), 39 CLI subcommands, 685 unit + 410 integration = 1095 Rust tests + 90 Python tests
+- **Phase 34**: Complete — Rule Set Optimizer:
+  - **34.1 Core+CLI+Tests**: `optimize` subcommand with 5 optimization passes: OPT001 dead rule removal (shadow-based), OPT002 duplicate merging (structural equality), OPT003 adjacent port consolidation (Exact+Range merging), OPT004 adjacent CIDR consolidation (prefix-pair merging), OPT005 priority renumbering (uniform 100-spacing); pipeline-aware (per-stage); stateful rules preserved; `--json`/`-o`/`--apply` flags
+  - **34.2 Examples+Docs**: optimize_demo.yaml (exercises all 5 OPT passes), documentation updates
+  - src/optimize.rs (~500 LOC), 40 CLI subcommands, 709 unit + 418 integration = 1127 Rust tests + 90 Python tests

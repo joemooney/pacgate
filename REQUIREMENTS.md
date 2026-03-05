@@ -1795,3 +1795,33 @@
 
 ### iptables Import Integration
 - REQ-3617: Quad input format — PacGate supports four input formats: YAML (native), P4 (p4-import), Wireshark display filters (wireshark-import), and iptables-save (iptables-import)
+
+## Phase 34: Rule Set Optimizer
+
+### Optimizer Core
+- REQ-3700: `optimize` subcommand performs semantics-preserving optimizations on rule sets
+- REQ-3701: 5 optimization passes applied in order: dead rule removal, duplicate merging, port consolidation, CIDR consolidation, priority renumbering
+- REQ-3702: OPT001 — Remove rules fully shadowed by higher-priority rules (uses loader::criteria_shadows)
+- REQ-3703: OPT002 — Merge duplicate rules with identical criteria+action+rewrite+egress (structural equality via JSON serialization)
+- REQ-3704: OPT003 — Merge adjacent port rules (Exact+Exact, Exact+Range, Range+Range) into port ranges
+- REQ-3705: OPT004 — Merge adjacent IPv4 CIDR prefixes (two /N halves → /(N-1)) with iterative cascading
+- REQ-3706: OPT005 — Renumber priorities to uniform 100-spacing after sorting by original priority
+
+### Optimizer Safety
+- REQ-3710: Stateful rules (FSM) pass through unmodified — never removed, merged, or renumbered
+- REQ-3711: Pipeline configs optimized per-stage independently
+- REQ-3712: Rules with different rewrite/mirror/redirect/rss/int are never merged
+- REQ-3713: Conntrack/RSS/INT configs pass through untouched
+- REQ-3714: Idempotent: optimize(optimize(x)) produces no OPT001-OPT004 suggestions on second pass
+
+### Optimizer CLI
+- REQ-3720: `--json` flag outputs JSON summary (original_count, optimized_count, suggestions, warnings)
+- REQ-3721: `-o` flag writes optimized YAML to output file
+- REQ-3722: `--apply` flag writes optimized YAML back to input file (in-place)
+- REQ-3723: Default (no flags) outputs optimized YAML to stdout
+- REQ-3724: Warnings printed to stderr for shadowed rules with different actions
+
+### Optimizer Verification
+- REQ-3730: 24 unit tests covering all 5 passes + end-to-end + pipeline
+- REQ-3731: 8 integration tests (JSON, output file, apply, validates-after, example, no-suggestions, stdout, idempotent)
+- REQ-3732: optimize_demo.yaml example exercises all 5 OPT passes
