@@ -1710,6 +1710,13 @@ pub fn flatten_fsm(fsm: &crate::model::FsmDefinition) -> Result<crate::model::Fs
                 // Resolve sibling references: if next_state is a sibling, prefix with parent
                 for trans in &mut merged_transitions {
                     if states.contains_key(&trans.next_state) && !trans.next_state.contains('.') {
+                        // Transition to a composite sibling targets its initial leaf state.
+                        if let Some(target_state) = states.get(&trans.next_state) {
+                            if target_state.substates.is_some() {
+                                trans.next_state = resolve_initial_state(&trans.next_state, states);
+                                continue;
+                            }
+                        }
                         if !prefix.is_empty() {
                             trans.next_state = format!("{}.{}", prefix, trans.next_state);
                         }

@@ -215,7 +215,7 @@ module conntrack_table #(
                             (timestamp - table_ts[probe_idx]) >= TIMEOUT) begin
                             table_valid[probe_idx] <= 1'b0;  // Evict expired
                         end
-                        probe_idx   <= probe_idx + {{INDEX_BITS}}'d1;
+                        probe_idx   <= probe_idx + 1'b1;
                         probe_count <= probe_count + 4'd1;
                     end
                 end
@@ -253,7 +253,7 @@ module conntrack_table #(
                         state       <= S_IDLE;
                     end else begin
                         // Collision: linear probe
-                        probe_idx   <= probe_idx + {{INDEX_BITS}}'d1;
+                        probe_idx   <= probe_idx + 1'b1;
                         probe_count <= probe_count + 4'd1;
                     end
                 end
