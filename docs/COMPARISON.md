@@ -479,7 +479,7 @@ PacGate generates verification artifacts (tests, assertions, coverage) automatic
 
 | Metric | PacGate | Vitis Net P4 | Corundum | FlowBlaze | OpenNIC | hXDP |
 |--------|:-------:|:------------:|:--------:|:---------:|:-------:|:----:|
-| **Target throughput** | 2-100 Gbps | 100G-1T | 100G | 40G | 200G | 10G |
+| **Target throughput** | ~2 Gbps (V1, 8-bit parser); 100G+ planned (wide parser) | 100G-1T | 100G | 40G | 200G | 10G |
 | **Target FPGA families** | Artix-7, Virtex-7, UltraScale+, Alveo | UltraScale+, Versal | UltraScale+, Stratix 10, Agilex | Virtex-7 | Alveo UltraScale+ | Virtex-7 |
 | **Min FPGA size** | XC7A35T (8b) / Alveo (512b) | Alveo U250 | Alveo U50 | NetFPGA | Alveo U250 | NetFPGA |
 | **Open-source sim** | Yes (Icarus) | No | Yes (cocotb) | No | Vivado | No |
@@ -523,7 +523,7 @@ PacGate generates verification artifacts (tests, assertions, coverage) automatic
 
 | Feature | Phase | What Was Delivered |
 |---------|-------|-------------------|
-| **Wider data paths** | 27 | `--width {8,64,128,256,512}` with parameterized AXI-Stream width converters — 2 Gbps → 100 Gbps |
+| **Wider data paths** | 27 | `--width {8,64,128,256,512,1024,2048}` AXI-Stream bus-width compatibility converters (V1 ~2 Gbps; native wide parser planned for 100G+) |
 | **P4 export** | 27 | `p4-export` subcommand generates P4_16 PSA programs with Register/Meter externs — first YAML→P4 tool |
 | **Multi-table pipeline** | 27 | Optional `tables:` YAML key with N sequential match-action stages, AND-combined decisions, shared parser |
 | **PTP (IEEE 1588)** | 28 | 3 PTP match fields + dual L2/L4 detection + optional ptp_clock.v hardware clock |
@@ -636,7 +636,7 @@ Based on this analysis, the next features that would most strengthen PacGate's c
 
 | Priority | Feature | Phase | Delivered |
 |----------|---------|-------|-----------|
-| 1 | Wider data paths (64-512 bit) | 27.1/27.4 | `--width {8,64,128,256,512}` — 2-100 Gbps throughput |
+| 1 | Wider data paths (64-2048 bit) | 27.1/27.4 | `--width {8..2048}` — bus-width compatibility (V1 ~2 Gbps; wide parser planned for 100G+) |
 | 2 | P4 export (YAML → P4_16 PSA) | 27.2/27.5 | `p4-export` subcommand — first YAML→P4 tool |
 | 3 | Multi-table pipeline | 27.3/27.6-27.8 | `tables:` YAML key — N sequential match-action stages |
 | 4 | PTP hardware timestamping | 28 | IEEE 1588 PTP matching + dual L2/L4 detection + ptp_clock.v |

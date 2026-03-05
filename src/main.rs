@@ -84,7 +84,7 @@ enum Commands {
         #[arg(long, default_value = "standalone")]
         target: String,
 
-        /// AXI-Stream data path width in bits (8, 64, 128, 256, 512)
+        /// AXI-Stream data path width in bits (8, 64, 128, 256, 512, 1024, 2048)
         #[arg(long, default_value = "8")]
         width: u16,
 
@@ -144,7 +144,7 @@ enum Commands {
         #[arg(long, default_value = "standalone")]
         target: String,
 
-        /// AXI-Stream data path width in bits (8, 64, 128, 256, 512)
+        /// AXI-Stream data path width in bits (8, 64, 128, 256, 512, 1024, 2048)
         #[arg(long, default_value = "8")]
         width: u16,
     },
@@ -208,7 +208,7 @@ enum Commands {
         #[arg(long, default_value = "standalone")]
         target: String,
 
-        /// AXI-Stream data path width in bits (8, 64, 128, 256, 512)
+        /// AXI-Stream data path width in bits (8, 64, 128, 256, 512, 1024, 2048)
         #[arg(long, default_value = "8")]
         width: u16,
     },
@@ -673,8 +673,8 @@ fn main() -> Result<()> {
             let int = int || int_switch_id != 0;
             // Validate width parameter
             match width {
-                8 | 64 | 128 | 256 | 512 => {}
-                _ => anyhow::bail!("--width must be 8, 64, 128, 256, or 512 (got {})", width),
+                8 | 64 | 128 | 256 | 512 | 1024 | 2048 => {}
+                _ => anyhow::bail!("--width must be 8, 64, 128, 256, 512, 1024, or 2048 (got {})", width),
             }
             let platform = verilog_gen::PlatformTarget::from_str(&target)?;
 
@@ -5122,13 +5122,13 @@ fn lint_rules(config: &model::FilterConfig, warnings: &[String], dynamic: bool, 
         }));
     }
 
-    // LINT048: --width 512 with standalone target
-    if width == 512 && !platform.is_platform() {
+    // LINT048: --width >= 512 with standalone target
+    if width >= 512 && !platform.is_platform() {
         findings.push(serde_json::json!({
             "level": "info",
             "code": "LINT048",
-            "message": "512-bit data path typically requires a platform NIC (OpenNIC/Corundum) with native 512-bit AXI-Stream",
-            "suggestion": "Consider --target opennic or --target corundum for 512-bit deployment"
+            "message": format!("{}-bit data path typically requires a platform NIC (OpenNIC/Corundum) with native wide AXI-Stream", width),
+            "suggestion": "Consider --target opennic or --target corundum for wide data path deployment"
         }));
     }
 

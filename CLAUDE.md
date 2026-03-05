@@ -39,8 +39,8 @@
 - **Runtime flow tables**: register-based AXI-Lite-writable match entries with staging+commit atomicity (`--dynamic`)
 - **Mirror/redirect egress**: mirror_port (copy packet to egress port), redirect_port (override egress port) per-rule egress actions
 - **Packet rewrite actions**: set_dst_mac, set_src_mac, set_vlan_id, set_vlan_pcp, set_outer_vlan_id, set_ttl, dec_ttl, set_src_ip, set_dst_ip, set_dscp, set_ecn, set_src_port, set_dst_port, dec_hop_limit, set_hop_limit (NAT, PAT, TTL management, MAC rewrite, VLAN modification, QoS remarking, port forwarding, IPv6 hop limit, ECN marking)
-- **Platform integration**: `--target opennic` and `--target corundum` generate drop-in NIC wrappers with 512↔8-bit width converters (~2 Gbps at 250MHz)
-- **Parameterized data path width**: `--width {8,64,128,256,512}` generates AXI-Stream width converters for higher throughput (128-bit @ 250MHz = ~32 Gbps)
+- **Platform integration**: `--target opennic` and `--target corundum` generate drop-in NIC wrappers with 512↔8-bit width converters (~2 Gbps at 250MHz; bus-width compatibility, core parser is 8-bit)
+- **Parameterized data path width**: `--width {8,64,128,256,512,1024,2048}` generates AXI-Stream width converters for NIC bus-width compatibility (V1 throughput limited to ~2 Gbps by 8-bit core parser; native wide parser planned for true 100G+)
 - **P4 export**: `p4-export` subcommand generates P4_16 PSA program from YAML rules, targeting P4-programmable ASICs/SmartNICs
 - **P4 import**: `p4-import` subcommand parses P4_16 PSA programs into YAML rules, completing the bidirectional P4↔YAML bridge with rewrite action mapping, extern detection, and round-trip validation
 - **Wireshark display filter import**: `wireshark-import` subcommand converts Wireshark display filter syntax (`tcp.port == 80 && ip.src == 10.0.0.0/8`) into YAML rules with ~45 field mappings, protocol inference, bidirectional port expansion, and TCP flag accumulation
@@ -360,7 +360,7 @@ pytest verification/test_scoreboard.py # 67 Python scoreboard unit tests
 - L4 port rewrite: RFC 1624 incremental checksum; UDP checksum=0 preserved (means "no checksum" per RFC 768)
 - Packet rewrite is in-place only (no frame length changes); supports MAC/VLAN/VLAN-PCP/outer-VLAN/TTL/hop-limit/IP/DSCP/ECN/port substitution with RFC 1624 incremental checksum (IPv4 only; IPv6 rewrite needs no checksum)
 - AXI-Stream modules are hand-written (not generated) since they are infrastructure
-- Platform targets (OpenNIC/Corundum): 512↔8-bit width converters limit V1 to ~2 Gbps; suitable for 1GbE/dev/prototyping
+- Platform targets (OpenNIC/Corundum): V1 uses width converters (wide↔8-bit) so core parser throughput is ~2 Gbps regardless of bus width; suitable for 1GbE/dev/prototyping. Width parameter (8-2048) provides bus-width compatibility only. See docs/WIDE_PARSER_ROADMAP.md for native wide parser plan (speculative parallel extraction for true 100G+)
 - OpenNIC wrapper preserves tuser_size/tuser_src/tuser_dst metadata; Corundum wrapper inverts active-high reset and passes PTP timestamp
 - License: Proprietary (see LICENSE)
 
