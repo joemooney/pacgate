@@ -7700,3 +7700,160 @@ fn wireshark_import_validates_after_import() {
         .output().unwrap();
     assert!(output.status.success(), "lint failed: {}", String::from_utf8_lossy(&output.stderr));
 }
+
+// ============================================================
+// iptables Import integration tests
+// ============================================================
+
+#[test]
+fn iptables_import_simple() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml_out = tmp.path().join("simple.yaml");
+    let output = pacgate_bin()
+        .args(["iptables-import", "rules/examples/iptables/basic_firewall.rules", "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "iptables-import failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Imported"), "Expected import message: {}", stdout);
+    assert!(yaml_out.exists());
+}
+
+#[test]
+fn iptables_import_multi_rule() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml_out = tmp.path().join("multi.yaml");
+    let output = pacgate_bin()
+        .args(["iptables-import", "rules/examples/iptables/basic_firewall.rules", "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "iptables-import failed: {}", String::from_utf8_lossy(&output.stderr));
+    let yaml_content = std::fs::read_to_string(&yaml_out).unwrap();
+    assert!(yaml_content.contains("dst_port"), "Expected dst_port in YAML: {}", yaml_content);
+}
+
+#[test]
+fn iptables_import_multiport() {
+    let tmp = tempfile::tempdir().unwrap();
+    let input = tmp.path().join("multiport.rules");
+    std::fs::write(&input, "*filter\n:INPUT DROP [0:0]\n-A INPUT -p tcp -m multiport --dports 80,443,8080 -j ACCEPT\nCOMMIT\n").unwrap();
+    let yaml_out = tmp.path().join("multiport.yaml");
+    let output = pacgate_bin()
+        .args(["iptables-import", input.to_str().unwrap(), "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "iptables-import multiport failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("3 rules"), "Expected 3 rules from multiport: {}", stdout);
+}
+
+#[test]
+fn iptables_import_tcp_flags() {
+    let tmp = tempfile::tempdir().unwrap();
+    let input = tmp.path().join("flags.rules");
+    std::fs::write(&input, "*filter\n:INPUT DROP [0:0]\n-A INPUT -p tcp -m tcp --tcp-flags SYN,ACK SYN -j ACCEPT\nCOMMIT\n").unwrap();
+    let yaml_out = tmp.path().join("flags.yaml");
+    let output = pacgate_bin()
+        .args(["iptables-import", input.to_str().unwrap(), "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "iptables-import tcp-flags failed: {}", String::from_utf8_lossy(&output.stderr));
+    let yaml_content = std::fs::read_to_string(&yaml_out).unwrap();
+    assert!(yaml_content.contains("tcp_flags"), "Expected tcp_flags in YAML: {}", yaml_content);
+}
+
+#[test]
+fn iptables_import_icmp() {
+    let tmp = tempfile::tempdir().unwrap();
+    let input = tmp.path().join("icmp.rules");
+    std::fs::write(&input, "*filter\n:INPUT DROP [0:0]\n-A INPUT -p icmp --icmp-type echo-request -j ACCEPT\nCOMMIT\n").unwrap();
+    let yaml_out = tmp.path().join("icmp.yaml");
+    let output = pacgate_bin()
+        .args(["iptables-import", input.to_str().unwrap(), "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "iptables-import icmp failed: {}", String::from_utf8_lossy(&output.stderr));
+    let yaml_content = std::fs::read_to_string(&yaml_out).unwrap();
+    assert!(yaml_content.contains("icmp_type: 8"), "Expected icmp_type 8: {}", yaml_content);
+}
+
+#[test]
+fn iptables_import_state() {
+    let tmp = tempfile::tempdir().unwrap();
+    let input = tmp.path().join("state.rules");
+    std::fs::write(&input, "*filter\n:INPUT DROP [0:0]\n-A INPUT -m state --state NEW -p tcp --dport 22 -j ACCEPT\nCOMMIT\n").unwrap();
+    let yaml_out = tmp.path().join("state.yaml");
+    let output = pacgate_bin()
+        .args(["iptables-import", input.to_str().unwrap(), "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "iptables-import state failed: {}", String::from_utf8_lossy(&output.stderr));
+    let yaml_content = std::fs::read_to_string(&yaml_out).unwrap();
+    assert!(yaml_content.contains("conntrack_state: new"), "Expected conntrack_state: {}", yaml_content);
+}
+
+#[test]
+fn iptables_import_json() {
+    let output = pacgate_bin()
+        .args(["iptables-import", "rules/examples/iptables/basic_firewall.rules", "--json"])
+        .output().unwrap();
+    assert!(output.status.success(), "iptables-import --json failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["status"], "ok");
+    assert!(json["rule_count"].as_u64().unwrap() > 0);
+}
+
+#[test]
+fn iptables_import_stdout() {
+    let output = pacgate_bin()
+        .args(["iptables-import", "rules/examples/iptables/basic_firewall.rules"])
+        .output().unwrap();
+    assert!(output.status.success(), "iptables-import stdout failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("dst_port"), "Expected YAML with dst_port: {}", stdout);
+}
+
+#[test]
+fn iptables_import_validates_after_import() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml_out = tmp.path().join("validated.yaml");
+    // Import
+    let output = pacgate_bin()
+        .args(["iptables-import", "rules/examples/iptables/basic_firewall.rules", "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "iptables-import failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // Validate
+    let output = pacgate_bin()
+        .args(["validate", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "validate failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // Lint
+    let output = pacgate_bin()
+        .args(["lint", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "lint failed: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn iptables_import_dnat_rewrite() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml_out = tmp.path().join("dnat.yaml");
+    let output = pacgate_bin()
+        .args(["iptables-import", "rules/examples/iptables/nat_gateway.rules",
+               "--chain", "PREROUTING", "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "iptables-import DNAT failed: {}", String::from_utf8_lossy(&output.stderr));
+    let yaml_content = std::fs::read_to_string(&yaml_out).unwrap();
+    assert!(yaml_content.contains("set_dst_ip"), "Expected set_dst_ip rewrite: {}", yaml_content);
+    assert!(yaml_content.contains("set_dst_port"), "Expected set_dst_port rewrite: {}", yaml_content);
+}
+
+#[test]
+fn iptables_import_forward_chain() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml_out = tmp.path().join("forward.yaml");
+    let output = pacgate_bin()
+        .args(["iptables-import", "rules/examples/iptables/nat_gateway.rules",
+               "--chain", "FORWARD", "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "iptables-import FORWARD failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Imported"), "Expected import message: {}", stdout);
+}

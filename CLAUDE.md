@@ -43,7 +43,8 @@
 - **Parameterized data path width**: `--width {8,64,128,256,512}` generates AXI-Stream width converters for higher throughput (128-bit @ 250MHz = ~32 Gbps)
 - **P4 export**: `p4-export` subcommand generates P4_16 PSA program from YAML rules, targeting P4-programmable ASICs/SmartNICs
 - **P4 import**: `p4-import` subcommand parses P4_16 PSA programs into YAML rules, completing the bidirectional P4↔YAML bridge with rewrite action mapping, extern detection, and round-trip validation
-- **Wireshark display filter import**: `wireshark-import` subcommand converts Wireshark display filter syntax (`tcp.port == 80 && ip.src == 10.0.0.0/8`) into YAML rules with ~45 field mappings, protocol inference, bidirectional port expansion, and TCP flag accumulation — triple input format (YAML + P4 + Wireshark)
+- **Wireshark display filter import**: `wireshark-import` subcommand converts Wireshark display filter syntax (`tcp.port == 80 && ip.src == 10.0.0.0/8`) into YAML rules with ~45 field mappings, protocol inference, bidirectional port expansion, and TCP flag accumulation
+- **iptables-save import**: `iptables-import` subcommand converts Linux `iptables-save` output into YAML rules with protocol/port/CIDR/TCP-flags/ICMP/conntrack-state/MAC/multiport mapping, DNAT/SNAT rewrite extraction, chain selection — quad input format (YAML + P4 + Wireshark + iptables)
 - **Multi-table pipeline**: optional `tables:` YAML key for sequential match-action stages with AND decision combining; per-stage rule matchers and decision logic
 - **cocotb 2.0 runner**: `run_sim.py` generated alongside Makefiles using `cocotb_tools.runner` API for programmatic, cross-platform simulation
 - **IPv6 matching**: src_ipv6, dst_ipv6 (CIDR prefix), ipv6_next_header
@@ -91,8 +92,8 @@
 - Coverage XML export with merge support across runs
 - Coverage-directed test generation (verification/coverage_driven.py)
 - Enhanced overlap detection with CIDR containment and port range analysis
-- 51 real-world YAML examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite, OpenNIC, Corundum, TCP flags/ICMP, ARP security, ICMPv6 firewall, QinQ provider, fragment security, port rewrite, GRE tunnel, conntrack firewall, mirror/redirect, flow counters, OAM monitoring, NSH/SFC, Geneve datacenter, TTL security, IPv6 routing, QoS rewrite, wide AXI firewall, P4 export demo, pipeline classify, PTP boundary clock, PTP 5G fronthaul, RSS datacenter, RSS NIC offload, INT datacenter, pcap-gen demo)
-- 638 Rust unit tests + 399 integration tests = 1037 total, 90 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
+- 51 real-world YAML examples + 2 P4 + 2 Wireshark + 2 iptables examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite, OpenNIC, Corundum, TCP flags/ICMP, ARP security, ICMPv6 firewall, QinQ provider, fragment security, port rewrite, GRE tunnel, conntrack firewall, mirror/redirect, flow counters, OAM monitoring, NSH/SFC, Geneve datacenter, TTL security, IPv6 routing, QoS rewrite, wide AXI firewall, P4 export demo, pipeline classify, PTP boundary clock, PTP 5G fronthaul, RSS datacenter, RSS NIC offload, INT datacenter, pcap-gen demo)
+- 685 Rust unit tests + 410 integration tests = 1095 total, 90 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
 
 ## Architecture
 ```
@@ -194,6 +195,11 @@ pacgate wireshark-import --filter "tcp.port == 80" -o rules.yaml # Wireshark fil
 pacgate wireshark-import --filter-file filter.txt -o rules.yaml  # From filter file
 pacgate wireshark-import --filter "tcp.port == 80" --json        # JSON import summary
 pacgate wireshark-import --filter "!arp" --default-action pass   # Custom default action
+pacgate iptables-import firewall.rules                       # iptables-save → YAML (stdout)
+pacgate iptables-import firewall.rules -o rules.yaml         # iptables-save → YAML file
+pacgate iptables-import firewall.rules --chain FORWARD        # Import FORWARD chain
+pacgate iptables-import firewall.rules --chain all            # Import all chains
+pacgate iptables-import firewall.rules --json                 # JSON import summary
 pacgate report rules.yaml              # Generate HTML coverage report
 pacgate pcap capture.pcap              # Import PCAP for cocotb test stimulus
 pacgate from-mermaid fsm.md --name rule --priority 100  # Mermaid → YAML
@@ -276,8 +282,9 @@ pytest verification/test_scoreboard.py # 67 Python scoreboard unit tests
 - `src/p4_gen.rs` — P4_16 PSA code generation from YAML rules (~950 LOC)
 - `src/p4_import.rs` — P4_16 PSA import: line-by-line state machine parser, reverse field mapping, rewrite/extern parsing (~750 LOC)
 - `src/wireshark_import.rs` — Wireshark display filter import: tokenizer, recursive descent parser, ~45 field mappings with protocol inference (~700 LOC)
+- `src/iptables_import.rs` — iptables-save import: line-based parser, protocol/port/CIDR/TCP-flags/ICMP/conntrack mapping, DNAT/SNAT rewrite, multiport expansion (~600 LOC)
 - `src/pcap_gen.rs` — Synthetic PCAP traffic generator with protocol-aware packet construction (~720 LOC)
-- `src/main.rs` — clap CLI (38 subcommands)
+- `src/main.rs` — clap CLI (39 subcommands)
 - `rtl/frame_parser.v` — Hand-written Ethernet/IPv4/IPv6/TCP/UDP/VXLAN/GTP-U/MPLS/IGMP/MLD/ICMP/ICMPv6/ARP/QinQ/OAM/NSH/Geneve/PTP parser FSM (23 states) with TCP flags + IPv6 TC + hop_limit + flow_label + fragmentation + L4 port offset + OAM/CFM + NSH/SFC + Geneve VNI + ip_ttl + PTP messageType/domain/version extraction
 - `rtl/ptp_clock.v` — Free-running 64-bit PTP hardware clock with SOF/EOF timestamp latching (optional, `--ptp` flag)
 - `rtl/rule_counters.v` — Per-rule 64-bit packet/byte counters
@@ -447,3 +454,7 @@ pytest verification/test_scoreboard.py # 67 Python scoreboard unit tests
   - **32.1 Core+CLI+Tests**: `wireshark-import` subcommand, tokenizer + recursive descent parser + ~45 field mappings with protocol inference, bidirectional port expansion (tcp.port/udp.port), TCP flag bit accumulation, AND→merge/OR→split/NOT→invert, `--filter`/`--filter-file`/`--json`/`--default-action`/`--name` flags
   - **32.2 Examples+Docs**: 2 Wireshark filter examples (web_filter.txt, security_filter.txt), documentation updates
   - src/wireshark_import.rs (~700 LOC), 38 CLI subcommands, 638 unit + 399 integration = 1037 Rust tests + 90 Python tests
+- **Phase 33**: Complete — iptables-save Import:
+  - **33.1 Core Parser+CLI+Tests**: `iptables-import` subcommand, line-based iptables-save parser, protocol/port/CIDR/TCP-flags/ICMP/conntrack-state/MAC mapping, multiport expansion, DNAT/SNAT rewrite extraction, chain selection (INPUT/FORWARD/OUTPUT/all), `--json`/`-o`/`--chain`/`--name` flags
+  - **33.2 Examples+Docs**: basic_firewall.rules, nat_gateway.rules, documentation updates
+  - src/iptables_import.rs (~600 LOC), 39 CLI subcommands, 685 unit + 410 integration = 1095 Rust tests + 90 Python tests

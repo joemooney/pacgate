@@ -12,9 +12,9 @@
 | Parser states | 23 |
 | Lint rules | 57 |
 | Mutation types | 41 |
-| YAML examples | 51 (+2 P4, +2 Wireshark) |
+| YAML examples | 51 (+2 P4, +2 Wireshark, +2 iptables) |
 | Tera templates | 42 |
-| Rust tests | 1037 |
+| Rust tests | 1095 |
 | Python tests | 90 |
 | Data path widths | 5 (8/64/128/256/512 bit) |
 | FPGA families | Artix-7, Virtex-7, UltraScale+, Alveo |
@@ -386,14 +386,14 @@ PacGate generates verification artifacts (tests, assertions, coverage) automatic
 
 | Feature | PacGate | Vitis Net P4 | Intel P4 | Corundum | FlowBlaze | FFShark | Vivado HLS |
 |---------|:-------:|:------------:|:--------:|:--------:|:---------:|:-------:|:----------:|
-| **Input format** | YAML + P4 + Wireshark | P4 | P4 | Verilog | EFSM/GUI | BPF | C/C++ |
+| **Input format** | YAML + P4 + Wireshark + iptables | P4 | P4 | Verilog | EFSM/GUI | BPF | C/C++ |
 | **Generates RTL** | Yes | Yes | Yes | N/A (is RTL) | N/A (fixed arch) | N/A (fixed arch) | Yes |
 | **Generates P4 export** | **Yes** (P4_16 PSA) | N/A | N/A | No | No | No | No |
 | **Generates tests** | Yes | No | No | No | No | No | No |
 | **Generates SVA assertions** | Yes | No | No | No | No | No | No |
 | **Generates property tests** | Yes | No | No | No | No | No | No |
 | **Generates coverage model** | Yes | No | No | No | No | No | No |
-| **Single-spec triple-output** | **Yes** (RTL+tests+P4) | No | No | No | No | No | No |
+| **Single-spec quad-output** | **Yes** (RTL+tests+P4) | No | No | No | No | No | No |
 | **Multi-table pipeline** | **Yes** (`tables:` YAML) | Native (P4) | Native (P4) | No | Yes (EFSM) | No | User |
 | **Parameterized data width** | **Yes** (8-512 bit) | Fixed per target | Fixed per target | Fixed | Fixed | Fixed | User |
 | **No HDL/PL knowledge needed** | **Yes** | No (P4) | No (P4) | No (Verilog) | Partial (GUI) | Yes (BPF) | No (C++) |
@@ -592,7 +592,7 @@ No other tool in this landscape offers PacGate's combination:
                            (hand-written)
 ```
 
-**PacGate is the only tool that generates synthesizable hardware, a complete verification environment, AND a P4_16 PSA program — all from a single declarative YAML specification.** This triple-output capability is its fundamental differentiator.
+**PacGate is the only tool that generates synthesizable hardware, a complete verification environment, AND a P4_16 PSA program — all from a single declarative YAML specification.** With quad input format (YAML + P4 + Wireshark + iptables), it is the most accessible FPGA packet filter tool available.
 
 ### What Makes PacGate Unique
 
@@ -643,5 +643,6 @@ Based on this analysis, the next features that would most strengthen PacGate's c
 | 5 | RSS multi-queue dispatch | 29 | Toeplitz hash + 128-entry indirection table + per-rule queue override |
 | 6 | In-band telemetry (INT) | 30 | Sideband metadata capture (switch_id, timestamps, hop_latency, rule_idx) |
 | 7 | Synthetic traffic generation | 30 | `pcap-gen` subcommand — protocol-aware PCAP from YAML rules |
-| 8 | Wireshark display filter import | 32 | `wireshark-import` subcommand — ~45 field mappings, YAML + P4 + Wireshark triple input |
+| 8 | Wireshark display filter import | 32 | `wireshark-import` subcommand — ~45 field mappings |
 | 9 | P4 import (bidirectional bridge) | 31 | `p4-import` subcommand — 55+ field reverse mappings, round-trip validated |
+| 10 | iptables-save import | 33 | `iptables-import` subcommand — protocol/port/CIDR/TCP-flags/ICMP/conntrack/DNAT/SNAT mapping, quad input |

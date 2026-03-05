@@ -2949,3 +2949,56 @@ Complete the bidirectional P4 bridge by adding `p4-import` subcommand that parse
 
 ### Git
 - Committed and pushed Phase 32 implementation
+
+---
+
+## Session 5: Phase 33 — iptables-save Import
+
+**Date**: 2026-03-04
+**Goal**: Add `iptables-import` subcommand for parsing Linux iptables-save output into YAML rules, achieving quad input format (YAML + P4 + Wireshark + iptables).
+
+### Phase 33: iptables-save Import (2026-03-04)
+
+#### Prompt
+Implement iptables-save import — parsing Linux iptables-save output into YAML rules. Quad input format (YAML + P4 + Wireshark + iptables).
+
+#### Actions Taken
+1. Created `src/iptables_import.rs` (~600 LOC):
+   - Line-based parser for iptables-save format
+   - Shell-style tokenizer with quoted string support
+   - Protocol/port/CIDR/TCP-flags/ICMP/conntrack-state/MAC mapping
+   - Multiport expansion (one rule per port)
+   - DNAT/SNAT → RewriteAction extraction
+   - Chain selection (INPUT/FORWARD/OUTPUT/all)
+   - 47 unit tests
+
+2. Added `iptables-import` CLI subcommand to `src/main.rs`:
+   - Positional input file argument
+   - `--chain` (default INPUT), `--name`, `--json`, `-o` flags
+   - Follows P4Import/WiresharkImport handler pattern
+
+3. Added 11 integration tests to `tests/integration_test.rs`:
+   - simple, multi_rule, multiport, tcp_flags, icmp, state
+   - json, stdout, validates_after_import, dnat_rewrite, forward_chain
+
+4. Created example files:
+   - `rules/examples/iptables/basic_firewall.rules` — INPUT chain with SSH/HTTP/HTTPS/ICMP/state
+   - `rules/examples/iptables/nat_gateway.rules` — filter + NAT with DNAT port forwarding
+
+5. Documentation updates (CLAUDE.md, OVERVIEW.md, REQUIREMENTS.md, PROMPT_HISTORY.md, docs/COMPARISON.md)
+
+#### Test Results
+- 685 unit + 410 integration = 1095 Rust tests (all passing)
+- 90 Python scoreboard tests
+- 39 CLI subcommands
+
+#### New Artifacts
+- 1 new source file: src/iptables_import.rs (~600 LOC)
+- 1 new CLI subcommand: iptables-import (39 total)
+- 2 iptables example files: rules/examples/iptables/basic_firewall.rules, nat_gateway.rules
+- 0 new parser states (23 total — pure software feature)
+- 0 new lint rules (57 total)
+- 0 new mutation types (41 total)
+
+#### Git
+- Committed and pushed: Phase 33: iptables-save Import

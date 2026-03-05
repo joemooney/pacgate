@@ -1768,3 +1768,30 @@
 - REQ-3531: 90 Python scoreboard unit tests through Phase 32 [IMPLEMENTED]
 - REQ-3532: 55 examples (51 YAML + 2 P4 + 2 Wireshark) [IMPLEMENTED]
 - REQ-3533: 38 CLI subcommands [IMPLEMENTED]
+
+## Phase 33: iptables-save Import
+
+### iptables Import Core
+- REQ-3601: Line-based parser for iptables-save output format — parse `*table`, `:CHAIN POLICY`, `-A CHAIN` rule lines, and `COMMIT` markers
+- REQ-3602: Chain selection — `--chain` flag to import rules from specific chains (INPUT, FORWARD, OUTPUT) or all chains by default
+- REQ-3603: Protocol mapping — map iptables `-p` protocol names (tcp, udp, icmp, gre) to ip_protocol numbers (6, 17, 1, 47) with automatic ethertype inference (0x0800)
+- REQ-3604: Port matching — single port (`--dport 80`), port range with colon syntax (`--dport 1024:65535`), and `-m multiport --dports` comma-separated expansion into separate rules
+- REQ-3605: CIDR matching — `-s`/`--source` and `-d`/`--destination` IP addresses with CIDR prefix mapped to src_ip/dst_ip
+- REQ-3606: TCP flags matching — `--tcp-flags SYN,ACK SYN` mapped to tcp_flags/tcp_flags_mask, `--syn` shorthand expansion to SYN flag with SYN+ACK+FIN+RST mask
+- REQ-3607: ICMP type matching — named types (echo-request, echo-reply, destination-unreachable, time-exceeded, etc.) and numeric types mapped to icmp_type
+- REQ-3608: Conntrack state matching — `-m state --state` and `-m conntrack --ctstate` with NEW, ESTABLISHED, RELATED state mapping to conntrack_state field
+- REQ-3609: DNAT/SNAT rewrite — parse `-j DNAT --to-destination IP[:PORT]` and `-j SNAT --to-source IP[:PORT]` into RewriteAction (set_dst_ip/set_dst_port and set_src_ip/set_src_port)
+- REQ-3610: Chain default policy — extract default action from `:CHAIN POLICY [packets:bytes]` lines, map ACCEPT→pass and DROP→drop
+
+### iptables Import CLI
+- REQ-3611: `--json` flag for JSON summary output (status, rule count, chain, warnings) for CI/scripting integration
+- REQ-3612: Clean YAML output via config_to_yaml() — stdout by default, `-o` flag for file output
+- REQ-3613: Unsupported target warnings — LOG, MARK, MASQUERADE, REDIRECT, and other non-ACCEPT/DROP/DNAT/SNAT targets emit warnings without aborting
+- REQ-3614: Interface match warnings — `-i`/`-o` (inbound/outbound interface) flags emit warnings as not FPGA-supported
+
+### iptables Import Extended Matching
+- REQ-3615: MAC source matching — `-m mac --mac-source` mapped to src_mac match field
+- REQ-3616: Comment extraction — `-m comment --comment "text"` used for rule naming (sanitized to valid YAML identifiers)
+
+### iptables Import Integration
+- REQ-3617: Quad input format — PacGate supports four input formats: YAML (native), P4 (p4-import), Wireshark display filters (wireshark-import), and iptables-save (iptables-import)

@@ -20,6 +20,7 @@ mod p4_gen;
 mod p4_import;
 mod pcap_gen;
 mod wireshark_import;
+mod iptables_import;
 
 use std::path::{Path, PathBuf};
 use clap::{CommandFactory, Parser, Subcommand};
@@ -566,6 +567,27 @@ enum Commands {
 
         /// Name prefix for generated rules
         #[arg(long, default_value = "ws_filter")]
+        name: String,
+    },
+    /// Import Linux iptables-save output into PacGate YAML rules
+    IptablesImport {
+        /// Path to iptables-save output file
+        input: PathBuf,
+
+        /// Output YAML file (stdout if omitted)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Output JSON summary instead of YAML
+        #[arg(long)]
+        json: bool,
+
+        /// Chain to import (INPUT, FORWARD, OUTPUT, or all)
+        #[arg(long, default_value = "INPUT")]
+        chain: String,
+
+        /// Name prefix for generated rules
+        #[arg(long, default_value = "iptables")]
         name: String,
     },
 }
@@ -1799,6 +1821,28 @@ fn main() -> Result<()> {
                     std::fs::write(out_path, &yaml)
                         .with_context(|| format!("Failed to write YAML: {}", out_path.display()))?;
                     println!("Imported {} rules from Wireshark filter → {}", config.pacgate.rules.len(), out_path.display());
+                } else {
+                    print!("{}", yaml);
+                }
+            }
+        }
+        Commands::IptablesImport { input, output, json, chain, name } => {
+            let content = std::fs::read_to_string(&input)
+                .with_context(|| format!("Failed to read iptables file: {}", input.display()))?;
+
+            if json {
+                let summary = iptables_import::import_iptables_summary(&content, &chain, &name);
+                println!("{}", serde_json::to_string_pretty(&summary)?);
+            } else {
+                let (config, warnings) = iptables_import::import_iptables(&content, &chain, &name)?;
+                for w in &warnings {
+                    eprintln!("Warning: {}", w);
+                }
+                let yaml = p4_import::config_to_yaml(&config)?;
+                if let Some(ref out_path) = output {
+                    std::fs::write(out_path, &yaml)
+                        .with_context(|| format!("Failed to write YAML: {}", out_path.display()))?;
+                    println!("Imported {} rules from iptables → {}", config.pacgate.rules.len(), out_path.display());
                 } else {
                     print!("{}", yaml);
                 }
