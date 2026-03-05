@@ -18,7 +18,7 @@ compile-axi:
 
 lint: compile
 	@if [ "$(LINT_SIM)" = "iverilog" ]; then \
-		iverilog -g2012 -o /dev/null $(GEN_DIR)/rtl/*.v rtl/*.v; \
+		iverilog -g2012 -o /dev/null $(GEN_DIR)/rtl/*.v rtl/frame_parser.v; \
 	elif [ "$(LINT_SIM)" = "questa" ]; then \
 		rm -rf $(GEN_DIR)/.questa_lint && mkdir -p $(GEN_DIR)/.questa_lint && cd $(GEN_DIR)/.questa_lint && vlib work >/dev/null && vlog -sv -lint ../rtl/*.v ../../rtl/*.v; \
 	else \
@@ -28,7 +28,7 @@ lint: compile
 
 lint-axi: compile-axi
 	@if [ "$(LINT_SIM)" = "iverilog" ]; then \
-		iverilog -g2012 -o /dev/null $(GEN_DIR)/rtl/*.v rtl/*.v; \
+		iverilog -g2012 -o /dev/null $(GEN_DIR)/rtl/*.v rtl/frame_parser.v; \
 	elif [ "$(LINT_SIM)" = "questa" ]; then \
 		rm -rf $(GEN_DIR)/.questa_lint && mkdir -p $(GEN_DIR)/.questa_lint && cd $(GEN_DIR)/.questa_lint && vlib work >/dev/null && vlog -sv -lint ../rtl/*.v ../../rtl/*.v; \
 	else \

@@ -55,7 +55,7 @@ jobs:
         run: |
           python -m venv .venv
           source .venv/bin/activate
-          pip install "cocotb>=2.0.0" cocotb-tools pytest hypothesis
+          pip install "cocotb>=2.0.0" pytest hypothesis
 
       - name: Run scoreboard unit tests
         run: |
@@ -156,7 +156,7 @@ jobs:
         run: |
           python -m venv .venv
           source .venv/bin/activate
-          pip install "cocotb>=2.0.0" cocotb-tools pytest hypothesis
+          pip install "cocotb>=2.0.0" pytest hypothesis
 
       - name: Build PacGate compiler
         run: cargo build --release
@@ -165,7 +165,7 @@ jobs:
         run: cargo run --release -- compile rules/examples/${{ matrix.example }}.yaml
 
       - name: Lint generated Verilog
-        run: iverilog -g2012 -o /dev/null gen/rtl/*.v rtl/*.v
+        run: iverilog -g2012 -o /dev/null gen/rtl/*.v rtl/frame_parser.v
 
       - name: Run simulation (cocotb 2.0 runner)
         run: |
@@ -221,7 +221,7 @@ jobs:
         run: |
           python -m venv .venv
           source .venv/bin/activate
-          pip install "cocotb>=2.0.0" cocotb-tools pytest hypothesis
+          pip install "cocotb>=2.0.0" pytest hypothesis
 
       - name: Verify Questa tools are present
         run: |
@@ -277,7 +277,7 @@ jobs:
         run: cargo run --release -- compile rules/examples/hsm_conntrack.yaml --conntrack
 
       - name: Lint generated Verilog (conntrack)
-        run: iverilog -g2012 -o /dev/null gen/rtl/*.v rtl/*.v
+        run: iverilog -g2012 -o /dev/null gen/rtl/*.v rtl/frame_parser.v
 
   multi-flag-compile:
     runs-on: ubuntu-latest
@@ -307,7 +307,7 @@ jobs:
         run: cargo run --release -- compile rules/examples/rate_limited.yaml --rate-limit --counters --axi
 
       - name: Lint generated Verilog (multi-flag)
-        run: iverilog -g2012 -o /dev/null gen/rtl/*.v rtl/*.v
+        run: iverilog -g2012 -o /dev/null gen/rtl/*.v rtl/frame_parser.v
 
       - name: Compile port_rewrite with --axi
         run: cargo run --release -- compile rules/examples/port_rewrite.yaml --axi -o gen_port_rw/
@@ -345,7 +345,7 @@ jobs:
         run: |
           python -m venv .venv
           source .venv/bin/activate
-          pip install "cocotb>=2.0.0" cocotb-tools pytest hypothesis
+          pip install "cocotb>=2.0.0" pytest hypothesis
 
       - name: Build PacGate compiler
         run: cargo build --release
@@ -354,7 +354,7 @@ jobs:
         run: cargo run --release -- compile rules/examples/hsm_conntrack.yaml --conntrack
 
       - name: Lint generated Verilog (conntrack)
-        run: iverilog -g2012 -o /dev/null gen/rtl/*.v rtl/*.v
+        run: iverilog -g2012 -o /dev/null gen/rtl/*.v rtl/frame_parser.v
 
       - name: Run conntrack cocotb simulation (cocotb 2.0 runner)
         run: |
@@ -412,7 +412,7 @@ jobs:
           echo "SVA assertion checks passed"
 
       - name: Lint generated formal SVA
-        run: iverilog -g2012 -o /dev/null gen/rtl/*.v rtl/*.v
+        run: iverilog -g2012 -o /dev/null gen/rtl/*.v rtl/frame_parser.v
 
   rate-limit-simulate:
     runs-on: ubuntu-latest
@@ -469,13 +469,13 @@ jobs:
         run: cargo run --release -- compile rules/examples/stateful_sequence.yaml
 
       - name: Lint generated Verilog (stateful FSM)
-        run: iverilog -g2012 -o /dev/null gen/rtl/*.v rtl/*.v
+        run: iverilog -g2012 -o /dev/null gen/rtl/*.v rtl/frame_parser.v
 
       - name: Compile dynamic_firewall with --dynamic
         run: cargo run --release -- compile rules/examples/dynamic_firewall.yaml --dynamic -o gen_dynamic/
 
       - name: Lint dynamic flow table Verilog
-        run: iverilog -g2012 -o /dev/null gen_dynamic/rtl/*.v rtl/*.v
+        run: iverilog -g2012 -o /dev/null gen_dynamic/rtl/*.v
 
       - name: Lint dynamic_firewall with --dynamic
         run: cargo run --release -- lint rules/examples/dynamic_firewall.yaml --dynamic --json
@@ -514,7 +514,7 @@ jobs:
           echo "Runner script lint passed"
 
       - name: Lint generated Verilog (OpenNIC)
-        run: iverilog -g2012 -o /dev/null gen/rtl/*.v rtl/*.v
+        run: iverilog -g2012 -o /dev/null gen/rtl/*.v rtl/frame_parser.v
 
   corundum-compile:
     runs-on: ubuntu-latest
@@ -544,4 +544,4 @@ jobs:
         run: cargo run --release -- compile rules/examples/corundum_datacenter.yaml --target corundum
 
       - name: Lint generated Verilog (Corundum)
-        run: iverilog -g2012 -o /dev/null gen/rtl/*.v rtl/*.v
+        run: iverilog -g2012 -o /dev/null gen/rtl/*.v rtl/frame_parser.v
