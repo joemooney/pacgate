@@ -6,15 +6,15 @@
 
 | Metric | Count |
 |--------|------:|
-| CLI commands | 36 |
+| CLI commands | 37 |
 | Match fields | 57 |
 | Rewrite actions | 15 |
 | Parser states | 23 |
 | Lint rules | 57 |
 | Mutation types | 41 |
-| YAML examples | 51 |
+| YAML examples | 51 (+2 P4) |
 | Tera templates | 42 |
-| Rust tests | 936 |
+| Rust tests | 991 |
 | Python tests | 90 |
 | Data path widths | 5 (8/64/128/256/512 bit) |
 | FPGA families | Artix-7, Virtex-7, UltraScale+, Alveo |
@@ -535,7 +535,7 @@ PacGate generates verification artifacts (tests, assertions, coverage) automatic
 
 | Feature | Benefit | Competitors That Have It | Effort |
 |---------|---------|--------------------------|--------|
-| **P4 import** | Accept P4 programs as input; tap into P4 ecosystem | All P4 tools | Large — P4 parser frontend + mapping to PacGate model |
+| ~~**P4 import**~~ | ~~Accept P4 programs as input; tap into P4 ecosystem~~ | ~~All P4 tools~~ | **IMPLEMENTED** (Phase 31) — `p4-import` subcommand with bidirectional P4↔YAML bridge |
 | **DMA / host interface** | Software packet injection/extraction; CPU offload | Corundum, NetFPGA, OpenNIC | Large — PCIe DMA is complex; or leverage existing Corundum/OpenNIC |
 | ~~**Hardware timestamping (PTP)**~~ | ~~Precise packet timing for telemetry / 5G~~ | ~~Corundum~~ | **IMPLEMENTED** (Phase 28) — IEEE 1588 PTP matching + optional ptp_clock.v |
 
@@ -620,7 +620,7 @@ Based on this analysis, the next features that would most strengthen PacGate's c
 
 1. ~~**Hardware timestamping (PTP)**~~ — **DONE** (Phase 28). IEEE 1588 PTP matching (ptp_message_type, ptp_domain, ptp_version) with dual L2/L4 detection and optional hardware clock module.
 
-2. **P4 import** — Accept P4 as an alternative input format, expanding the user base to existing P4 developers who want PacGate's verification capabilities. Combined with the existing P4 export, this would make PacGate a bidirectional P4 bridge.
+2. ~~**P4 import**~~ — **DONE** (Phase 31). `p4-import` subcommand parses P4_16 PSA programs into YAML rules with rewrite action mapping, extern detection, and round-trip validation. Completes the bidirectional P4↔YAML bridge.
 
 3. **DMA / host interface** — PCIe DMA for software packet injection/extraction. Could leverage existing Corundum/OpenNIC platform targets rather than building from scratch.
 

@@ -17,6 +17,7 @@ mod benchmark;
 mod mcy_gen;
 mod scenario;
 mod p4_gen;
+mod p4_import;
 mod pcap_gen;
 
 use std::path::{Path, PathBuf};
@@ -524,6 +525,19 @@ enum Commands {
         templates: PathBuf,
 
         /// Output JSON summary instead of P4 code
+        #[arg(long)]
+        json: bool,
+    },
+    /// Import a P4_16 PSA program into PacGate YAML rules
+    P4Import {
+        /// Path to the P4 source file
+        p4_file: PathBuf,
+
+        /// Output YAML file (stdout if omitted)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Output JSON summary instead of YAML
         #[arg(long)]
         json: bool,
     },
@@ -1711,6 +1725,30 @@ fn main() -> Result<()> {
                         config.pacgate.rules.iter().filter(|r| r.is_stateful()).count());
                 }
                 println!("  Target: PSA (Portable Switch Architecture)");
+            }
+        }
+        Commands::P4Import { p4_file, output, json } => {
+            let source = std::fs::read_to_string(&p4_file)
+                .with_context(|| format!("Failed to read P4 file: {}", p4_file.display()))?;
+
+            if json {
+                let mut summary = p4_import::import_p4_summary(&source);
+                summary.as_object_mut().unwrap().insert("p4_file".to_string(),
+                    serde_json::Value::String(p4_file.to_string_lossy().to_string()));
+                println!("{}", serde_json::to_string_pretty(&summary)?);
+            } else {
+                let (config, warnings) = p4_import::import_p4(&source)?;
+                for w in &warnings {
+                    eprintln!("Warning: {}", w);
+                }
+                let yaml = p4_import::config_to_yaml(&config)?;
+                if let Some(ref out_path) = output {
+                    std::fs::write(out_path, &yaml)
+                        .with_context(|| format!("Failed to write YAML: {}", out_path.display()))?;
+                    println!("Imported {} rules from P4 → {}", config.pacgate.rules.len(), out_path.display());
+                } else {
+                    print!("{}", yaml);
+                }
             }
         }
         Commands::PcapGen { rules, output, count, seed, json } => {

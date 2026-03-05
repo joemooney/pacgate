@@ -7325,3 +7325,242 @@ pacgate:
     assert!(stdout.contains("stage_1"), "Expected stage_1 node: {}", stdout);
     assert!(stdout.contains("classify"), "Expected classify label: {}", stdout);
 }
+
+// ============================================================
+// P4 Import integration tests
+// ============================================================
+
+#[test]
+fn p4_import_roundtrip_allow_arp() {
+    let tmp = tempfile::tempdir().unwrap();
+    // Export to P4
+    let output = pacgate_bin()
+        .args(["p4-export", "rules/examples/allow_arp.yaml", "-o", tmp.path().to_str().unwrap(), "-t", "templates"])
+        .output().unwrap();
+    assert!(output.status.success(), "p4-export failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let p4_file = tmp.path().join("p4/pacgate_filter.p4");
+    assert!(p4_file.exists(), "P4 file not generated");
+
+    // Import back from P4
+    let yaml_out = tmp.path().join("roundtrip.yaml");
+    let output = pacgate_bin()
+        .args(["p4-import", p4_file.to_str().unwrap(), "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "p4-import failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // Validate imported YAML
+    let output = pacgate_bin()
+        .args(["validate", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "validate failed: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn p4_import_roundtrip_qos() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["p4-export", "rules/examples/qos_classification.yaml", "-o", tmp.path().to_str().unwrap(), "-t", "templates"])
+        .output().unwrap();
+    assert!(output.status.success(), "p4-export failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let p4_file = tmp.path().join("p4/pacgate_filter.p4");
+    let yaml_out = tmp.path().join("roundtrip.yaml");
+    let output = pacgate_bin()
+        .args(["p4-import", p4_file.to_str().unwrap(), "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "p4-import failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("7 rules"), "Expected 7 rules imported: {}", stdout);
+
+    let output = pacgate_bin()
+        .args(["validate", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "validate failed: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn p4_import_roundtrip_tcp_flags() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["p4-export", "rules/examples/tcp_flags_icmp.yaml", "-o", tmp.path().to_str().unwrap(), "-t", "templates"])
+        .output().unwrap();
+    assert!(output.status.success(), "p4-export failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let p4_file = tmp.path().join("p4/pacgate_filter.p4");
+    let yaml_out = tmp.path().join("roundtrip.yaml");
+    let output = pacgate_bin()
+        .args(["p4-import", p4_file.to_str().unwrap(), "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "p4-import failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let output = pacgate_bin()
+        .args(["validate", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "validate failed: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn p4_import_roundtrip_arp_security() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["p4-export", "rules/examples/arp_security.yaml", "-o", tmp.path().to_str().unwrap(), "-t", "templates"])
+        .output().unwrap();
+    assert!(output.status.success(), "p4-export failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let p4_file = tmp.path().join("p4/pacgate_filter.p4");
+    let yaml_out = tmp.path().join("roundtrip.yaml");
+    let output = pacgate_bin()
+        .args(["p4-import", p4_file.to_str().unwrap(), "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "p4-import failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let output = pacgate_bin()
+        .args(["validate", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "validate failed: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn p4_import_roundtrip_gre_tunnel() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["p4-export", "rules/examples/gre_tunnel.yaml", "-o", tmp.path().to_str().unwrap(), "-t", "templates"])
+        .output().unwrap();
+    assert!(output.status.success(), "p4-export failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let p4_file = tmp.path().join("p4/pacgate_filter.p4");
+    let yaml_out = tmp.path().join("roundtrip.yaml");
+    let output = pacgate_bin()
+        .args(["p4-import", p4_file.to_str().unwrap(), "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "p4-import failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let output = pacgate_bin()
+        .args(["validate", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "validate failed: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn p4_import_roundtrip_geneve() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["p4-export", "rules/examples/geneve_datacenter.yaml", "-o", tmp.path().to_str().unwrap(), "-t", "templates"])
+        .output().unwrap();
+    assert!(output.status.success(), "p4-export failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let p4_file = tmp.path().join("p4/pacgate_filter.p4");
+    let yaml_out = tmp.path().join("roundtrip.yaml");
+    let output = pacgate_bin()
+        .args(["p4-import", p4_file.to_str().unwrap(), "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "p4-import failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let output = pacgate_bin()
+        .args(["validate", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "validate failed: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn p4_import_roundtrip_ptp() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["p4-export", "rules/examples/ptp_boundary_clock.yaml", "-o", tmp.path().to_str().unwrap(), "-t", "templates"])
+        .output().unwrap();
+    assert!(output.status.success(), "p4-export failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let p4_file = tmp.path().join("p4/pacgate_filter.p4");
+    let yaml_out = tmp.path().join("roundtrip.yaml");
+    let output = pacgate_bin()
+        .args(["p4-import", p4_file.to_str().unwrap(), "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "p4-import failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let output = pacgate_bin()
+        .args(["validate", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "validate failed: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn p4_import_json_output() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["p4-export", "rules/examples/allow_arp.yaml", "-o", tmp.path().to_str().unwrap(), "-t", "templates"])
+        .output().unwrap();
+    assert!(output.status.success());
+
+    let p4_file = tmp.path().join("p4/pacgate_filter.p4");
+    let output = pacgate_bin()
+        .args(["p4-import", p4_file.to_str().unwrap(), "--json"])
+        .output().unwrap();
+    assert!(output.status.success(), "p4-import --json failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["status"], "ok");
+    assert_eq!(json["rules_imported"], 1);
+    assert_eq!(json["default_action"], "drop");
+}
+
+#[test]
+fn p4_import_to_stdout() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["p4-export", "rules/examples/allow_arp.yaml", "-o", tmp.path().to_str().unwrap(), "-t", "templates"])
+        .output().unwrap();
+    assert!(output.status.success());
+
+    let p4_file = tmp.path().join("p4/pacgate_filter.p4");
+    let output = pacgate_bin()
+        .args(["p4-import", p4_file.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "p4-import stdout failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("pacgate:"), "Expected YAML output: {}", stdout);
+    assert!(stdout.contains("allow_arp"), "Expected rule name: {}", stdout);
+}
+
+#[test]
+fn p4_import_error_not_p4() {
+    let tmp = tempfile::tempdir().unwrap();
+    let bad_file = tmp.path().join("not_p4.txt");
+    std::fs::write(&bad_file, "this is not P4 code").unwrap();
+    let output = pacgate_bin()
+        .args(["p4-import", bad_file.to_str().unwrap()])
+        .output().unwrap();
+    // Should succeed but produce empty/0 rules
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("rules: []") || stdout.contains("rules:\n"), "Expected empty rules: {}", stdout);
+}
+
+#[test]
+fn p4_import_validates_after_import() {
+    // Test the full pipeline: export → import → validate → lint
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["p4-export", "rules/examples/allow_arp.yaml", "-o", tmp.path().to_str().unwrap(), "-t", "templates"])
+        .output().unwrap();
+    assert!(output.status.success());
+
+    let p4_file = tmp.path().join("p4/pacgate_filter.p4");
+    let yaml_out = tmp.path().join("imported.yaml");
+    let output = pacgate_bin()
+        .args(["p4-import", p4_file.to_str().unwrap(), "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success());
+
+    // Validate
+    let output = pacgate_bin()
+        .args(["validate", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "validate failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // Lint
+    let output = pacgate_bin()
+        .args(["lint", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "lint failed: {}", String::from_utf8_lossy(&output.stderr));
+}

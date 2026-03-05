@@ -1678,3 +1678,62 @@
 - REQ-3322: 51 YAML examples (49 existing + int_datacenter + pcap_gen_demo) [IMPLEMENTED]
 - REQ-3323: 57 lint rules (LINT001-057) [IMPLEMENTED]
 - REQ-3324: 41 mutation types [IMPLEMENTED]
+
+---
+
+## Phase 31 — P4 Import (Bidirectional P4 Bridge)
+
+### Overview
+- REQ-3400: `p4-import` subcommand to parse P4_16 PSA programs and generate equivalent YAML rules [IMPLEMENTED]
+- REQ-3401: Complete bidirectional P4 bridge: YAML→P4 (p4-export) + P4→YAML (p4-import) [IMPLEMENTED]
+
+### Core P4 Parser + CLI
+- REQ-3410: Line-by-line state machine parser for P4_16 PSA source [IMPLEMENTED]
+- REQ-3411: Parser states: TopLevel, IngressControl, ActionBody, TableKeys, ConstEntries, ConstEntry [IMPLEMENTED]
+- REQ-3412: Table key extraction (header_field + match_kind pairs) [IMPLEMENTED]
+- REQ-3413: Const entry extraction (rule_name, priority, action_name, key_values) [IMPLEMENTED]
+- REQ-3414: Default action detection (pass_action/drop_action) [IMPLEMENTED]
+- REQ-3415: CLI: p4-import <file> [-o output.yaml] [--json] [IMPLEMENTED]
+- REQ-3416: YAML output to stdout or file [IMPLEMENTED]
+- REQ-3417: JSON summary output mode [IMPLEMENTED]
+
+### Reverse Field Mapping
+- REQ-3420: Reverse mapping for all 55+ P4 match fields to PacGate MatchCriteria [IMPLEMENTED]
+- REQ-3421: MAC ternary parsing (value &&& mask → wildcard notation) [IMPLEMENTED]
+- REQ-3422: Port range parsing (lo..hi → PortMatch::Exact or Range) [IMPLEMENTED]
+- REQ-3423: LPM/CIDR passthrough (IP addresses with prefix) [IMPLEMENTED]
+- REQ-3424: TCP flags ternary parsing (value &&& mask) [IMPLEMENTED]
+- REQ-3425: Conntrack state mapping (0→"new", 1→"established") [IMPLEMENTED]
+- REQ-3426: Boolean field parsing (1/0 → true/false for DF, MF, BOS flags) [IMPLEMENTED]
+
+### Rewrite + Extern Parsing
+- REQ-3430: Parse rewrite action bodies (15 operations: MAC, IP, TTL, DSCP, ECN, port, hop limit, VLAN) [IMPLEMENTED]
+- REQ-3431: dec_ttl detection from "hdr.ipv4.ttl = hdr.ipv4.ttl - 1" pattern [IMPLEMENTED]
+- REQ-3432: dec_hop_limit detection from "hdr.ipv6.hopLimit = hdr.ipv6.hopLimit - 1" pattern [IMPLEMENTED]
+- REQ-3433: MAC hex-to-colon conversion for rewrite actions [IMPLEMENTED]
+- REQ-3434: Extern detection: Register<> → conntrack warning [IMPLEMENTED]
+- REQ-3435: Extern detection: Meter<> → rate-limit warning [IMPLEMENTED]
+- REQ-3436: Extern detection: ActionSelector() → RSS warning [IMPLEMENTED]
+
+### Round-trip Validation
+- REQ-3440: configs_equivalent() compares two FilterConfigs for semantic equivalence [IMPLEMENTED]
+- REQ-3441: Field-by-field comparison of all 55+ match criteria fields [IMPLEMENTED]
+- REQ-3442: Rewrite action comparison [IMPLEMENTED]
+- REQ-3443: Default action comparison [IMPLEMENTED]
+- REQ-3444: Integration tests verify YAML→P4→YAML round-trip for 7 examples [IMPLEMENTED]
+
+### Tool Integration
+- REQ-3450: import_p4_summary() JSON output with status, rule count, protocols, warnings [IMPLEMENTED]
+- REQ-3451: Clean YAML output (null-stripped via JSON intermediate) [IMPLEMENTED]
+- REQ-3452: Imported YAML passes validate and lint [IMPLEMENTED]
+- REQ-3453: Don't-care value handling ("_", "0 &&& 0") [IMPLEMENTED]
+
+### Examples
+- REQ-3460: rules/examples/p4/simple_firewall.p4 — basic P4 import example [IMPLEMENTED]
+- REQ-3461: rules/examples/p4/datacenter_filter.p4 — QoS classification P4 import example [IMPLEMENTED]
+
+### Phase 31 Test Counts
+- REQ-3470: 991 Rust tests (602 unit + 389 integration) through Phase 31 [IMPLEMENTED]
+- REQ-3471: 90 Python scoreboard unit tests through Phase 31 [IMPLEMENTED]
+- REQ-3472: 53 YAML/P4 examples (51 YAML + 2 P4) [IMPLEMENTED]
+- REQ-3473: 37 CLI subcommands [IMPLEMENTED]

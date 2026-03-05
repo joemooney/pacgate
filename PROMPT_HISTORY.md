@@ -2841,3 +2841,58 @@ Implement INT (In-band Network Telemetry) for sideband metadata capture and a sy
 
 ### Git
 - Committed and pushed Phase 30 implementation
+
+---
+
+## Phase 31 — 2026-03-04: P4 Import (Bidirectional P4 Bridge)
+
+### Goal
+Complete the bidirectional P4 bridge by adding `p4-import` subcommand that parses P4_16 PSA programs and generates equivalent PacGate YAML rules. Combined with existing `p4-export`, this makes PacGate a full P4↔YAML conversion tool.
+
+### Actions Taken
+
+**Phase 31.1 — Core P4 Parser + CLI**:
+- Created `src/p4_import.rs` (~750 LOC) with line-by-line state machine parser
+- Parser states: TopLevel, IngressControl, ActionBody, TableKeys, ConstEntries, ConstEntry
+- Handles single-line and multi-line key/entry blocks
+- Reverse field mapping for all 55+ P4 match fields to PacGate MatchCriteria
+- Added `P4Import` command to `src/main.rs` with `-o`/`--json` flags
+- Value parsers: ethertype (hex/decimal), MAC ternary (value&&&mask), port range (lo..hi), LPM/CIDR passthrough, TCP flags ternary, boolean (1/0), conntrack state (0/1)
+
+**Phase 31.2 — Rewrite + Extern Parsing**:
+- Rewrite action body parsing: 15 operations mapped from P4 assignment statements
+- dec_ttl/dec_hop_limit detected from "field = field - 1" patterns
+- MAC hex-to-colon conversion for rewrite MAC addresses
+- Extern detection: Register<> (conntrack), Meter<> (rate-limit), ActionSelector (RSS)
+- Warnings emitted for detected externs that can't be fully imported
+
+**Phase 31.3 — Round-trip Validation**:
+- `configs_equivalent()` compares two FilterConfigs field-by-field (55+ match fields, rewrite, action, priority)
+- 7 integration tests verify YAML→P4→YAML round-trip (allow_arp, qos, tcp_flags, arp, gre, geneve, ptp)
+- All imported YAML files pass `validate` and `lint` checks
+
+**Phase 31.4 — Tool Integration + JSON Summary**:
+- `import_p4_summary()` produces JSON with status, rules_imported, detected_protocols, warnings
+- Clean YAML output via JSON intermediate with null-stripping
+- Don't-care values ("_", "0 &&& 0", "0x000000000000 &&& 0x000000000000") skipped
+
+**Phase 31.5 — Examples + Documentation**:
+- Created `rules/examples/p4/simple_firewall.p4` (generated from allow_arp)
+- Created `rules/examples/p4/datacenter_filter.p4` (generated from qos_classification)
+- Updated CLAUDE.md, OVERVIEW.md, REQUIREMENTS.md, PROMPT_HISTORY.md, COMPARISON.md
+
+### Test Results
+- 602 Rust unit tests (558 existing + 44 new p4_import)
+- 389 Rust integration tests (378 existing + 11 new p4_import round-trip)
+- 991 total Rust tests + 90 Python tests = 1081 total
+
+### New Artifacts
+- 1 new source file: src/p4_import.rs (~750 LOC)
+- 1 new CLI subcommand: p4-import (37 total)
+- 2 P4 example files: rules/examples/p4/simple_firewall.p4, datacenter_filter.p4
+- 0 new parser states (23 total — pure software feature)
+- 0 new lint rules (57 total)
+- 0 new mutation types (41 total)
+
+### Git
+- Committed and pushed Phase 31 implementation
