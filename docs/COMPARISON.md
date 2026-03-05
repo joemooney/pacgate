@@ -6,15 +6,15 @@
 
 | Metric | Count |
 |--------|------:|
-| CLI commands | 37 |
+| CLI commands | 38 |
 | Match fields | 57 |
 | Rewrite actions | 15 |
 | Parser states | 23 |
 | Lint rules | 57 |
 | Mutation types | 41 |
-| YAML examples | 51 (+2 P4) |
+| YAML examples | 51 (+2 P4, +2 Wireshark) |
 | Tera templates | 42 |
-| Rust tests | 991 |
+| Rust tests | 1037 |
 | Python tests | 90 |
 | Data path widths | 5 (8/64/128/256/512 bit) |
 | FPGA families | Artix-7, Virtex-7, UltraScale+, Alveo |
@@ -386,7 +386,7 @@ PacGate generates verification artifacts (tests, assertions, coverage) automatic
 
 | Feature | PacGate | Vitis Net P4 | Intel P4 | Corundum | FlowBlaze | FFShark | Vivado HLS |
 |---------|:-------:|:------------:|:--------:|:--------:|:---------:|:-------:|:----------:|
-| **Input format** | YAML | P4 | P4 | Verilog | EFSM/GUI | BPF | C/C++ |
+| **Input format** | YAML + P4 + Wireshark | P4 | P4 | Verilog | EFSM/GUI | BPF | C/C++ |
 | **Generates RTL** | Yes | Yes | Yes | N/A (is RTL) | N/A (fixed arch) | N/A (fixed arch) | Yes |
 | **Generates P4 export** | **Yes** (P4_16 PSA) | N/A | N/A | No | No | No | No |
 | **Generates tests** | Yes | No | No | No | No | No | No |
@@ -544,7 +544,7 @@ PacGate generates verification artifacts (tests, assertions, coverage) automatic
 | Feature | Benefit | Competitors That Have It | Effort |
 |---------|---------|--------------------------|--------|
 | **eBPF/XDP filter expressions** | Accept Linux XDP programs or BPF filters | hXDP, FFShark | Large — soft BPF CPU or BPF-to-match compiler |
-| **Wireshark display filter input** | `tcp.port == 80` syntax for rules | FFShark | Medium — parser for Wireshark filter grammar |
+| ~~**Wireshark display filter input**~~ | ~~`tcp.port == 80` syntax for rules~~ | ~~FFShark~~ | **IMPLEMENTED** (Phase 32) — `wireshark-import` subcommand with ~45 field mappings |
 | **GUI for FSM design** | Visual state machine editor | FlowBlaze | Medium — web UI generating YAML; Mermaid Live already works |
 | **L7 / DPI (regex match)** | Application-layer protocol detection | FFShark (via BPF), P4 (limited) | Large — regex engine in hardware (BRAM-based NFA) |
 | ~~**In-band telemetry (INT)**~~ | ~~Insert metadata headers for network visibility~~ | ~~VitisNetP4, Tofino~~ | ~~**DONE (Phase 30)**~~ |
@@ -643,3 +643,5 @@ Based on this analysis, the next features that would most strengthen PacGate's c
 | 5 | RSS multi-queue dispatch | 29 | Toeplitz hash + 128-entry indirection table + per-rule queue override |
 | 6 | In-band telemetry (INT) | 30 | Sideband metadata capture (switch_id, timestamps, hop_latency, rule_idx) |
 | 7 | Synthetic traffic generation | 30 | `pcap-gen` subcommand — protocol-aware PCAP from YAML rules |
+| 8 | Wireshark display filter import | 32 | `wireshark-import` subcommand — ~45 field mappings, YAML + P4 + Wireshark triple input |
+| 9 | P4 import (bidirectional bridge) | 31 | `p4-import` subcommand — 55+ field reverse mappings, round-trip validated |

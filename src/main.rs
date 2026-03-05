@@ -19,6 +19,7 @@ mod scenario;
 mod p4_gen;
 mod p4_import;
 mod pcap_gen;
+mod wireshark_import;
 
 use std::path::{Path, PathBuf};
 use clap::{CommandFactory, Parser, Subcommand};
@@ -540,6 +541,32 @@ enum Commands {
         /// Output JSON summary instead of YAML
         #[arg(long)]
         json: bool,
+    },
+    /// Import a Wireshark display filter expression into PacGate YAML rules
+    WiresharkImport {
+        /// Inline display filter expression (e.g., "tcp.port == 80 && ip.src == 10.0.0.0/8")
+        #[arg(long)]
+        filter: Option<String>,
+
+        /// Path to a file containing a display filter expression
+        #[arg(long)]
+        filter_file: Option<PathBuf>,
+
+        /// Output YAML file (stdout if omitted)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Output JSON summary instead of YAML
+        #[arg(long)]
+        json: bool,
+
+        /// Default action for unmatched packets (pass or drop)
+        #[arg(long, default_value = "drop")]
+        default_action: String,
+
+        /// Name prefix for generated rules
+        #[arg(long, default_value = "ws_filter")]
+        name: String,
     },
 }
 
@@ -1746,6 +1773,32 @@ fn main() -> Result<()> {
                     std::fs::write(out_path, &yaml)
                         .with_context(|| format!("Failed to write YAML: {}", out_path.display()))?;
                     println!("Imported {} rules from P4 → {}", config.pacgate.rules.len(), out_path.display());
+                } else {
+                    print!("{}", yaml);
+                }
+            }
+        }
+        Commands::WiresharkImport { filter, filter_file, output, json, default_action, name } => {
+            let filter_text = match (filter, filter_file) {
+                (Some(f), _) => f,
+                (_, Some(path)) => std::fs::read_to_string(&path)
+                    .with_context(|| format!("Failed to read filter file: {}", path.display()))?,
+                (None, None) => anyhow::bail!("Either --filter or --filter-file is required"),
+            };
+
+            if json {
+                let summary = wireshark_import::import_wireshark_summary(&filter_text, &default_action, &name);
+                println!("{}", serde_json::to_string_pretty(&summary)?);
+            } else {
+                let (config, warnings) = wireshark_import::import_wireshark_filter(&filter_text, &default_action, &name)?;
+                for w in &warnings {
+                    eprintln!("Warning: {}", w);
+                }
+                let yaml = p4_import::config_to_yaml(&config)?;
+                if let Some(ref out_path) = output {
+                    std::fs::write(out_path, &yaml)
+                        .with_context(|| format!("Failed to write YAML: {}", out_path.display()))?;
+                    println!("Imported {} rules from Wireshark filter → {}", config.pacgate.rules.len(), out_path.display());
                 } else {
                     print!("{}", yaml);
                 }

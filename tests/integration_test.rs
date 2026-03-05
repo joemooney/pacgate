@@ -7564,3 +7564,139 @@ fn p4_import_validates_after_import() {
         .output().unwrap();
     assert!(output.status.success(), "lint failed: {}", String::from_utf8_lossy(&output.stderr));
 }
+
+// ============================================================
+// Wireshark Import integration tests
+// ============================================================
+
+#[test]
+fn wireshark_import_simple() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml_out = tmp.path().join("simple.yaml");
+    let output = pacgate_bin()
+        .args(["wireshark-import", "--filter", "tcp.dstport == 80", "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "wireshark-import failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Imported 1 rules"));
+    assert!(yaml_out.exists());
+}
+
+#[test]
+fn wireshark_import_and() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml_out = tmp.path().join("and.yaml");
+    let output = pacgate_bin()
+        .args(["wireshark-import", "--filter", "ip.src == 10.0.0.0/8 && tcp.dstport == 443", "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "wireshark-import failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Imported 1 rules"));
+}
+
+#[test]
+fn wireshark_import_or() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml_out = tmp.path().join("or.yaml");
+    let output = pacgate_bin()
+        .args(["wireshark-import", "--filter", "tcp.dstport == 80 || tcp.dstport == 443", "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "wireshark-import failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Imported 2 rules"));
+}
+
+#[test]
+fn wireshark_import_in_set() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml_out = tmp.path().join("inset.yaml");
+    let output = pacgate_bin()
+        .args(["wireshark-import", "--filter", "tcp.dstport in {80, 443, 8080}", "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "wireshark-import failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Imported 3 rules"));
+}
+
+#[test]
+fn wireshark_import_not() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml_out = tmp.path().join("not.yaml");
+    let output = pacgate_bin()
+        .args(["wireshark-import", "--filter", "!arp", "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "wireshark-import failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(yaml_out.exists());
+}
+
+#[test]
+fn wireshark_import_ip_cidr() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml_out = tmp.path().join("cidr.yaml");
+    let output = pacgate_bin()
+        .args(["wireshark-import", "--filter", "ip.src == 10.0.0.0/8", "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "wireshark-import failed: {}", String::from_utf8_lossy(&output.stderr));
+    let yaml_content = std::fs::read_to_string(&yaml_out).unwrap();
+    assert!(yaml_content.contains("10.0.0.0/8"));
+}
+
+#[test]
+fn wireshark_import_json() {
+    let output = pacgate_bin()
+        .args(["wireshark-import", "--filter", "tcp.dstport == 80", "--json"])
+        .output().unwrap();
+    assert!(output.status.success(), "wireshark-import --json failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["status"], "ok");
+    assert_eq!(json["rule_count"], 1);
+}
+
+#[test]
+fn wireshark_import_stdout() {
+    let output = pacgate_bin()
+        .args(["wireshark-import", "--filter", "tcp.dstport == 80"])
+        .output().unwrap();
+    assert!(output.status.success(), "wireshark-import stdout failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("dst_port"));
+    assert!(stdout.contains("pass"));
+}
+
+#[test]
+fn wireshark_import_filter_file() {
+    let tmp = tempfile::tempdir().unwrap();
+    let filter_file = tmp.path().join("filter.txt");
+    std::fs::write(&filter_file, "tcp.dstport == 80 || tcp.dstport == 443").unwrap();
+    let yaml_out = tmp.path().join("from_file.yaml");
+    let output = pacgate_bin()
+        .args(["wireshark-import", "--filter-file", filter_file.to_str().unwrap(), "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "wireshark-import --filter-file failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Imported 2 rules"));
+}
+
+#[test]
+fn wireshark_import_validates_after_import() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml_out = tmp.path().join("validated.yaml");
+    // Import
+    let output = pacgate_bin()
+        .args(["wireshark-import", "--filter", "ip.src == 10.0.0.0/8 && tcp.dstport == 443", "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "wireshark-import failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // Validate
+    let output = pacgate_bin()
+        .args(["validate", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "validate failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // Lint
+    let output = pacgate_bin()
+        .args(["lint", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "lint failed: {}", String::from_utf8_lossy(&output.stderr));
+}

@@ -2896,3 +2896,56 @@ Complete the bidirectional P4 bridge by adding `p4-import` subcommand that parse
 
 ### Git
 - Committed and pushed Phase 31 implementation
+
+---
+
+## Session 4: Phase 32 — Wireshark Display Filter Import
+
+**Date**: 2026-03-04
+**Goal**: Add `wireshark-import` subcommand for converting Wireshark display filter syntax to YAML rules, making PacGate accessible to ~10M+ Wireshark users.
+
+### Phase 32.1: Core Tokenizer + Parser + Field Mapper + CLI
+
+**Actions Taken**:
+1. Created `src/wireshark_import.rs` (~700 LOC):
+   - **Tokenizer**: Handles field names (dot-separated), hex/decimal literals, MAC addresses, IPv4/IPv6 CIDR strings, operators (==, !=, >, <, >=, <=), logical operators (&&/and, ||/or, !/not), `in` keyword, parentheses, braces
+   - **Parser**: Recursive descent with correct precedence (NOT > AND > OR), parenthesized grouping support
+   - **Field Mapper**: ~45 Wireshark field → PacGate MatchCriteria mappings covering L2 (eth.dst/src/type, vlan.id/priority), IPv4 (ip.src/dst/proto/ttl/dscp/ecn/flags/frag_offset), TCP (tcp.srcport/dstport/port/flags/flags.syn/.ack/.fin/.rst/.psh/.urg/.ece/.cwr), UDP (udp.srcport/dstport/port), ICMP (icmp.type/code), ICMPv6 (icmpv6.type/code), ARP (arp.opcode/src.proto_ipv4/dst.proto_ipv4), IPv6 (ipv6.src/dst/nxt/hlim/flow), GRE (gre.proto/key), MPLS (mpls.label/exp/bottom), tunnels (vxlan.vni, geneve.vni), frame.len
+   - **Protocol inference**: ip.src auto-sets ethertype=0x0800, tcp.port auto-sets ip_protocol=6, etc.
+   - **Protocol presence**: bare "arp"/"tcp"/"udp"/"ip"/"ipv6"/"icmp"/"icmpv6"/"gre"/"mpls" shorthand
+   - **AST-to-Rules**: AND→merge single rule, OR→split to separate rules, NOT→invert action, InSet→expand per-value, bidirectional port→OR of src+dst, TCP flags→bit accumulation
+2. Added `wireshark-import` subcommand to `src/main.rs` (38th subcommand):
+   - `--filter` for inline string, `--filter-file` for file input
+   - `--json`, `--default-action` (pass/drop), `--name` prefix, `-o` output
+   - Reuses `p4_import::config_to_yaml()` for YAML serialization
+3. Added 36 unit tests (8 tokenizer + 7 parser + 9 field mapping + 12 full import)
+4. Added 10 integration tests (simple, and, or, in_set, not, ip_cidr, json, stdout, filter_file, validates_after_import)
+
+### Phase 32.2: Examples + Documentation
+
+**Actions Taken**:
+1. Created 2 example Wireshark filter files:
+   - `rules/examples/wireshark/web_filter.txt` — `tcp.port == 80 || tcp.port == 443`
+   - `rules/examples/wireshark/security_filter.txt` — `ip.src == 10.0.0.0/8 && tcp.dstport == 22`
+2. Updated documentation:
+   - CLAUDE.md: Feature summary, CLI commands, key files, Phase 32 status, test counts
+   - OVERVIEW.md: Triple input format (YAML + P4 + Wireshark)
+   - REQUIREMENTS.md: Phase 32 requirements (REQ-3500 through REQ-3533)
+   - PROMPT_HISTORY.md: Phase 32 session entry
+   - docs/COMPARISON.md: Wireshark display filter marked as implemented, metrics updated
+
+### Test Results
+- 638 unit + 399 integration = 1037 Rust tests (all passing)
+- 90 Python scoreboard tests (unchanged)
+- Total: 1127 tests
+
+### New Artifacts
+- 1 new source file: src/wireshark_import.rs (~700 LOC)
+- 1 new CLI subcommand: wireshark-import (38 total)
+- 2 Wireshark filter examples: rules/examples/wireshark/web_filter.txt, security_filter.txt
+- 0 new parser states (23 total — pure software feature)
+- 0 new lint rules (57 total)
+- 0 new mutation types (41 total)
+
+### Git
+- Committed and pushed Phase 32 implementation

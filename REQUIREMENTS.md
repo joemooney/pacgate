@@ -1737,3 +1737,34 @@
 - REQ-3471: 90 Python scoreboard unit tests through Phase 31 [IMPLEMENTED]
 - REQ-3472: 53 YAML/P4 examples (51 YAML + 2 P4) [IMPLEMENTED]
 - REQ-3473: 37 CLI subcommands [IMPLEMENTED]
+
+## Phase 32: Wireshark Display Filter Import
+
+### Wireshark Import Core (32.1)
+- REQ-3500: `wireshark-import` CLI subcommand converts Wireshark display filter syntax to YAML rules [IMPLEMENTED]
+- REQ-3501: Tokenizer handles field names, hex/decimal literals, MAC addresses, IPv4/IPv6 CIDR strings, operators, keywords [IMPLEMENTED]
+- REQ-3502: Recursive descent parser with correct precedence (NOT > AND > OR), parenthesized grouping [IMPLEMENTED]
+- REQ-3503: ~45 Wireshark field mappings to PacGate match fields (L2/L3/L4/IPv6/ARP/ICMP/GRE/MPLS/VXLAN/Geneve/frame.len) [IMPLEMENTED]
+- REQ-3504: Automatic protocol inference (ip.src → ethertype=0x0800, tcp.port → ip_protocol=6) [IMPLEMENTED]
+- REQ-3505: Protocol presence shorthand (bare "arp", "tcp", "ipv6" etc.) [IMPLEMENTED]
+- REQ-3506: Bidirectional port expansion (tcp.port/udp.port → OR of src+dst rules) [IMPLEMENTED]
+- REQ-3507: TCP flag bit accumulation (tcp.flags.syn && tcp.flags.ack → combined tcp_flags + tcp_flags_mask) [IMPLEMENTED]
+- REQ-3508: AND expressions merge into single rule MatchCriteria [IMPLEMENTED]
+- REQ-3509: OR expressions split into separate rules [IMPLEMENTED]
+- REQ-3510: NOT inverts action (top-level) [IMPLEMENTED]
+- REQ-3511: InSet expansion (field in {v1, v2, v3} → one rule per value) [IMPLEMENTED]
+- REQ-3512: Port range operators (>= N → Range([N,65535]), <= N → Range([0,N])) [IMPLEMENTED]
+- REQ-3513: `--filter` inline string and `--filter-file` file input (one required) [IMPLEMENTED]
+- REQ-3514: `--json` JSON summary output [IMPLEMENTED]
+- REQ-3515: `--default-action` (pass/drop) and `--name` prefix configuration [IMPLEMENTED]
+- REQ-3516: Generated YAML validates with `pacgate validate` and passes `pacgate lint` [IMPLEMENTED]
+
+### Examples + Documentation (32.2)
+- REQ-3520: 2 example Wireshark filter files (web_filter.txt, security_filter.txt) [IMPLEMENTED]
+- REQ-3521: Documentation updates (CLAUDE.md, OVERVIEW.md, REQUIREMENTS.md, PROMPT_HISTORY.md, COMPARISON.md) [IMPLEMENTED]
+
+### Phase 32 Test Counts
+- REQ-3530: 1037 Rust tests (638 unit + 399 integration) through Phase 32 [IMPLEMENTED]
+- REQ-3531: 90 Python scoreboard unit tests through Phase 32 [IMPLEMENTED]
+- REQ-3532: 55 examples (51 YAML + 2 P4 + 2 Wireshark) [IMPLEMENTED]
+- REQ-3533: 38 CLI subcommands [IMPLEMENTED]

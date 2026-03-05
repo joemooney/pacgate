@@ -16,6 +16,7 @@ PacGate is an FPGA-based packet filtering switch where YAML-defined rules compil
 5. Run formal verification with SymbiYosys for mathematical proof of correctness
 6. Import PCAP captures for real-traffic test stimulus
 7. Export to P4_16 PSA programs for software switch / SmartNIC targets (`p4-export` subcommand)
+8. Import from P4_16 PSA programs (`p4-import`) or Wireshark display filters (`wireshark-import`) — triple input format (YAML + P4 + Wireshark)
 
 ## Innovation / Unique Value
 PacGate is unique in that no other tool generates both the hardware implementation (Verilog) and the verification environment (cocotb) from a single specification. Commercial tools like Agnisys IDS-Verify generate tests from register specs but assume the RTL already exists. LLM-based approaches generate one or the other non-deterministically. PacGate generates both, ensuring perfect alignment between specification, implementation, and verification.
