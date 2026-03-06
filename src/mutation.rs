@@ -740,7 +740,7 @@ pub fn run_mutation_tests(
         }
 
         // Generate mutated Verilog + tests
-        let verilog_ok = crate::verilog_gen::generate(mutated_config, templates_dir, &mutant_dir).is_ok();
+        let verilog_ok = crate::verilog_gen::generate(mutated_config, templates_dir, &mutant_dir, false, 8).is_ok();
         let cocotb_ok = crate::cocotb_gen::generate(mutated_config, templates_dir, &mutant_dir).is_ok();
 
         if !verilog_ok || !cocotb_ok {

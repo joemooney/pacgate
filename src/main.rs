@@ -792,13 +792,16 @@ fn main() -> Result<()> {
                 loader::validate_dynamic(&config, conntrack, dynamic_entries)?;
             }
 
+            // Wide parser: activated for --width >= 512 with AXI wrapper
+            let wide_parser = width >= 512 && axi;
+
             // Generate Verilog
             if dynamic {
                 verilog_gen::generate_dynamic(&config, &templates, &output, dynamic_entries)?;
             } else if config.is_pipeline() {
                 verilog_gen::generate_pipeline(&config, &templates, &output)?;
             } else {
-                verilog_gen::generate(&config, &templates, &output)?;
+                verilog_gen::generate(&config, &templates, &output, wide_parser, width)?;
             }
 
             // Generate multi-port wrapper if --ports > 1
@@ -862,11 +865,11 @@ fn main() -> Result<()> {
 
             // Copy/generate AXI-Stream wrapper RTL if --axi
             if axi {
-                verilog_gen::copy_axi_rtl(&output, &config, &templates, width, rss, rss_queues)?;
+                verilog_gen::copy_axi_rtl(&output, &config, &templates, width, rss, rss_queues, wide_parser)?;
 
                 // Re-render AXI top with INT if --int is enabled
                 if int {
-                    verilog_gen::enable_int_in_axi_top(&output, &config, &templates, width, rss, rss_queues, int_switch_id, ptp)?;
+                    verilog_gen::enable_int_in_axi_top(&output, &config, &templates, width, rss, rss_queues, int_switch_id, ptp, wide_parser)?;
                 }
             }
 
@@ -994,7 +997,11 @@ fn main() -> Result<()> {
                     }
                 }
                 if width > 8 {
-                    println!("  Data path width: {}-bit AXI-Stream (core remains 8-bit with width converters)", width);
+                    if wide_parser {
+                        println!("  Data path width: {}-bit AXI-Stream (wide parser: 1-2 cycle field extraction)", width);
+                    } else {
+                        println!("  Data path width: {}-bit AXI-Stream (core remains 8-bit with width converters)", width);
+                    }
                 }
                 println!("  Compilation complete.");
             }
@@ -1088,7 +1095,7 @@ fn main() -> Result<()> {
             if dynamic {
                 verilog_gen::generate_dynamic(&config, &templates, &output, dynamic_entries)?;
             } else {
-                verilog_gen::generate(&config, &templates, &output)?;
+                verilog_gen::generate(&config, &templates, &output, false, 8)?;
             }
 
             // Generate SVA assertions + SBY task file
@@ -1459,11 +1466,11 @@ fn main() -> Result<()> {
             } else {
                 // First compile the design to generate RTL
                 let (config, warnings) = loader::load_rules_with_warnings(&rules)?;
-                verilog_gen::generate(&config, &templates, &output)?;
+                verilog_gen::generate(&config, &templates, &output, false, 8)?;
                 if ports > 1 {
                     verilog_gen::generate_multiport(&config, &templates, &output, ports)?;
                 }
-                if axi { verilog_gen::copy_axi_rtl(&output, &config, &templates, 8, false, 4)?; }
+                if axi { verilog_gen::copy_axi_rtl(&output, &config, &templates, 8, false, 4, false)?; }
                 if counters { verilog_gen::copy_counter_rtl(&output)?; }
                 if conntrack { verilog_gen::copy_conntrack_rtl(&output)?; }
                 let has_rate_limit = rate_limit || config.pacgate.rules.iter().any(|r| r.rate_limit.is_some());
@@ -1604,7 +1611,7 @@ fn main() -> Result<()> {
                     std::fs::write(mutant_dir.join("rules.yaml"), &yaml)?;
 
                     // Generate mutated Verilog + tests
-                    verilog_gen::generate(mutated_config, &templates, &mutant_dir)?;
+                    verilog_gen::generate(mutated_config, &templates, &mutant_dir, false, 8)?;
                     cocotb_gen::generate(mutated_config, &templates, &mutant_dir)?;
 
                     println!("  Mutant {}: {} — {}", i, m.name, m.description);
@@ -1618,7 +1625,7 @@ fn main() -> Result<()> {
             let (config, _warnings) = loader::load_rules_with_warnings(&rules)?;
 
             // First compile the rules to generate RTL + TB
-            verilog_gen::generate(&config, &templates, &output)?;
+            verilog_gen::generate(&config, &templates, &output, false, 8)?;
             cocotb_gen::generate(&config, &templates, &output)?;
 
             let rtl_dir = output.join("rtl");
@@ -5395,6 +5402,16 @@ fn lint_rules(config: &model::FilterConfig, warnings: &[String], dynamic: bool, 
             "code": "LINT048",
             "message": format!("{}-bit data path typically requires a platform NIC (OpenNIC/Corundum) with native wide AXI-Stream", width),
             "suggestion": "Consider --target opennic or --target corundum for wide data path deployment"
+        }));
+    }
+
+    // LINT058: --width >= 512 enables wide parser for reduced latency
+    if width >= 512 {
+        findings.push(serde_json::json!({
+            "level": "info",
+            "code": "LINT058",
+            "message": format!("Width {} activates native wide parser — combinational parallel extraction in 1-2 cycles (vs 54+ for 8-bit serial parser)", width),
+            "suggestion": "Ensure --axi flag is used when compiling to activate the wide parser"
         }));
     }
 

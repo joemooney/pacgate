@@ -3195,3 +3195,41 @@ Implement `--target rust` backend that generates a standalone Rust packet filter
 ### Git Operations
 - `git commit -m "Phase 37: PCAP Parser Completeness"`
 - `git push origin main`
+
+---
+
+## Session 38 — 2026-03-06: Phase 38 (Native Wide Parser)
+
+### Prompt
+"Implement native wide parser for --width >= 512 that does combinational parallel field extraction from the wide AXI-Stream bus."
+
+### Phase 38: Native Wide Parser (`--width >= 512`)
+
+#### Actions Taken
+1. Created `templates/frame_parser_wide.v.tera` (~520 LOC) — combinational parallel extraction with:
+   - Word 0: all IPv4, ARP, OAM, NSH, MPLS, tunnel (VXLAN/GTP/Geneve), PTP, GRE protocols
+   - 3-way VLAN mux (untagged/VLAN/QinQ) for each field extraction
+   - Word-1 pipeline for IPv6+L4 combinations that overflow 64-byte word 0 boundary
+2. Modified `src/verilog_gen.rs`: added `wide_parser`/`data_width` params to `generate()`, `copy_axi_rtl()`, `enable_int_in_axi_top()`; added `generate_wide_parser()` function
+3. Modified `src/main.rs`: wide_parser activation logic (`width >= 512 && axi`), updated all call sites
+4. Modified `templates/packet_filter_top.v.tera`: conditional wide parser ports and instantiation
+5. Modified `templates/packet_filter_axi_top.v.tera`: wide_sof generation and wide bus routing
+6. Updated `src/mutation.rs` and `src/benchmark.rs` for new `generate()` signature
+7. Added LINT058 (wide parser info for width >= 512)
+8. Created `rules/examples/wide_parser_demo.yaml` (5 rules: HTTP/HTTPS/DNS/ARP/IPv6-ICMPv6)
+9. Added 10 integration tests (basic, JSON, IPv6, tunnel, QinQ, ARP, narrow-no-wide, rewrite, OpenNIC, 1024-bit)
+
+#### Key Design Decisions
+- Wide parser uses combinational parallel extraction from the full AXI-Stream bus word, achieving single-cycle field extraction for all protocols fitting within the first 64 bytes
+- 3-way VLAN mux handles untagged, 802.1Q VLAN, and QinQ (802.1ad) frame formats by selecting appropriate byte offsets for each field
+- Word-1 pipeline handles IPv6+L4 combinations where headers extend beyond the first 64-byte word boundary
+- Wide parser activates automatically when `--width >= 512 && --axi` — no separate CLI flag needed
+- Narrow widths (8-256) continue using the existing sequential `frame_parser.v` FSM
+
+#### Test Results
+- 756 unit + 451 integration = 1207 Rust tests, all passing
+- 90 Python scoreboard tests
+
+### Git Operations
+- `git commit -m "Phase 38: Native Wide Parser (--width >= 512)"`
+- `git push origin main`

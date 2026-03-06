@@ -122,7 +122,7 @@ fn measure_compile_time(config: &FilterConfig, templates_dir: &Path) -> Result<f
     std::fs::create_dir_all(output_dir.join("tb"))?;
 
     let start = Instant::now();
-    crate::verilog_gen::generate(config, templates_dir, &output_dir)?;
+    crate::verilog_gen::generate(config, templates_dir, &output_dir, false, 8)?;
     let elapsed = start.elapsed();
 
     // Clean up

@@ -145,6 +145,26 @@ module packet_filter_axi_top #(
         .pkt_eof        (pkt_eof)
     );
 
+{% if wide_parser %}
+    // Wide parser SOF generation: detect first beat of each frame on wide bus
+    reg wide_sof_r;
+    reg wide_frame_active;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            wide_sof_r <= 1'b0;
+            wide_frame_active <= 1'b0;
+        end else begin
+            wide_sof_r <= 1'b0;
+            if (s_axis_tvalid && s_axis_tready && !wide_frame_active) begin
+                wide_sof_r <= 1'b1;
+                wide_frame_active <= 1'b1;
+            end
+            if (s_axis_tvalid && s_axis_tready && s_axis_tlast)
+                wide_frame_active <= 1'b0;
+        end
+    end
+{% endif %}
+
 {% if has_rewrite %}
     // Decision signals from filter
     wire [{{ idx_bits - 1 }}:0] decision_rule_idx;
@@ -174,6 +194,12 @@ module packet_filter_axi_top #(
         .pkt_valid      (pkt_valid),
         .pkt_sof        (pkt_sof),
         .pkt_eof        (pkt_eof),
+{% if wide_parser %}
+        .wide_data      (s_axis_tdata),
+        .wide_valid     (s_axis_tvalid & s_axis_tready),
+        .wide_sof       (wide_sof_r),
+        .wide_last      (s_axis_tlast & s_axis_tvalid & s_axis_tready),
+{% endif %}
         .decision_valid (decision_valid),
         .decision_pass  (decision_pass),
         .decision_rule_idx (decision_rule_idx),
@@ -377,6 +403,12 @@ module packet_filter_axi_top #(
         .pkt_valid      (pkt_valid),
         .pkt_sof        (pkt_sof),
         .pkt_eof        (pkt_eof),
+{% if wide_parser %}
+        .wide_data      (s_axis_tdata),
+        .wide_valid     (s_axis_tvalid & s_axis_tready),
+        .wide_sof       (wide_sof_r),
+        .wide_last      (s_axis_tlast & s_axis_tvalid & s_axis_tready),
+{% endif %}
         .decision_valid (decision_valid),
         .decision_pass  (decision_pass)
 {% if rss_enabled %}

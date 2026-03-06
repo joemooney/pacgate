@@ -8504,3 +8504,143 @@ fn pcap_filter_timestamps_preserved() {
         assert_eq!(out_ts_usec, in_ts_usec, "output ts_usec should match input");
     }
 }
+
+// === Phase 38: Native Wide Parser tests ===
+
+#[test]
+fn compile_wide_parser_basic() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml", "--axi", "--width", "512", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+    // Should generate frame_parser_wide.v in gen/rtl/
+    let wide_parser = tmp.path().join("rtl/frame_parser_wide.v");
+    assert!(wide_parser.exists(), "frame_parser_wide.v should be generated");
+    let content = std::fs::read_to_string(&wide_parser).unwrap();
+    assert!(content.contains("frame_parser_wide"), "Should contain wide parser module");
+    assert!(content.contains("512"), "Should reference 512-bit data width");
+    // packet_filter_top should use wide parser
+    let top = std::fs::read_to_string(tmp.path().join("rtl/packet_filter_top.v")).unwrap();
+    assert!(top.contains("frame_parser_wide"), "packet_filter_top should instantiate wide parser");
+    assert!(top.contains("wide_data"), "Should have wide_data port");
+}
+
+#[test]
+fn compile_wide_parser_json() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml", "--axi", "--width", "512", "--json", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["status"], "ok");
+}
+
+#[test]
+fn compile_wide_parser_ipv6() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/ipv6_firewall.yaml", "--axi", "--width", "512", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+    let wide_parser = std::fs::read_to_string(tmp.path().join("rtl/frame_parser_wide.v")).unwrap();
+    assert!(wide_parser.contains("w_is_ipv6"), "Should have IPv6 detection");
+    assert!(wide_parser.contains("w_src_ipv6"), "Should have IPv6 address extraction");
+}
+
+#[test]
+fn compile_wide_parser_tunnel() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/vxlan_datacenter.yaml", "--axi", "--width", "512", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+    let wide_parser = std::fs::read_to_string(tmp.path().join("rtl/frame_parser_wide.v")).unwrap();
+    assert!(wide_parser.contains("w_is_vxlan"), "Should have VXLAN detection");
+}
+
+#[test]
+fn compile_wide_parser_qinq() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/qinq_provider.yaml", "--axi", "--width", "512", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+    let wide_parser = std::fs::read_to_string(tmp.path().join("rtl/frame_parser_wide.v")).unwrap();
+    assert!(wide_parser.contains("w_has_qinq"), "Should have QinQ detection");
+}
+
+#[test]
+fn compile_wide_parser_arp() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/arp_security.yaml", "--axi", "--width", "512", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+    let wide_parser = std::fs::read_to_string(tmp.path().join("rtl/frame_parser_wide.v")).unwrap();
+    assert!(wide_parser.contains("w_is_arp"), "Should have ARP detection");
+}
+
+#[test]
+fn compile_narrow_no_wide() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml", "--axi", "--width", "256", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+    // Should NOT generate frame_parser_wide.v
+    let wide_parser = tmp.path().join("rtl/frame_parser_wide.v");
+    assert!(!wide_parser.exists(), "frame_parser_wide.v should NOT be generated for width < 512");
+    // packet_filter_top should use 8-bit parser
+    let top = std::fs::read_to_string(tmp.path().join("rtl/packet_filter_top.v")).unwrap();
+    assert!(top.contains("frame_parser u_parser"), "Should use 8-bit frame_parser");
+    assert!(!top.contains("frame_parser_wide"), "Should NOT use wide parser");
+}
+
+#[test]
+fn compile_wide_parser_rewrite() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/rewrite_actions.yaml", "--axi", "--width", "512", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+    let wide_parser = tmp.path().join("rtl/frame_parser_wide.v");
+    assert!(wide_parser.exists(), "frame_parser_wide.v should be generated with rewrite");
+    let axi_top = std::fs::read_to_string(tmp.path().join("rtl/packet_filter_axi_top.v")).unwrap();
+    assert!(axi_top.contains("wide_sof_r"), "AXI top should have wide_sof generation");
+    assert!(axi_top.contains("wide_data"), "AXI top should route wide data");
+}
+
+#[test]
+fn compile_wide_parser_opennic() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml", "--target", "opennic", "--width", "512", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+    let wide_parser = tmp.path().join("rtl/frame_parser_wide.v");
+    assert!(wide_parser.exists(), "frame_parser_wide.v should be generated for OpenNIC at 512");
+}
+
+#[test]
+fn compile_wide_parser_1024() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/l3l4_firewall.yaml", "--axi", "--width", "1024", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+    let wide_parser = std::fs::read_to_string(tmp.path().join("rtl/frame_parser_wide.v")).unwrap();
+    assert!(wide_parser.contains("1024"), "Should reference 1024-bit data width");
+}

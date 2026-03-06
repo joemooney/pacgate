@@ -1897,3 +1897,25 @@
 ### Timestamp Preservation
 - REQ-3711: Output PCAPs from pcap-filter shall preserve original PCAP timestamps (ts_sec/ts_usec)
 - REQ-3712: SimPacketRecord shall carry original timestamps instead of synthetic sequence-based values
+
+## Phase 38 Requirements — Native Wide Parser
+
+### Activation and Performance
+- REQ-3800: Native wide parser activates for --width >= 512 with --axi
+- REQ-3801: Combinational parallel field extraction from 512+ bit AXI-Stream bus in 1-2 clock cycles
+
+### Parser Architecture
+- REQ-3802: 3-way mux for untagged/VLAN/QinQ byte offsets in wide parser
+- REQ-3803: Word-1 pipeline for IPv6+TCP flags/ICMPv6 that overflow 64-byte word 0
+- REQ-3804: Same output port list as frame_parser.v (67 signals) for drop-in replacement
+
+### Lint and Diagnostics
+- REQ-3805: LINT058 informational message for width >= 512
+
+### Code Generation
+- REQ-3806: Wide parser generation via frame_parser_wide.v.tera template
+- REQ-3807: packet_filter_top.v.tera conditional wide/narrow parser instantiation
+- REQ-3808: AXI top wide_sof generation and wide bus routing to filter
+
+### Example
+- REQ-3809: wide_parser_demo.yaml example with IPv4/IPv6/ARP rules

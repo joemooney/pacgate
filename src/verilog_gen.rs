@@ -374,7 +374,7 @@ fn build_condition_expr(mc: &crate::model::MatchCriteria) -> Result<String> {
     })
 }
 
-pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) -> Result<()> {
+pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path, wide_parser: bool, data_width: u16) -> Result<()> {
     let glob = format!("{}/**/*.tera", templates_dir.display());
     let tera = Tera::new(&glob)
         .with_context(|| format!("Failed to load templates from {}", templates_dir.display()))?;
@@ -568,6 +568,8 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         ctx.insert("has_mirror", &has_mirror);
         ctx.insert("has_redirect", &has_redirect);
         ctx.insert("idx_bits", &idx_bits);
+        ctx.insert("wide_parser", &wide_parser);
+        ctx.insert("data_width", &data_width);
 
         let byte_cap_info: Vec<std::collections::HashMap<String, serde_json::Value>> = byte_offsets.iter().map(|(offset, len)| {
             let mut map = std::collections::HashMap::new();
@@ -591,6 +593,23 @@ pub fn generate(config: &FilterConfig, templates_dir: &Path, output_dir: &Path) 
         log::info!("Generated packet_filter_top.v");
     }
 
+    // Generate wide parser module if enabled (--width >= 512 --axi)
+    if wide_parser {
+        generate_wide_parser(&tera, &rtl_dir, data_width)?;
+    }
+
+    Ok(())
+}
+
+/// Generate the combinational wide-bus frame parser from template.
+/// Activated when --width >= 512 and --axi are both set.
+fn generate_wide_parser(tera: &Tera, rtl_dir: &Path, data_width: u16) -> Result<()> {
+    let mut ctx = tera::Context::new();
+    ctx.insert("data_width", &data_width);
+
+    let rendered = tera.render("frame_parser_wide.v.tera", &ctx)?;
+    std::fs::write(rtl_dir.join("frame_parser_wide.v"), &rendered)?;
+    log::info!("Generated frame_parser_wide.v ({}‐bit combinational parser)", data_width);
     Ok(())
 }
 
@@ -1239,7 +1258,7 @@ pub fn generate_multiport(config: &FilterConfig, templates_dir: &Path, output_di
 /// Generate or copy AXI-Stream RTL modules to the output directory.
 /// When has_rewrite=true, renders the AXI top template with rewrite wiring.
 /// Otherwise, copies the original hand-written modules.
-pub fn copy_axi_rtl(output_dir: &Path, config: &FilterConfig, templates_dir: &Path, data_width: u16, rss_enabled: bool, rss_queues: u8) -> Result<()> {
+pub fn copy_axi_rtl(output_dir: &Path, config: &FilterConfig, templates_dir: &Path, data_width: u16, rss_enabled: bool, rss_queues: u8, wide_parser: bool) -> Result<()> {
     let rtl_dir = output_dir.join("rtl");
     std::fs::create_dir_all(&rtl_dir)?;
 
@@ -1301,6 +1320,7 @@ pub fn copy_axi_rtl(output_dir: &Path, config: &FilterConfig, templates_dir: &Pa
     ctx.insert("rss_queues", &rss_queues);
     let has_rss_queue_lut = config.pacgate.rules.iter().any(|r| r.has_rss_queue());
     ctx.insert("has_rss_queue_lut", &has_rss_queue_lut);
+    ctx.insert("wide_parser", &wide_parser);
 
     // INT (In-band Network Telemetry) — disabled at this level
     // Use enable_int_in_axi_top() after copy_axi_rtl() to enable
@@ -1317,7 +1337,7 @@ pub fn copy_axi_rtl(output_dir: &Path, config: &FilterConfig, templates_dir: &Pa
 }
 
 /// Re-render AXI top with INT enabled. Call after copy_axi_rtl().
-pub fn enable_int_in_axi_top(output_dir: &Path, config: &FilterConfig, templates_dir: &Path, data_width: u16, rss_enabled: bool, rss_queues: u8, int_switch_id: u16, has_ptp: bool) -> Result<()> {
+pub fn enable_int_in_axi_top(output_dir: &Path, config: &FilterConfig, templates_dir: &Path, data_width: u16, rss_enabled: bool, rss_queues: u8, int_switch_id: u16, has_ptp: bool, wide_parser: bool) -> Result<()> {
     let rtl_dir = output_dir.join("rtl");
     let glob = format!("{}/**/*.tera", templates_dir.display());
     let tera = Tera::new(&glob)
@@ -1347,6 +1367,7 @@ pub fn enable_int_in_axi_top(output_dir: &Path, config: &FilterConfig, templates
     ctx.insert("rss_enabled", &rss_enabled);
     ctx.insert("rss_queues", &rss_queues);
     ctx.insert("has_rss_queue_lut", &has_rss_queue_lut);
+    ctx.insert("wide_parser", &wide_parser);
     ctx.insert("int_enabled", &true);
     ctx.insert("int_switch_id", &int_switch_id);
     ctx.insert("has_int_lut", &has_int_lut);

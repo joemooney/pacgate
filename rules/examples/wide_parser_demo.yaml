@@ -1,0 +1,51 @@
+# wide_parser_demo.yaml — Demonstrates native wide parser (--width 512 --axi)
+#
+# Usage:
+#   pacgate compile wide_parser_demo.yaml --axi --width 512
+#
+# This example showcases the combinational wide parser that extracts all
+# protocol fields from the 512-bit AXI-Stream bus in 1-2 clock cycles,
+# replacing the 54+ cycle serial parser for width >= 512.
+
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+
+  rules:
+    - name: allow_http
+      priority: 100
+      action: pass
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 80
+
+    - name: allow_https
+      priority: 90
+      action: pass
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 443
+
+    - name: allow_dns
+      priority: 80
+      action: pass
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17
+        dst_port: 53
+
+    - name: allow_arp
+      priority: 70
+      action: pass
+      match:
+        ethertype: "0x0806"
+
+    - name: allow_ipv6_icmp
+      priority: 60
+      action: pass
+      match:
+        ethertype: "0x86DD"
+        ipv6_next_header: 58

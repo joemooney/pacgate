@@ -114,12 +114,12 @@ This is consistent with academic results: CESNET's terabit parser uses 4k-8k LUT
 2. Add `enumerate_parser_paths()` that walks `GlobalProtocolFlags` to produce all valid paths
 3. New Tera template: `frame_parser_wide.v.tera` — generates combinational extraction with offset muxes
 
-**Phase B: Single-Word Parser (covers ~90% of traffic)**
+**Phase B: Single-Word Parser (covers ~90% of traffic)** ✅ Implemented (Phase 38)
 
-4. Generate wide parser for non-tunneled traffic (all headers fit in word 0)
-5. Gate on `--width >= 64`: produce wide parser instead of width converters
-6. Output interface remains identical to current `frame_parser.v` (same field registers, same `fields_valid`)
-7. Existing rule matchers (`rule_match_N`) and decision logic work unchanged
+4. ✅ Generate wide parser for non-tunneled traffic (all headers fit in word 0) — `templates/frame_parser_wide.v.tera`
+5. ✅ Gate on `--width >= 512` with `--axi`: produce wide parser alongside width converters (parser uses wide bus directly, FIFO/rewrite use 8-bit path)
+6. ✅ Output interface identical to `frame_parser.v` (same 67 field registers, same `fields_valid`)
+7. ✅ Existing rule matchers (`rule_match_N`) and decision logic work unchanged
 
 **Phase C: Two-Word Pipeline (tunnels)**
 
