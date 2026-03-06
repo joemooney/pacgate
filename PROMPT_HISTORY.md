@@ -3157,4 +3157,41 @@ Implement `--target rust` backend that generates a standalone Rust packet filter
 ### Git Operations
 - `git commit -m "Update documentation to reflect software-only capabilities"`
 - `git commit -m "Phase 36: PCAP Filter subcommand (pcap-filter)"`
+
+---
+
+## Session 37 — 2026-03-06: Phase 37 (PCAP Parser Completeness)
+
+### Prompt
+"Extend parse_packet() to extract all 55+ protocol fields, fixing pcap-filter's silent failure for rules matching on TCP flags, ICMP, ARP, tunnels, QoS, etc."
+
+### Phase 37: PCAP Parser Completeness
+
+#### Actions Taken
+1. Extended `ParsedPacket` struct from 14 to 56 fields (42 new: QinQ, DSCP/ECN, TTL, fragmentation, TCP flags, ICMP/ICMPv6/MLD, IGMP, ARP, GTP-U, Geneve, GRE, MPLS, OAM, NSH, PTP, IPv6 extensions, timestamps)
+2. Rewrote `parse_packet()` with full L2/L3/L4 protocol dispatch matching `rtl/frame_parser.v`:
+   - L2: QinQ (0x88A8/0x9100) outer VLAN, 802.1Q VLAN PCP extraction
+   - L3: IPv4 TOS→DSCP/ECN, TTL, DF/MF/frag_offset; IPv6 TC→DSCP/ECN, hop_limit, flow_label, next_header; ARP opcode/SPA/TPA; MPLS label/TC/BOS; OAM level/opcode; NSH SPI/SI/next_protocol; PTP L2
+   - L4: TCP flags at byte 13; ICMP type/code; IGMP type; GRE protocol+key (K flag bit 5); ICMPv6 type/code + MLD 130-132
+   - Tunnel: VXLAN VNI (UDP:4789), GTP-U TEID (UDP:2152), Geneve VNI (UDP:6081), PTP L4 (UDP:319/320)
+3. Updated `pcap_filter_to_sim_packet()` in `main.rs` to map all 42 new fields
+4. Added `ts_sec`/`ts_usec` fields to `SimPacketRecord` and updated `write_pcap()` to preserve original PCAP timestamps
+5. Added 25 unit tests for `parse_packet()` covering all protocol parsers
+6. Added 5 integration tests: pcap_filter_tcp_flags, pcap_filter_arp_rules, pcap_filter_icmp_rules, pcap_filter_dscp_rules, pcap_filter_timestamps_preserved
+7. Updated documentation (CLAUDE.md, OVERVIEW.md, REQUIREMENTS.md, PROMPT_HISTORY.md, MEMORY.md)
+
+#### Key Design Decisions
+- parse_packet() now mirrors the frame_parser.v FSM logic in software, ensuring PCAP filtering matches RTL behavior for all 55+ protocol fields
+- QinQ detection handles both IEEE 0x88A8 and legacy 0x9100 EtherTypes
+- GRE key extraction checks the K flag (bit 5 of flags byte) before attempting to read the 32-bit key
+- ICMPv6 parser sets both icmpv6_type/code and mld_type for types 130-132 (backward compatibility with MLD-specific rules)
+- PTP detection uses dual path: L2 (EtherType 0x88F7) and L4 (UDP ports 319/320)
+- Original PCAP timestamps (ts_sec/ts_usec) are preserved through the filter pipeline for accurate time-series output
+
+#### Test Results
+- 756 unit + 441 integration = 1197 Rust tests, all passing
+- 90 Python scoreboard tests
+
+### Git Operations
+- `git commit -m "Phase 37: PCAP Parser Completeness"`
 - `git push origin main`

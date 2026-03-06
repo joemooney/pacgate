@@ -29,7 +29,7 @@
 - **RSS (Receive Side Scaling)**: `rss_queue` per-rule queue override (0-15), `--rss`/`--rss-queues N` CLI flags, Toeplitz hash engine (Microsoft RSS compatible), 128-entry indirection table with AXI-Lite CSR, hash-based multi-queue dispatch for multi-core packet processing
 - **INT (In-band Network Telemetry)**: per-rule `int_insert` field, `--int`/`--int-switch-id N` CLI flags, sideband metadata output (switch_id, ingress/egress timestamps, hop_latency, queue_id, rule_idx), int_metadata.v RTL module, int_lut.v.tera template for INT enable lookup
 - **Synthetic traffic generation**: `pcap-gen` subcommand generates protocol-aware PCAP files from YAML rules with `--count`/`--seed`/`--json`/`--output` flags
-- **PCAP filtering**: `pcap-filter` subcommand reads PCAP → applies rules → writes filtered PCAP + per-rule statistics; `--json`/`--output`/`--output-drop`/`--stateful`/`--limit` flags
+- **PCAP filtering**: `pcap-filter` subcommand reads PCAP → applies rules → writes filtered PCAP + per-rule statistics; full 55+ field extraction (TCP flags, ICMP, ARP, tunnels, QoS, QinQ, MPLS, OAM, NSH, PTP, IPv6 extensions, fragmentation, GRE, Geneve); original timestamp preservation; `--json`/`--output`/`--output-drop`/`--stateful`/`--limit` flags
 - **Frame length matching**: frame_len_min/frame_len_max (simulation-only, no RTL) for size-based filtering
 - **L4 port rewrite**: set_src_port, set_dst_port with RFC 1624 incremental L4 checksum update (TCP/UDP, UDP cksum=0 preserved)
 - **Byte-offset matching**: raw byte inspection at any packet offset with value/mask (`byte_match`)
@@ -96,7 +96,7 @@
 - Coverage-directed test generation (verification/coverage_driven.py)
 - Enhanced overlap detection with CIDR containment and port range analysis
 - 53 real-world YAML examples + 2 P4 + 2 Wireshark + 2 iptables examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite, OpenNIC, Corundum, TCP flags/ICMP, ARP security, ICMPv6 firewall, QinQ provider, fragment security, port rewrite, GRE tunnel, conntrack firewall, mirror/redirect, flow counters, OAM monitoring, NSH/SFC, Geneve datacenter, TTL security, IPv6 routing, QoS rewrite, wide AXI firewall, P4 export demo, pipeline classify, PTP boundary clock, PTP 5G fronthaul, RSS datacenter, RSS NIC offload, INT datacenter, pcap-gen demo, optimize demo, Rust filter demo)
-- 726 Rust unit tests + 436 integration tests = 1162 total, 90 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
+- 756 Rust unit tests + 441 integration tests = 1197 total, 90 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
 
 ## Architecture
 ```
@@ -494,6 +494,13 @@ pytest verification/test_scoreboard.py # 67 Python scoreboard unit tests
   - `pcap_filter_to_sim_packet()` conversion helper (ParsedPacket → SimPacket)
   - 8 integration tests (basic, JSON, output, output-drop, limit, ipv6, stateful, missing-input)
   - 42 CLI subcommands, 726 unit + 436 integration = 1162 Rust tests + 90 Python tests
+- **Phase 37**: Complete — PCAP Parser Completeness:
+  - Extended `ParsedPacket` struct from 14 to 56 fields, matching full `SimPacket` coverage
+  - Rewrote `parse_packet()` with full protocol dispatch (QinQ, DSCP/ECN, TTL, fragmentation, TCP flags, ICMP/ICMPv6/MLD, IGMP, ARP, GRE, GTP-U, Geneve, MPLS, OAM, NSH, PTP L2/L4, IPv6 TC/hop_limit/flow_label)
+  - Updated `pcap_filter_to_sim_packet()` to map all 42 new fields
+  - Added timestamp preservation in `SimPacketRecord` (ts_sec/ts_usec from original PCAP)
+  - 25 new unit tests + 5 new integration tests
+  - 42 CLI subcommands, 756 unit + 441 integration = 1197 Rust tests + 90 Python tests
 - **Phase 35**: Complete — Rust Code Generation Backend (`--target rust`):
   - **35.1 Core Generator+CLI**: `src/rust_gen.rs` (~400 LOC) — protocol detection, compiled rule matchers with 55+ field conditions, CIDR/IPv6/MAC constant generation, pipeline support; `--target rust` CLI intercept with incompatible flag rejection (--axi/--conntrack/--dynamic/--rate-limit/--ports/--ptp/--rss/--int/--counters)
   - **35.2 Tera Templates**: `rust_cargo.toml.tera` (Cargo.toml with optional `afxdp` feature), `rust_filter.rs.tera` (~700 LOC) — single-file generated binary with ParsedPacket struct, frame parser (L2/QinQ/VLAN/IPv4/IPv6/TCP/UDP/ICMP/ICMPv6/ARP/MPLS/GRE/OAM/NSH/PTP/VXLAN/GTP-U/Geneve), compiled rule matchers, priority-ordered decision logic, PCAP reader/writer, per-rule statistics (text+JSON), stdin/stdout pipe mode, AF_XDP skeleton (behind `afxdp` Cargo feature)

@@ -8360,3 +8360,147 @@ fn pcap_filter_missing_input() {
         .output().unwrap();
     assert!(!filter.status.success(), "should fail with missing input");
 }
+
+// ---- Phase 37: pcap-filter protocol completeness tests ----
+
+#[test]
+fn pcap_filter_tcp_flags() {
+    let tmp = tempfile::tempdir().unwrap();
+    let pcap_path = tmp.path().join("tcp_flags.pcap");
+
+    // Generate traffic from tcp_flags_icmp rules
+    let gen = pacgate_bin()
+        .args(["pcap-gen", "rules/examples/tcp_flags_icmp.yaml",
+            "--count", "50", "--seed", "37", "--output", pcap_path.to_str().unwrap()])
+        .output().unwrap();
+    assert!(gen.status.success(), "pcap-gen failed: {}", String::from_utf8_lossy(&gen.stderr));
+
+    // Filter using same rules — should now match TCP flags
+    let filter = pacgate_bin()
+        .args(["pcap-filter", "rules/examples/tcp_flags_icmp.yaml",
+            "--input", pcap_path.to_str().unwrap(), "--json"])
+        .output().unwrap();
+    assert!(filter.status.success(), "pcap-filter failed: {}", String::from_utf8_lossy(&filter.stderr));
+
+    let json: serde_json::Value = serde_json::from_str(&String::from_utf8_lossy(&filter.stdout)).unwrap();
+    assert_eq!(json["total_packets"], 50);
+    let passed = json["passed"].as_u64().unwrap();
+    assert!(passed > 0, "expected some TCP flags/ICMP rules to match, got 0 passed");
+}
+
+#[test]
+fn pcap_filter_arp_rules() {
+    let tmp = tempfile::tempdir().unwrap();
+    let pcap_path = tmp.path().join("arp.pcap");
+
+    let gen = pacgate_bin()
+        .args(["pcap-gen", "rules/examples/arp_security.yaml",
+            "--count", "30", "--seed", "42", "--output", pcap_path.to_str().unwrap()])
+        .output().unwrap();
+    assert!(gen.status.success(), "pcap-gen failed: {}", String::from_utf8_lossy(&gen.stderr));
+
+    let filter = pacgate_bin()
+        .args(["pcap-filter", "rules/examples/arp_security.yaml",
+            "--input", pcap_path.to_str().unwrap(), "--json"])
+        .output().unwrap();
+    assert!(filter.status.success(), "pcap-filter failed: {}", String::from_utf8_lossy(&filter.stderr));
+
+    let json: serde_json::Value = serde_json::from_str(&String::from_utf8_lossy(&filter.stdout)).unwrap();
+    assert_eq!(json["total_packets"], 30);
+    // ARP rules should now match since parse_packet extracts arp_opcode/spa/tpa
+    let per_rule = json["per_rule"].as_object().unwrap();
+    let matched_non_default = per_rule.iter().any(|(k, _)| k != "default");
+    assert!(matched_non_default, "expected ARP rules to match, but only default matched: {:?}", per_rule);
+}
+
+#[test]
+fn pcap_filter_icmp_rules() {
+    let tmp = tempfile::tempdir().unwrap();
+    let pcap_path = tmp.path().join("icmp.pcap");
+
+    let gen = pacgate_bin()
+        .args(["pcap-gen", "rules/examples/tcp_flags_icmp.yaml",
+            "--count", "50", "--seed", "99", "--output", pcap_path.to_str().unwrap()])
+        .output().unwrap();
+    assert!(gen.status.success(), "pcap-gen failed: {}", String::from_utf8_lossy(&gen.stderr));
+
+    let filter = pacgate_bin()
+        .args(["pcap-filter", "rules/examples/tcp_flags_icmp.yaml",
+            "--input", pcap_path.to_str().unwrap(), "--json"])
+        .output().unwrap();
+    assert!(filter.status.success(), "pcap-filter failed: {}", String::from_utf8_lossy(&filter.stderr));
+
+    let json: serde_json::Value = serde_json::from_str(&String::from_utf8_lossy(&filter.stdout)).unwrap();
+    let per_rule = json["per_rule"].as_object().unwrap();
+    // Should have matches for ICMP and/or TCP flags rules
+    let total_rule_matches: u64 = per_rule.iter()
+        .filter(|(k, _)| k.as_str() != "default")
+        .map(|(_, v)| v["packets"].as_u64().unwrap_or(0))
+        .sum();
+    assert!(total_rule_matches > 0, "expected ICMP/TCP rules to match: {:?}", per_rule);
+}
+
+#[test]
+fn pcap_filter_dscp_rules() {
+    let tmp = tempfile::tempdir().unwrap();
+    let pcap_path = tmp.path().join("dscp.pcap");
+
+    let gen = pacgate_bin()
+        .args(["pcap-gen", "rules/examples/qos_classification.yaml",
+            "--count", "40", "--seed", "55", "--output", pcap_path.to_str().unwrap()])
+        .output().unwrap();
+    assert!(gen.status.success(), "pcap-gen failed: {}", String::from_utf8_lossy(&gen.stderr));
+
+    let filter = pacgate_bin()
+        .args(["pcap-filter", "rules/examples/qos_classification.yaml",
+            "--input", pcap_path.to_str().unwrap(), "--json"])
+        .output().unwrap();
+    assert!(filter.status.success(), "pcap-filter failed: {}", String::from_utf8_lossy(&filter.stderr));
+
+    let json: serde_json::Value = serde_json::from_str(&String::from_utf8_lossy(&filter.stdout)).unwrap();
+    let per_rule = json["per_rule"].as_object().unwrap();
+    // DSCP rules should now match since parse_packet extracts ip_dscp
+    let total_rule_matches: u64 = per_rule.iter()
+        .filter(|(k, _)| k.as_str() != "default")
+        .map(|(_, v)| v["packets"].as_u64().unwrap_or(0))
+        .sum();
+    assert!(total_rule_matches > 0, "expected DSCP rules to match: {:?}", per_rule);
+}
+
+#[test]
+fn pcap_filter_timestamps_preserved() {
+    let tmp = tempfile::tempdir().unwrap();
+    let pcap_path = tmp.path().join("input.pcap");
+    let out_path = tmp.path().join("output.pcap");
+
+    let gen = pacgate_bin()
+        .args(["pcap-gen", "rules/examples/rust_filter_demo.yaml",
+            "--count", "5", "--seed", "77", "--output", pcap_path.to_str().unwrap()])
+        .output().unwrap();
+    assert!(gen.status.success());
+
+    let filter = pacgate_bin()
+        .args(["pcap-filter", "rules/examples/rust_filter_demo.yaml",
+            "--input", pcap_path.to_str().unwrap(),
+            "--output", out_path.to_str().unwrap()])
+        .output().unwrap();
+    assert!(filter.status.success());
+
+    // Read both PCAPs and verify timestamps are preserved (not synthetic 0,1,2...)
+    let input_data = std::fs::read(&pcap_path).unwrap();
+    let output_data = std::fs::read(&out_path).unwrap();
+
+    // Both should start with valid PCAP magic
+    assert_eq!(&output_data[0..4], &[0xd4, 0xc3, 0xb2, 0xa1]);
+
+    // If output has packets, verify timestamps match input (preserved, not synthetic)
+    if output_data.len() > 24 + 16 {
+        let out_ts_sec = u32::from_le_bytes([output_data[24], output_data[25], output_data[26], output_data[27]]);
+        let out_ts_usec = u32::from_le_bytes([output_data[28], output_data[29], output_data[30], output_data[31]]);
+        let in_ts_sec = u32::from_le_bytes([input_data[24], input_data[25], input_data[26], input_data[27]]);
+        let in_ts_usec = u32::from_le_bytes([input_data[28], input_data[29], input_data[30], input_data[31]]);
+        // Output timestamps should match input timestamps exactly (preserved from original PCAP)
+        assert_eq!(out_ts_sec, in_ts_sec, "output ts_sec should match input");
+        assert_eq!(out_ts_usec, in_ts_usec, "output ts_usec should match input");
+    }
+}

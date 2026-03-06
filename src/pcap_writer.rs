@@ -66,6 +66,10 @@ pub struct SimPacketRecord {
     pub action: String,
     /// Packet sequence number
     pub seq: u32,
+    /// Original PCAP timestamp (seconds)
+    pub ts_sec: u32,
+    /// Original PCAP timestamp (microseconds)
+    pub ts_usec: u32,
 }
 
 /// Write a PCAP file from simulation results
@@ -76,13 +80,10 @@ pub fn write_pcap(path: &Path, packets: &[SimPacketRecord]) -> Result<()> {
     PcapGlobalHeader::new().write(&mut file)?;
 
     // Write each packet
-    for (i, pkt) in packets.iter().enumerate() {
-        let ts_sec = i as u32;
-        let ts_usec = 0u32;
-
+    for (_i, pkt) in packets.iter().enumerate() {
         let pkt_header = PcapPacketHeader {
-            ts_sec,
-            ts_usec,
+            ts_sec: pkt.ts_sec,
+            ts_usec: pkt.ts_usec,
             incl_len: pkt.frame_data.len() as u32,
             orig_len: pkt.frame_data.len() as u32,
         };
@@ -189,6 +190,8 @@ mod tests {
                 rule_name: Some("test_rule".to_string()),
                 action: "pass".to_string(),
                 seq: 0,
+                ts_sec: 0,
+                ts_usec: 0,
             },
         ];
 
@@ -206,8 +209,8 @@ mod tests {
         let path = tmp.path().join("multi.pcap");
 
         let packets = vec![
-            SimPacketRecord { frame_data: vec![0; 60], rule_name: None, action: "drop".to_string(), seq: 0 },
-            SimPacketRecord { frame_data: vec![0; 60], rule_name: Some("r1".to_string()), action: "pass".to_string(), seq: 1 },
+            SimPacketRecord { frame_data: vec![0; 60], rule_name: None, action: "drop".to_string(), seq: 0, ts_sec: 0, ts_usec: 0 },
+            SimPacketRecord { frame_data: vec![0; 60], rule_name: Some("r1".to_string()), action: "pass".to_string(), seq: 1, ts_sec: 1, ts_usec: 0 },
         ];
 
         write_pcap(&path, &packets).unwrap();

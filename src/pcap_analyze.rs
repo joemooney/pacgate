@@ -12,20 +12,74 @@ use crate::pcap::PcapPacket;
 /// L2/L3/L4 fields extracted from a raw Ethernet frame
 #[derive(Debug, Clone)]
 pub struct ParsedPacket {
+    // L2 fields
     pub dst_mac: [u8; 6],
     pub src_mac: [u8; 6],
     pub ethertype: u16,
     pub vlan_id: Option<u16>,
+    pub vlan_pcp: Option<u8>,
+    pub outer_vlan_id: Option<u16>,
+    pub outer_vlan_pcp: Option<u8>,
+    // L3 IPv4 fields
     pub src_ip: Option<Ipv4Addr>,
     pub dst_ip: Option<Ipv4Addr>,
+    pub ip_protocol: Option<u8>,
+    pub ip_dscp: Option<u8>,
+    pub ip_ecn: Option<u8>,
+    pub ip_ttl: Option<u8>,
+    pub ip_dont_fragment: Option<bool>,
+    pub ip_more_fragments: Option<bool>,
+    pub ip_frag_offset: Option<u16>,
+    // L3 IPv6 fields
     pub src_ipv6: Option<Ipv6Addr>,
     pub dst_ipv6: Option<Ipv6Addr>,
-    pub ip_protocol: Option<u8>,
+    pub ipv6_next_header: Option<u8>,
+    pub ipv6_dscp: Option<u8>,
+    pub ipv6_ecn: Option<u8>,
+    pub ipv6_hop_limit: Option<u8>,
+    pub ipv6_flow_label: Option<u32>,
+    // L4 fields
     pub src_port: Option<u16>,
     pub dst_port: Option<u16>,
+    pub tcp_flags: Option<u8>,
+    // ICMP/ICMPv6
+    pub icmp_type: Option<u8>,
+    pub icmp_code: Option<u8>,
+    pub icmpv6_type: Option<u8>,
+    pub icmpv6_code: Option<u8>,
+    // Multicast
+    pub igmp_type: Option<u8>,
+    pub mld_type: Option<u8>,
+    // ARP
+    pub arp_opcode: Option<u16>,
+    pub arp_spa: Option<Ipv4Addr>,
+    pub arp_tpa: Option<Ipv4Addr>,
+    // Tunnels
     pub vxlan_vni: Option<u32>,
+    pub gtp_teid: Option<u32>,
+    pub geneve_vni: Option<u32>,
+    pub gre_protocol: Option<u16>,
+    pub gre_key: Option<u32>,
+    // MPLS
+    pub mpls_label: Option<u32>,
+    pub mpls_tc: Option<u8>,
+    pub mpls_bos: Option<bool>,
+    // OAM/CFM
+    pub oam_level: Option<u8>,
+    pub oam_opcode: Option<u8>,
+    // NSH/SFC
+    pub nsh_spi: Option<u32>,
+    pub nsh_si: Option<u8>,
+    pub nsh_next_protocol: Option<u8>,
+    // PTP
+    pub ptp_message_type: Option<u8>,
+    pub ptp_domain: Option<u8>,
+    pub ptp_version: Option<u8>,
+    // Metadata
     pub frame_len: usize,
     pub timestamp: f64,
+    pub ts_sec: u32,
+    pub ts_usec: u32,
 }
 
 /// 5-tuple flow identifier
@@ -103,7 +157,7 @@ pub struct SuggestedRule {
     pub confidence: f64,
 }
 
-/// Parse a raw Ethernet frame into structured fields (mirrors frame_parser.v logic)
+/// Parse a raw Ethernet frame into structured fields (mirrors frame_parser.v 23-state FSM)
 pub fn parse_packet(pkt: &PcapPacket) -> ParsedPacket {
     let data = &pkt.data;
     let frame_len = data.len();
@@ -114,16 +168,57 @@ pub fn parse_packet(pkt: &PcapPacket) -> ParsedPacket {
         src_mac: [0u8; 6],
         ethertype: 0,
         vlan_id: None,
+        vlan_pcp: None,
+        outer_vlan_id: None,
+        outer_vlan_pcp: None,
         src_ip: None,
         dst_ip: None,
+        ip_protocol: None,
+        ip_dscp: None,
+        ip_ecn: None,
+        ip_ttl: None,
+        ip_dont_fragment: None,
+        ip_more_fragments: None,
+        ip_frag_offset: None,
         src_ipv6: None,
         dst_ipv6: None,
-        ip_protocol: None,
+        ipv6_next_header: None,
+        ipv6_dscp: None,
+        ipv6_ecn: None,
+        ipv6_hop_limit: None,
+        ipv6_flow_label: None,
         src_port: None,
         dst_port: None,
+        tcp_flags: None,
+        icmp_type: None,
+        icmp_code: None,
+        icmpv6_type: None,
+        icmpv6_code: None,
+        igmp_type: None,
+        mld_type: None,
+        arp_opcode: None,
+        arp_spa: None,
+        arp_tpa: None,
         vxlan_vni: None,
+        gtp_teid: None,
+        geneve_vni: None,
+        gre_protocol: None,
+        gre_key: None,
+        mpls_label: None,
+        mpls_tc: None,
+        mpls_bos: None,
+        oam_level: None,
+        oam_opcode: None,
+        nsh_spi: None,
+        nsh_si: None,
+        nsh_next_protocol: None,
+        ptp_message_type: None,
+        ptp_domain: None,
+        ptp_version: None,
         frame_len,
         timestamp,
+        ts_sec: pkt.ts_sec,
+        ts_usec: pkt.ts_usec,
     };
 
     if data.len() < 14 {
@@ -138,10 +233,21 @@ pub fn parse_packet(pkt: &PcapPacket) -> ParsedPacket {
     let mut ethertype = u16::from_be_bytes([data[offset], data[offset + 1]]);
     offset += 2;
 
-    // Check for 802.1Q VLAN tag
+    // QinQ (802.1ad): outer VLAN tag (0x88A8 or 0x9100 legacy)
+    if (ethertype == 0x88A8 || ethertype == 0x9100) && data.len() >= offset + 4 {
+        let tci = u16::from_be_bytes([data[offset], data[offset + 1]]);
+        result.outer_vlan_id = Some(tci & 0x0FFF);
+        result.outer_vlan_pcp = Some((tci >> 13) as u8);
+        offset += 2;
+        ethertype = u16::from_be_bytes([data[offset], data[offset + 1]]);
+        offset += 2;
+    }
+
+    // 802.1Q VLAN tag
     if ethertype == 0x8100 && data.len() >= offset + 4 {
         let tci = u16::from_be_bytes([data[offset], data[offset + 1]]);
         result.vlan_id = Some(tci & 0x0FFF);
+        result.vlan_pcp = Some((tci >> 13) as u8);
         offset += 2;
         ethertype = u16::from_be_bytes([data[offset], data[offset + 1]]);
         offset += 2;
@@ -149,57 +255,255 @@ pub fn parse_packet(pkt: &PcapPacket) -> ParsedPacket {
 
     result.ethertype = ethertype;
 
-    // L3: IPv4
-    if ethertype == 0x0800 && data.len() >= offset + 20 {
-        let ihl = (data[offset] & 0x0F) as usize * 4;
-        result.ip_protocol = Some(data[offset + 9]);
-        result.src_ip = Some(Ipv4Addr::new(
-            data[offset + 12], data[offset + 13], data[offset + 14], data[offset + 15],
-        ));
-        result.dst_ip = Some(Ipv4Addr::new(
-            data[offset + 16], data[offset + 17], data[offset + 18], data[offset + 19],
-        ));
-
-        let l4_offset = offset + ihl;
-
-        // L4: TCP/UDP
-        if let Some(proto) = result.ip_protocol {
-            if (proto == 6 || proto == 17) && data.len() >= l4_offset + 4 {
-                result.src_port = Some(u16::from_be_bytes([data[l4_offset], data[l4_offset + 1]]));
-                result.dst_port = Some(u16::from_be_bytes([data[l4_offset + 2], data[l4_offset + 3]]));
-
-                // VXLAN: UDP dst port 4789 + 8-byte VXLAN header
-                if proto == 17 && result.dst_port == Some(4789) && data.len() >= l4_offset + 16 {
-                    let vni_offset = l4_offset + 8; // UDP header (8) = start of VXLAN header
-                    let vni = ((data[vni_offset + 4] as u32) << 16)
-                        | ((data[vni_offset + 5] as u32) << 8)
-                        | (data[vni_offset + 6] as u32);
-                    result.vxlan_vni = Some(vni >> 8); // VNI is top 24 bits
-                }
+    match ethertype {
+        // IPv4
+        0x0800 => {
+            if data.len() >= offset + 20 {
+                parse_ipv4(data, offset, &mut result);
             }
         }
-    }
-
-    // L3: IPv6
-    if ethertype == 0x86DD && data.len() >= offset + 40 {
-        result.ip_protocol = Some(data[offset + 6]); // next_header
-        let mut src_bytes = [0u8; 16];
-        let mut dst_bytes = [0u8; 16];
-        src_bytes.copy_from_slice(&data[offset + 8..offset + 24]);
-        dst_bytes.copy_from_slice(&data[offset + 24..offset + 40]);
-        result.src_ipv6 = Some(Ipv6Addr::from(src_bytes));
-        result.dst_ipv6 = Some(Ipv6Addr::from(dst_bytes));
-
-        let l4_offset = offset + 40;
-        if let Some(proto) = result.ip_protocol {
-            if (proto == 6 || proto == 17) && data.len() >= l4_offset + 4 {
-                result.src_port = Some(u16::from_be_bytes([data[l4_offset], data[l4_offset + 1]]));
-                result.dst_port = Some(u16::from_be_bytes([data[l4_offset + 2], data[l4_offset + 3]]));
+        // IPv6
+        0x86DD => {
+            if data.len() >= offset + 40 {
+                parse_ipv6(data, offset, &mut result);
             }
         }
+        // ARP
+        0x0806 => {
+            parse_arp(data, offset, &mut result);
+        }
+        // MPLS unicast/multicast
+        0x8847 | 0x8848 => {
+            parse_mpls(data, offset, &mut result);
+        }
+        // OAM/CFM (IEEE 802.1ag)
+        0x8902 => {
+            parse_oam(data, offset, &mut result);
+        }
+        // NSH (RFC 8300)
+        0x894F => {
+            parse_nsh(data, offset, &mut result);
+        }
+        // PTP L2 (IEEE 1588)
+        0x88F7 => {
+            parse_ptp(data, offset, &mut result);
+        }
+        _ => {}
     }
 
     result
+}
+
+/// Parse IPv4 header and L4 protocols
+fn parse_ipv4(data: &[u8], ip_offset: usize, result: &mut ParsedPacket) {
+    let ihl = (data[ip_offset] & 0x0F) as usize * 4;
+    let tos = data[ip_offset + 1];
+    result.ip_dscp = Some((tos >> 2) & 0x3F);
+    result.ip_ecn = Some(tos & 0x03);
+    result.ip_ttl = Some(data[ip_offset + 8]);
+    result.ip_protocol = Some(data[ip_offset + 9]);
+
+    // Flags + Fragment Offset (bytes 6-7)
+    let flags_frag = u16::from_be_bytes([data[ip_offset + 6], data[ip_offset + 7]]);
+    result.ip_dont_fragment = Some((flags_frag >> 14) & 1 == 1);
+    result.ip_more_fragments = Some((flags_frag >> 13) & 1 == 1);
+    result.ip_frag_offset = Some(flags_frag & 0x1FFF);
+
+    result.src_ip = Some(Ipv4Addr::new(
+        data[ip_offset + 12], data[ip_offset + 13], data[ip_offset + 14], data[ip_offset + 15],
+    ));
+    result.dst_ip = Some(Ipv4Addr::new(
+        data[ip_offset + 16], data[ip_offset + 17], data[ip_offset + 18], data[ip_offset + 19],
+    ));
+
+    let l4_offset = ip_offset + ihl;
+    if let Some(proto) = result.ip_protocol {
+        parse_l4(data, l4_offset, proto, result);
+    }
+}
+
+/// Parse IPv6 header and L4 protocols
+fn parse_ipv6(data: &[u8], ip_offset: usize, result: &mut ParsedPacket) {
+    let next_header = data[ip_offset + 6];
+    result.ip_protocol = Some(next_header);
+    result.ipv6_next_header = Some(next_header);
+    result.ipv6_hop_limit = Some(data[ip_offset + 7]);
+
+    // Traffic Class: version(4) + TC(8) + flow_label(20) in first 4 bytes
+    let vtf = u32::from_be_bytes([data[ip_offset], data[ip_offset + 1], data[ip_offset + 2], data[ip_offset + 3]]);
+    let tc = ((vtf >> 20) & 0xFF) as u8;
+    result.ipv6_dscp = Some((tc >> 2) & 0x3F);
+    result.ipv6_ecn = Some(tc & 0x03);
+    result.ipv6_flow_label = Some(vtf & 0x000F_FFFF);
+
+    let mut src_bytes = [0u8; 16];
+    let mut dst_bytes = [0u8; 16];
+    src_bytes.copy_from_slice(&data[ip_offset + 8..ip_offset + 24]);
+    dst_bytes.copy_from_slice(&data[ip_offset + 24..ip_offset + 40]);
+    result.src_ipv6 = Some(Ipv6Addr::from(src_bytes));
+    result.dst_ipv6 = Some(Ipv6Addr::from(dst_bytes));
+
+    let l4_offset = ip_offset + 40;
+    parse_l4(data, l4_offset, next_header, result);
+}
+
+/// Parse L4 protocol: TCP, UDP (with tunnel dispatch), ICMP, IGMP, GRE, ICMPv6
+fn parse_l4(data: &[u8], l4_offset: usize, proto: u8, result: &mut ParsedPacket) {
+    match proto {
+        // TCP
+        6 => {
+            if data.len() >= l4_offset + 14 {
+                result.src_port = Some(u16::from_be_bytes([data[l4_offset], data[l4_offset + 1]]));
+                result.dst_port = Some(u16::from_be_bytes([data[l4_offset + 2], data[l4_offset + 3]]));
+                result.tcp_flags = Some(data[l4_offset + 13]);
+            } else if data.len() >= l4_offset + 4 {
+                result.src_port = Some(u16::from_be_bytes([data[l4_offset], data[l4_offset + 1]]));
+                result.dst_port = Some(u16::from_be_bytes([data[l4_offset + 2], data[l4_offset + 3]]));
+            }
+        }
+        // UDP
+        17 => {
+            if data.len() >= l4_offset + 4 {
+                result.src_port = Some(u16::from_be_bytes([data[l4_offset], data[l4_offset + 1]]));
+                result.dst_port = Some(u16::from_be_bytes([data[l4_offset + 2], data[l4_offset + 3]]));
+
+                let udp_payload = l4_offset + 8;
+                match result.dst_port {
+                    // VXLAN: UDP dst port 4789
+                    Some(4789) => {
+                        if data.len() >= udp_payload + 8 {
+                            let vni = ((data[udp_payload + 4] as u32) << 16)
+                                | ((data[udp_payload + 5] as u32) << 8)
+                                | (data[udp_payload + 6] as u32);
+                            result.vxlan_vni = Some(vni >> 8);
+                        }
+                    }
+                    // GTP-U: UDP dst port 2152
+                    Some(2152) => {
+                        if data.len() >= udp_payload + 8 {
+                            let teid = u32::from_be_bytes([
+                                data[udp_payload + 4], data[udp_payload + 5],
+                                data[udp_payload + 6], data[udp_payload + 7],
+                            ]);
+                            result.gtp_teid = Some(teid);
+                        }
+                    }
+                    // Geneve: UDP dst port 6081
+                    Some(6081) => {
+                        if data.len() >= udp_payload + 8 {
+                            // Geneve VNI: bytes 4-6 of header (24-bit, byte 7 is reserved)
+                            let vni = ((data[udp_payload + 4] as u32) << 16)
+                                | ((data[udp_payload + 5] as u32) << 8)
+                                | (data[udp_payload + 6] as u32);
+                            result.geneve_vni = Some(vni);
+                        }
+                    }
+                    // PTP L4: UDP dst port 319 or 320
+                    Some(319) | Some(320) => {
+                        parse_ptp(data, udp_payload, result);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        // ICMP
+        1 => {
+            if data.len() >= l4_offset + 2 {
+                result.icmp_type = Some(data[l4_offset]);
+                result.icmp_code = Some(data[l4_offset + 1]);
+            }
+        }
+        // IGMP
+        2 => {
+            if data.len() >= l4_offset + 1 {
+                result.igmp_type = Some(data[l4_offset]);
+            }
+        }
+        // GRE
+        47 => {
+            if data.len() >= l4_offset + 4 {
+                result.gre_protocol = Some(u16::from_be_bytes([data[l4_offset + 2], data[l4_offset + 3]]));
+                // K flag is bit 5 of byte 0 (RFC 2784: C=7,R=6,K=5,S=4 in byte 0)
+                let k_flag = (data[l4_offset] >> 5) & 1 == 1;
+                if k_flag && data.len() >= l4_offset + 8 {
+                    result.gre_key = Some(u32::from_be_bytes([
+                        data[l4_offset + 4], data[l4_offset + 5],
+                        data[l4_offset + 6], data[l4_offset + 7],
+                    ]));
+                }
+            }
+        }
+        // ICMPv6
+        58 => {
+            if data.len() >= l4_offset + 2 {
+                result.icmpv6_type = Some(data[l4_offset]);
+                result.icmpv6_code = Some(data[l4_offset + 1]);
+                // MLD types 130-132
+                let t = data[l4_offset];
+                if (130..=132).contains(&t) {
+                    result.mld_type = Some(t);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Parse ARP header
+fn parse_arp(data: &[u8], arp_offset: usize, result: &mut ParsedPacket) {
+    // ARP: opcode at bytes 6-7, SPA at bytes 14-17, TPA at bytes 24-27 (relative to arp_offset)
+    if data.len() >= arp_offset + 28 {
+        result.arp_opcode = Some(u16::from_be_bytes([data[arp_offset + 6], data[arp_offset + 7]]));
+        result.arp_spa = Some(Ipv4Addr::new(
+            data[arp_offset + 14], data[arp_offset + 15], data[arp_offset + 16], data[arp_offset + 17],
+        ));
+        result.arp_tpa = Some(Ipv4Addr::new(
+            data[arp_offset + 24], data[arp_offset + 25], data[arp_offset + 26], data[arp_offset + 27],
+        ));
+    }
+}
+
+/// Parse MPLS label entry (4 bytes)
+fn parse_mpls(data: &[u8], mpls_offset: usize, result: &mut ParsedPacket) {
+    if data.len() >= mpls_offset + 4 {
+        let entry = u32::from_be_bytes([
+            data[mpls_offset], data[mpls_offset + 1],
+            data[mpls_offset + 2], data[mpls_offset + 3],
+        ]);
+        result.mpls_label = Some(entry >> 12);
+        result.mpls_tc = Some(((entry >> 9) & 0x07) as u8);
+        result.mpls_bos = Some((entry >> 8) & 1 == 1);
+    }
+}
+
+/// Parse OAM/CFM header (IEEE 802.1ag)
+fn parse_oam(data: &[u8], oam_offset: usize, result: &mut ParsedPacket) {
+    if data.len() >= oam_offset + 2 {
+        result.oam_level = Some((data[oam_offset] >> 5) & 0x07);
+        result.oam_opcode = Some(data[oam_offset + 1]);
+    }
+}
+
+/// Parse NSH header (RFC 8300)
+fn parse_nsh(data: &[u8], nsh_offset: usize, result: &mut ParsedPacket) {
+    if data.len() >= nsh_offset + 8 {
+        result.nsh_next_protocol = Some(data[nsh_offset + 2]);
+        result.nsh_spi = Some(
+            ((data[nsh_offset + 4] as u32) << 16)
+                | ((data[nsh_offset + 5] as u32) << 8)
+                | (data[nsh_offset + 6] as u32),
+        );
+        result.nsh_si = Some(data[nsh_offset + 7]);
+    }
+}
+
+/// Parse PTP header (IEEE 1588) — used for both L2 (EtherType 0x88F7) and L4 (UDP 319/320)
+fn parse_ptp(data: &[u8], ptp_offset: usize, result: &mut ParsedPacket) {
+    if data.len() >= ptp_offset + 5 {
+        result.ptp_message_type = Some(data[ptp_offset] & 0x0F);
+        result.ptp_version = Some(data[ptp_offset + 1] & 0x0F);
+        result.ptp_domain = Some(data[ptp_offset + 4]);
+    }
 }
 
 /// Aggregate packets into flows by 5-tuple
@@ -931,5 +1235,481 @@ mod tests {
         let analysis = analyze_traffic(&[]);
         assert_eq!(analysis.total_packets, 0);
         assert_eq!(analysis.flows.len(), 0);
+    }
+
+    // ---- Phase 37: Full protocol parser tests ----
+
+    /// Helper: build an Ethernet frame with given ethertype + payload
+    fn make_eth_frame(dst: [u8; 6], src: [u8; 6], ethertype: u16, payload: &[u8]) -> PcapPacket {
+        let mut data = Vec::new();
+        data.extend_from_slice(&dst);
+        data.extend_from_slice(&src);
+        data.extend_from_slice(&ethertype.to_be_bytes());
+        data.extend_from_slice(payload);
+        while data.len() < 60 { data.push(0); }
+        PcapPacket { ts_sec: 1000, ts_usec: 500000, data }
+    }
+
+    /// Helper: build an IPv4 frame with given protocol + L4 payload
+    fn make_ipv4_frame(protocol: u8, tos: u8, ttl: u8, flags_frag: u16, l4_payload: &[u8]) -> PcapPacket {
+        let mut ip = Vec::new();
+        ip.push(0x45); // version + IHL
+        ip.push(tos);
+        ip.extend_from_slice(&40u16.to_be_bytes()); // total length
+        ip.extend_from_slice(&[0, 0]); // identification
+        ip.extend_from_slice(&flags_frag.to_be_bytes()); // flags + fragment offset
+        ip.push(ttl);
+        ip.push(protocol);
+        ip.extend_from_slice(&[0, 0]); // checksum
+        ip.extend_from_slice(&[10, 0, 0, 1]); // src
+        ip.extend_from_slice(&[10, 0, 0, 2]); // dst
+        ip.extend_from_slice(l4_payload);
+        make_eth_frame([0xde, 0xad, 0xbe, 0xef, 0x00, 0x01], [0x02, 0x00, 0x00, 0x00, 0x00, 0x01], 0x0800, &ip)
+    }
+
+    /// Helper: build an IPv6 frame with given next_header + L4 payload
+    fn make_ipv6_frame(next_header: u8, tc: u8, hop_limit: u8, flow_label: u32, l4_payload: &[u8]) -> PcapPacket {
+        let mut ip6 = Vec::new();
+        // Version(4) + TC(8) + Flow Label(20) = 32 bits
+        let vtf: u32 = (6u32 << 28) | ((tc as u32) << 20) | (flow_label & 0x000F_FFFF);
+        ip6.extend_from_slice(&vtf.to_be_bytes());
+        ip6.extend_from_slice(&(l4_payload.len() as u16).to_be_bytes()); // payload length
+        ip6.push(next_header);
+        ip6.push(hop_limit);
+        // src: 2001:db8::1
+        ip6.extend_from_slice(&[0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
+        // dst: 2001:db8::2
+        ip6.extend_from_slice(&[0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]);
+        ip6.extend_from_slice(l4_payload);
+        make_eth_frame([0xde, 0xad, 0xbe, 0xef, 0x00, 0x01], [0x02, 0x00, 0x00, 0x00, 0x00, 0x01], 0x86DD, &ip6)
+    }
+
+    #[test]
+    fn parse_ipv4_dscp_ecn() {
+        // TOS=0xB8 → DSCP=46 (EF), ECN=0
+        let pkt = make_ipv4_frame(6, 0xB8, 64, 0, &[0; 20]);
+        let parsed = parse_packet(&pkt);
+        assert_eq!(parsed.ip_dscp, Some(46));
+        assert_eq!(parsed.ip_ecn, Some(0));
+    }
+
+    #[test]
+    fn parse_ipv4_dscp_ecn_with_ecn_bits() {
+        // TOS=0xB9 → DSCP=46, ECN=1 (ECT(1))
+        let pkt = make_ipv4_frame(6, 0xB9, 64, 0, &[0; 20]);
+        let parsed = parse_packet(&pkt);
+        assert_eq!(parsed.ip_dscp, Some(46));
+        assert_eq!(parsed.ip_ecn, Some(1));
+    }
+
+    #[test]
+    fn parse_ipv4_ttl() {
+        let pkt = make_ipv4_frame(6, 0, 128, 0, &[0; 20]);
+        let parsed = parse_packet(&pkt);
+        assert_eq!(parsed.ip_ttl, Some(128));
+    }
+
+    #[test]
+    fn parse_ipv4_fragmentation() {
+        // DF=1, MF=0, offset=0 → flags_frag = 0x4000
+        let pkt = make_ipv4_frame(6, 0, 64, 0x4000, &[0; 20]);
+        let parsed = parse_packet(&pkt);
+        assert_eq!(parsed.ip_dont_fragment, Some(true));
+        assert_eq!(parsed.ip_more_fragments, Some(false));
+        assert_eq!(parsed.ip_frag_offset, Some(0));
+    }
+
+    #[test]
+    fn parse_ipv4_frag_mf_with_offset() {
+        // DF=0, MF=1, offset=185 → flags_frag = 0x20B9
+        let pkt = make_ipv4_frame(6, 0, 64, 0x20B9, &[0; 20]);
+        let parsed = parse_packet(&pkt);
+        assert_eq!(parsed.ip_dont_fragment, Some(false));
+        assert_eq!(parsed.ip_more_fragments, Some(true));
+        assert_eq!(parsed.ip_frag_offset, Some(0x00B9));
+    }
+
+    #[test]
+    fn parse_tcp_flags() {
+        // TCP header: ports + seq(4) + ack(4) + data_offset(1) + flags(1) + ...
+        let mut tcp = Vec::new();
+        tcp.extend_from_slice(&12345u16.to_be_bytes()); // src port
+        tcp.extend_from_slice(&80u16.to_be_bytes()); // dst port
+        tcp.extend_from_slice(&[0; 4]); // seq
+        tcp.extend_from_slice(&[0; 4]); // ack
+        tcp.push(0x50); // data offset (5 words)
+        tcp.push(0x02); // flags = SYN
+        tcp.extend_from_slice(&[0; 6]); // window + checksum + urgent
+        let pkt = make_ipv4_frame(6, 0, 64, 0, &tcp);
+        let parsed = parse_packet(&pkt);
+        assert_eq!(parsed.tcp_flags, Some(0x02));
+        assert_eq!(parsed.src_port, Some(12345));
+        assert_eq!(parsed.dst_port, Some(80));
+    }
+
+    #[test]
+    fn parse_tcp_flags_syn_ack() {
+        let mut tcp = Vec::new();
+        tcp.extend_from_slice(&443u16.to_be_bytes());
+        tcp.extend_from_slice(&54321u16.to_be_bytes());
+        tcp.extend_from_slice(&[0; 4]); // seq
+        tcp.extend_from_slice(&[0; 4]); // ack
+        tcp.push(0x50);
+        tcp.push(0x12); // SYN+ACK
+        tcp.extend_from_slice(&[0; 6]);
+        let pkt = make_ipv4_frame(6, 0, 64, 0, &tcp);
+        let parsed = parse_packet(&pkt);
+        assert_eq!(parsed.tcp_flags, Some(0x12));
+    }
+
+    #[test]
+    fn parse_icmp_type_code() {
+        // ICMP: type=8 (echo request), code=0
+        let icmp = vec![8, 0, 0, 0, 0, 0, 0, 0];
+        let pkt = make_ipv4_frame(1, 0, 64, 0, &icmp);
+        let parsed = parse_packet(&pkt);
+        assert_eq!(parsed.icmp_type, Some(8));
+        assert_eq!(parsed.icmp_code, Some(0));
+        assert!(parsed.src_port.is_none());
+    }
+
+    #[test]
+    fn parse_igmp_type() {
+        // IGMP: type=0x11 (membership query)
+        let igmp = vec![0x11, 0, 0, 0, 0, 0, 0, 0];
+        let pkt = make_ipv4_frame(2, 0, 64, 0, &igmp);
+        let parsed = parse_packet(&pkt);
+        assert_eq!(parsed.igmp_type, Some(0x11));
+    }
+
+    #[test]
+    fn parse_gre_protocol_key() {
+        // GRE: C=0, K=1 (bit 5 of first byte) → flags=0x20, ver=0, protocol=0x0800, key=0xDEADBEEF
+        let mut gre = Vec::new();
+        gre.extend_from_slice(&[0x20, 0x00]); // flags: K=1
+        gre.extend_from_slice(&0x0800u16.to_be_bytes()); // protocol
+        gre.extend_from_slice(&0xDEADBEEFu32.to_be_bytes()); // key
+        let pkt = make_ipv4_frame(47, 0, 64, 0, &gre);
+        let parsed = parse_packet(&pkt);
+        assert_eq!(parsed.gre_protocol, Some(0x0800));
+        assert_eq!(parsed.gre_key, Some(0xDEADBEEF));
+    }
+
+    #[test]
+    fn parse_gre_no_key() {
+        // GRE without K flag
+        let mut gre = Vec::new();
+        gre.extend_from_slice(&[0x00, 0x00]); // flags: no K
+        gre.extend_from_slice(&0x0800u16.to_be_bytes()); // protocol
+        gre.extend_from_slice(&[0; 4]); // padding
+        let pkt = make_ipv4_frame(47, 0, 64, 0, &gre);
+        let parsed = parse_packet(&pkt);
+        assert_eq!(parsed.gre_protocol, Some(0x0800));
+        assert!(parsed.gre_key.is_none());
+    }
+
+    #[test]
+    fn parse_arp_fields() {
+        let mut arp_payload = vec![0u8; 28];
+        // opcode at bytes 6-7: 1 (request)
+        arp_payload[6] = 0;
+        arp_payload[7] = 1;
+        // SPA at bytes 14-17: 192.168.1.10
+        arp_payload[14] = 192; arp_payload[15] = 168; arp_payload[16] = 1; arp_payload[17] = 10;
+        // TPA at bytes 24-27: 192.168.1.1
+        arp_payload[24] = 192; arp_payload[25] = 168; arp_payload[26] = 1; arp_payload[27] = 1;
+
+        let pkt = make_eth_frame([0xff; 6], [0x02, 0x00, 0x00, 0x00, 0x00, 0x01], 0x0806, &arp_payload);
+        let parsed = parse_packet(&pkt);
+        assert_eq!(parsed.ethertype, 0x0806);
+        assert_eq!(parsed.arp_opcode, Some(1));
+        assert_eq!(parsed.arp_spa, Some(Ipv4Addr::new(192, 168, 1, 10)));
+        assert_eq!(parsed.arp_tpa, Some(Ipv4Addr::new(192, 168, 1, 1)));
+    }
+
+    #[test]
+    fn parse_ipv6_tc() {
+        // TC = 0xB8 → DSCP=46, ECN=0; flow_label=0
+        let l4 = vec![0; 20];
+        let pkt = make_ipv6_frame(6, 0xB8, 64, 0, &l4);
+        let parsed = parse_packet(&pkt);
+        assert_eq!(parsed.ipv6_dscp, Some(46));
+        assert_eq!(parsed.ipv6_ecn, Some(0));
+    }
+
+    #[test]
+    fn parse_ipv6_hop_limit() {
+        let l4 = vec![0; 20];
+        let pkt = make_ipv6_frame(6, 0, 255, 0, &l4);
+        let parsed = parse_packet(&pkt);
+        assert_eq!(parsed.ipv6_hop_limit, Some(255));
+    }
+
+    #[test]
+    fn parse_ipv6_flow_label() {
+        let l4 = vec![0; 20];
+        let pkt = make_ipv6_frame(6, 0, 64, 0xABCDE, &l4);
+        let parsed = parse_packet(&pkt);
+        assert_eq!(parsed.ipv6_flow_label, Some(0xABCDE));
+    }
+
+    #[test]
+    fn parse_ipv6_next_header() {
+        let l4 = vec![0; 20];
+        let pkt = make_ipv6_frame(17, 0, 64, 0, &l4);
+        let parsed = parse_packet(&pkt);
+        assert_eq!(parsed.ipv6_next_header, Some(17));
+        assert_eq!(parsed.ip_protocol, Some(17));
+    }
+
+    #[test]
+    fn parse_icmpv6() {
+        // ICMPv6: type=128 (echo request), code=0
+        let icmpv6 = vec![128, 0, 0, 0, 0, 0, 0, 0];
+        let pkt = make_ipv6_frame(58, 0, 64, 0, &icmpv6);
+        let parsed = parse_packet(&pkt);
+        assert_eq!(parsed.icmpv6_type, Some(128));
+        assert_eq!(parsed.icmpv6_code, Some(0));
+        assert!(parsed.mld_type.is_none()); // 128 is not MLD
+    }
+
+    #[test]
+    fn parse_mld() {
+        // MLD: ICMPv6 type=130 (Multicast Listener Query)
+        let mld = vec![130, 0, 0, 0, 0, 0, 0, 0];
+        let pkt = make_ipv6_frame(58, 0, 64, 0, &mld);
+        let parsed = parse_packet(&pkt);
+        assert_eq!(parsed.icmpv6_type, Some(130));
+        assert_eq!(parsed.mld_type, Some(130));
+    }
+
+    #[test]
+    fn parse_gtp_teid() {
+        // UDP dst=2152 + GTP-U header (8 bytes): version/flags, type, length, TEID
+        let mut udp = Vec::new();
+        udp.extend_from_slice(&12345u16.to_be_bytes()); // src port
+        udp.extend_from_slice(&2152u16.to_be_bytes()); // dst port
+        udp.extend_from_slice(&[0, 20, 0, 0]); // UDP length + checksum
+        // GTP header: version(3b)+PT+reserved+E+S+PN, type, length, TEID
+        udp.push(0x30); // version=1, PT=1
+        udp.push(0xFF); // message type
+        udp.extend_from_slice(&[0, 0]); // length
+        udp.extend_from_slice(&0x12345678u32.to_be_bytes()); // TEID
+        let pkt = make_ipv4_frame(17, 0, 64, 0, &udp);
+        let parsed = parse_packet(&pkt);
+        assert_eq!(parsed.gtp_teid, Some(0x12345678));
+    }
+
+    #[test]
+    fn parse_geneve_vni() {
+        // UDP dst=6081 + Geneve header (8 bytes)
+        let mut udp = Vec::new();
+        udp.extend_from_slice(&12345u16.to_be_bytes()); // src port
+        udp.extend_from_slice(&6081u16.to_be_bytes()); // dst port
+        udp.extend_from_slice(&[0, 20, 0, 0]); // UDP length + checksum
+        // Geneve header: ver+opt_len(1), flags(1), protocol(2), VNI[23:16](1), VNI[15:8](1), VNI[7:0](1), reserved(1)
+        udp.push(0x00); // ver=0, opt_len=0
+        udp.push(0x00); // O+C+reserved
+        udp.extend_from_slice(&0x6558u16.to_be_bytes()); // protocol type = transparent ethernet
+        // VNI: 5000 = 0x001388 → bytes 4-6 contain VNI directly
+        udp.push(0x00); // VNI[23:16]
+        udp.push(0x13); // VNI[15:8]
+        udp.push(0x88); // VNI[7:0]
+        udp.push(0x00); // reserved
+        let pkt = make_ipv4_frame(17, 0, 64, 0, &udp);
+        let parsed = parse_packet(&pkt);
+        assert_eq!(parsed.geneve_vni, Some(5000));
+    }
+
+    #[test]
+    fn parse_ptp_l2() {
+        // PTP over L2 (EtherType 0x88F7)
+        let mut ptp_payload = vec![0u8; 34]; // min PTP message
+        ptp_payload[0] = 0x00; // messageType=0 (Sync), transportSpecific=0
+        ptp_payload[1] = 0x02; // versionPTP=2
+        ptp_payload[4] = 5;   // domainNumber=5
+        let pkt = make_eth_frame([0x01, 0x1b, 0x19, 0x00, 0x00, 0x00], [0x02, 0x00, 0x00, 0x00, 0x00, 0x01], 0x88F7, &ptp_payload);
+        let parsed = parse_packet(&pkt);
+        assert_eq!(parsed.ethertype, 0x88F7);
+        assert_eq!(parsed.ptp_message_type, Some(0));
+        assert_eq!(parsed.ptp_version, Some(2));
+        assert_eq!(parsed.ptp_domain, Some(5));
+    }
+
+    #[test]
+    fn parse_ptp_l4() {
+        // PTP over UDP port 319
+        let mut udp = Vec::new();
+        udp.extend_from_slice(&12345u16.to_be_bytes()); // src port
+        udp.extend_from_slice(&319u16.to_be_bytes()); // dst port = PTP event
+        udp.extend_from_slice(&[0, 50, 0, 0]); // UDP length + checksum
+        // PTP header
+        udp.push(0x0B); // messageType=11 (Announce)
+        udp.push(0x02); // versionPTP=2
+        udp.push(0); udp.push(0);
+        udp.push(10); // domainNumber=10
+        while udp.len() < 48 { udp.push(0); }
+        let pkt = make_ipv4_frame(17, 0, 64, 0, &udp);
+        let parsed = parse_packet(&pkt);
+        assert_eq!(parsed.ptp_message_type, Some(0x0B));
+        assert_eq!(parsed.ptp_version, Some(2));
+        assert_eq!(parsed.ptp_domain, Some(10));
+    }
+
+    #[test]
+    fn parse_mpls_label() {
+        // MPLS: label=1000, TC=5, BOS=1, TTL=64
+        let label_entry: u32 = (1000 << 12) | (5 << 9) | (1 << 8) | 64;
+        let pkt = make_eth_frame([0xde, 0xad, 0xbe, 0xef, 0x00, 0x01], [0x02, 0x00, 0x00, 0x00, 0x00, 0x01], 0x8847, &label_entry.to_be_bytes());
+        let parsed = parse_packet(&pkt);
+        assert_eq!(parsed.ethertype, 0x8847);
+        assert_eq!(parsed.mpls_label, Some(1000));
+        assert_eq!(parsed.mpls_tc, Some(5));
+        assert_eq!(parsed.mpls_bos, Some(true));
+    }
+
+    #[test]
+    fn parse_oam_level_opcode() {
+        // OAM/CFM: MD level=3 (bits [7:5] of byte 0), opcode=1 (CCM, byte 1)
+        let mut oam = vec![0u8; 8];
+        oam[0] = 3 << 5; // MD level 3
+        oam[1] = 1;       // OpCode CCM
+        let pkt = make_eth_frame([0x01, 0x80, 0xc2, 0x00, 0x00, 0x30], [0x02, 0x00, 0x00, 0x00, 0x00, 0x01], 0x8902, &oam);
+        let parsed = parse_packet(&pkt);
+        assert_eq!(parsed.ethertype, 0x8902);
+        assert_eq!(parsed.oam_level, Some(3));
+        assert_eq!(parsed.oam_opcode, Some(1));
+    }
+
+    #[test]
+    fn parse_nsh_fields() {
+        // NSH: next_protocol=1 (IPv4), SPI=100, SI=254
+        let mut nsh = vec![0u8; 8];
+        nsh[2] = 1; // next_protocol
+        // SPI: 100 = 0x000064 → bytes 4-6
+        nsh[4] = 0x00;
+        nsh[5] = 0x00;
+        nsh[6] = 0x64;
+        nsh[7] = 254; // SI
+        let pkt = make_eth_frame([0xde, 0xad, 0xbe, 0xef, 0x00, 0x01], [0x02, 0x00, 0x00, 0x00, 0x00, 0x01], 0x894F, &nsh);
+        let parsed = parse_packet(&pkt);
+        assert_eq!(parsed.ethertype, 0x894F);
+        assert_eq!(parsed.nsh_spi, Some(100));
+        assert_eq!(parsed.nsh_si, Some(254));
+        assert_eq!(parsed.nsh_next_protocol, Some(1));
+    }
+
+    #[test]
+    fn parse_qinq() {
+        // QinQ: outer 0x88A8 → outer_vlan_id=200 PCP=5, inner 0x8100 → vlan_id=100 PCP=3, then IPv4
+        let mut data = Vec::new();
+        data.extend_from_slice(&[0xde, 0xad, 0xbe, 0xef, 0x00, 0x01]); // dst
+        data.extend_from_slice(&[0x02, 0x00, 0x00, 0x00, 0x00, 0x01]); // src
+        data.extend_from_slice(&0x88A8u16.to_be_bytes()); // outer ethertype
+        // Outer TCI: PCP=5 → (5<<13) | 200 = 0xA0C8
+        data.extend_from_slice(&((5u16 << 13) | 200).to_be_bytes());
+        data.extend_from_slice(&0x8100u16.to_be_bytes()); // inner ethertype
+        // Inner TCI: PCP=3 → (3<<13) | 100 = 0x6064
+        data.extend_from_slice(&((3u16 << 13) | 100).to_be_bytes());
+        data.extend_from_slice(&0x0800u16.to_be_bytes()); // actual ethertype = IPv4
+        // Minimal IPv4
+        data.push(0x45); data.push(0); data.extend_from_slice(&[0, 40]);
+        data.extend_from_slice(&[0; 4]);
+        data.push(64); data.push(6); data.extend_from_slice(&[0, 0]);
+        data.extend_from_slice(&[10, 0, 0, 1]); data.extend_from_slice(&[10, 0, 0, 2]);
+        while data.len() < 72 { data.push(0); }
+
+        let pkt = PcapPacket { ts_sec: 0, ts_usec: 0, data };
+        let parsed = parse_packet(&pkt);
+        assert_eq!(parsed.outer_vlan_id, Some(200));
+        assert_eq!(parsed.outer_vlan_pcp, Some(5));
+        assert_eq!(parsed.vlan_id, Some(100));
+        assert_eq!(parsed.vlan_pcp, Some(3));
+        assert_eq!(parsed.ethertype, 0x0800);
+    }
+
+    #[test]
+    fn parse_vlan_pcp() {
+        // VLAN with PCP=7, VID=42
+        let mut data = Vec::new();
+        data.extend_from_slice(&[0xde, 0xad, 0xbe, 0xef, 0x00, 0x01]); // dst
+        data.extend_from_slice(&[0x02, 0x00, 0x00, 0x00, 0x00, 0x01]); // src
+        data.extend_from_slice(&0x8100u16.to_be_bytes()); // 802.1Q
+        // TCI: PCP=7 → (7<<13) | 42 = 0xE02A
+        data.extend_from_slice(&((7u16 << 13) | 42).to_be_bytes());
+        data.extend_from_slice(&0x0800u16.to_be_bytes()); // IPv4
+        data.push(0x45); data.push(0); data.extend_from_slice(&[0, 40]);
+        data.extend_from_slice(&[0; 4]);
+        data.push(64); data.push(6); data.extend_from_slice(&[0, 0]);
+        data.extend_from_slice(&[10, 0, 0, 1]); data.extend_from_slice(&[10, 0, 0, 2]);
+        while data.len() < 64 { data.push(0); }
+
+        let pkt = PcapPacket { ts_sec: 0, ts_usec: 0, data };
+        let parsed = parse_packet(&pkt);
+        assert_eq!(parsed.vlan_id, Some(42));
+        assert_eq!(parsed.vlan_pcp, Some(7));
+    }
+
+    #[test]
+    fn parse_qinq_offsets() {
+        // QinQ adds 4 bytes offset → verify IPv4 fields still parse correctly
+        let mut data = Vec::new();
+        data.extend_from_slice(&[0xde, 0xad, 0xbe, 0xef, 0x00, 0x01]);
+        data.extend_from_slice(&[0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
+        data.extend_from_slice(&0x88A8u16.to_be_bytes()); // outer
+        data.extend_from_slice(&[0x00, 50]); // outer VID=50
+        data.extend_from_slice(&0x8100u16.to_be_bytes()); // inner
+        data.extend_from_slice(&[0x00, 10]); // inner VID=10
+        data.extend_from_slice(&0x0800u16.to_be_bytes()); // IPv4
+        // IPv4 at offset 22 (14 + 4 + 4)
+        data.push(0x45); data.push(0xB8); // TOS = 0xB8 → DSCP=46
+        data.extend_from_slice(&[0, 40]); // total length
+        data.extend_from_slice(&[0; 2]); // identification
+        data.extend_from_slice(&0x4000u16.to_be_bytes()); // DF=1
+        data.push(128); data.push(6); // TTL=128, TCP
+        data.extend_from_slice(&[0, 0]); // checksum
+        data.extend_from_slice(&[172, 16, 0, 1]); // src
+        data.extend_from_slice(&[172, 16, 0, 2]); // dst
+        // TCP
+        data.extend_from_slice(&8080u16.to_be_bytes());
+        data.extend_from_slice(&443u16.to_be_bytes());
+        while data.len() < 76 { data.push(0); }
+
+        let pkt = PcapPacket { ts_sec: 0, ts_usec: 0, data };
+        let parsed = parse_packet(&pkt);
+        assert_eq!(parsed.outer_vlan_id, Some(50));
+        assert_eq!(parsed.vlan_id, Some(10));
+        assert_eq!(parsed.ethertype, 0x0800);
+        assert_eq!(parsed.ip_dscp, Some(46));
+        assert_eq!(parsed.ip_ttl, Some(128));
+        assert_eq!(parsed.ip_dont_fragment, Some(true));
+        assert_eq!(parsed.src_ip, Some(Ipv4Addr::new(172, 16, 0, 1)));
+        assert_eq!(parsed.src_port, Some(8080));
+        assert_eq!(parsed.dst_port, Some(443));
+    }
+
+    #[test]
+    fn parse_udp_no_tunnel() {
+        // UDP with random high port — no tunnel fields set
+        let mut udp = Vec::new();
+        udp.extend_from_slice(&12345u16.to_be_bytes()); // src port
+        udp.extend_from_slice(&9999u16.to_be_bytes()); // dst port (not a tunnel port)
+        udp.extend_from_slice(&[0, 8, 0, 0]); // length + checksum
+        let pkt = make_ipv4_frame(17, 0, 64, 0, &udp);
+        let parsed = parse_packet(&pkt);
+        assert_eq!(parsed.src_port, Some(12345));
+        assert_eq!(parsed.dst_port, Some(9999));
+        assert!(parsed.vxlan_vni.is_none());
+        assert!(parsed.gtp_teid.is_none());
+        assert!(parsed.geneve_vni.is_none());
+        assert!(parsed.ptp_message_type.is_none());
+    }
+
+    #[test]
+    fn parse_timestamp_preserved() {
+        let pkt = PcapPacket { ts_sec: 1709734800, ts_usec: 123456, data: vec![0; 64] };
+        let parsed = parse_packet(&pkt);
+        assert_eq!(parsed.ts_sec, 1709734800);
+        assert_eq!(parsed.ts_usec, 123456);
     }
 }

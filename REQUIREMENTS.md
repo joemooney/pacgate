@@ -1799,32 +1799,32 @@
 ## Phase 34: Rule Set Optimizer
 
 ### Optimizer Core
-- REQ-3700: `optimize` subcommand performs semantics-preserving optimizations on rule sets
-- REQ-3701: 5 optimization passes applied in order: dead rule removal, duplicate merging, port consolidation, CIDR consolidation, priority renumbering
-- REQ-3702: OPT001 — Remove rules fully shadowed by higher-priority rules (uses loader::criteria_shadows)
-- REQ-3703: OPT002 — Merge duplicate rules with identical criteria+action+rewrite+egress (structural equality via JSON serialization)
-- REQ-3704: OPT003 — Merge adjacent port rules (Exact+Exact, Exact+Range, Range+Range) into port ranges
-- REQ-3705: OPT004 — Merge adjacent IPv4 CIDR prefixes (two /N halves → /(N-1)) with iterative cascading
-- REQ-3706: OPT005 — Renumber priorities to uniform 100-spacing after sorting by original priority
+- REQ-3400: `optimize` subcommand performs semantics-preserving optimizations on rule sets
+- REQ-3401: 5 optimization passes applied in order: dead rule removal, duplicate merging, port consolidation, CIDR consolidation, priority renumbering
+- REQ-3402: OPT001 — Remove rules fully shadowed by higher-priority rules (uses loader::criteria_shadows)
+- REQ-3403: OPT002 — Merge duplicate rules with identical criteria+action+rewrite+egress (structural equality via JSON serialization)
+- REQ-3404: OPT003 — Merge adjacent port rules (Exact+Exact, Exact+Range, Range+Range) into port ranges
+- REQ-3405: OPT004 — Merge adjacent IPv4 CIDR prefixes (two /N halves → /(N-1)) with iterative cascading
+- REQ-3406: OPT005 — Renumber priorities to uniform 100-spacing after sorting by original priority
 
 ### Optimizer Safety
-- REQ-3710: Stateful rules (FSM) pass through unmodified — never removed, merged, or renumbered
-- REQ-3711: Pipeline configs optimized per-stage independently
-- REQ-3712: Rules with different rewrite/mirror/redirect/rss/int are never merged
-- REQ-3713: Conntrack/RSS/INT configs pass through untouched
-- REQ-3714: Idempotent: optimize(optimize(x)) produces no OPT001-OPT004 suggestions on second pass
+- REQ-3410: Stateful rules (FSM) pass through unmodified — never removed, merged, or renumbered
+- REQ-3411: Pipeline configs optimized per-stage independently
+- REQ-3412: Rules with different rewrite/mirror/redirect/rss/int are never merged
+- REQ-3413: Conntrack/RSS/INT configs pass through untouched
+- REQ-3414: Idempotent: optimize(optimize(x)) produces no OPT001-OPT004 suggestions on second pass
 
 ### Optimizer CLI
-- REQ-3720: `--json` flag outputs JSON summary (original_count, optimized_count, suggestions, warnings)
-- REQ-3721: `-o` flag writes optimized YAML to output file
-- REQ-3722: `--apply` flag writes optimized YAML back to input file (in-place)
-- REQ-3723: Default (no flags) outputs optimized YAML to stdout
-- REQ-3724: Warnings printed to stderr for shadowed rules with different actions
+- REQ-3420: `--json` flag outputs JSON summary (original_count, optimized_count, suggestions, warnings)
+- REQ-3421: `-o` flag writes optimized YAML to output file
+- REQ-3422: `--apply` flag writes optimized YAML back to input file (in-place)
+- REQ-3423: Default (no flags) outputs optimized YAML to stdout
+- REQ-3424: Warnings printed to stderr for shadowed rules with different actions
 
 ### Optimizer Verification
-- REQ-3730: 24 unit tests covering all 5 passes + end-to-end + pipeline
-- REQ-3731: 8 integration tests (JSON, output file, apply, validates-after, example, no-suggestions, stdout, idempotent)
-- REQ-3732: optimize_demo.yaml example exercises all 5 OPT passes
+- REQ-3430: 24 unit tests covering all 5 passes + end-to-end + pipeline
+- REQ-3431: 8 integration tests (JSON, output file, apply, validates-after, example, no-suggestions, stdout, idempotent)
+- REQ-3432: optimize_demo.yaml example exercises all 5 OPT passes
 
 ## Phase 35 Requirements — Rust Code Generation Backend [IMPLEMENTED]
 
@@ -1874,3 +1874,26 @@
 - REQ-3622: Reuse existing pcap.rs reader, simulator.rs evaluator, pcap_writer.rs writer [IMPLEMENTED]
 - REQ-3623: Convert ParsedPacket (pcap_analyze) to SimPacket with raw_bytes for byte_match [IMPLEMENTED]
 - REQ-3624: Graceful error on missing input PCAP file [IMPLEMENTED]
+
+## Phase 37 Requirements — PCAP Parser Completeness
+
+### Full-Field Extraction
+- REQ-3700: ParsedPacket shall extract all 55+ protocol fields from raw Ethernet frames
+- REQ-3701: parse_packet() shall extract QinQ (802.1ad) outer VLAN fields (outer_vlan_id, outer_vlan_pcp)
+- REQ-3702: parse_packet() shall extract IPv4 DSCP, ECN, TTL, fragmentation flags from IP header
+- REQ-3703: parse_packet() shall extract TCP flags byte from TCP header offset 13
+- REQ-3704: parse_packet() shall extract ICMP type/code, IGMP type, ICMPv6 type/code, MLD type
+
+### ARP and Tunnel Extraction
+- REQ-3705: parse_packet() shall extract ARP opcode, sender/target protocol addresses
+- REQ-3706: parse_packet() shall extract tunnel headers: GTP-U TEID (UDP:2152), Geneve VNI (UDP:6081), GRE protocol+key (IP:47)
+- REQ-3707: parse_packet() shall extract MPLS label/TC/BOS, OAM level/opcode, NSH SPI/SI/next_protocol
+- REQ-3708: parse_packet() shall extract PTP fields via both L2 (0x88F7) and L4 (UDP 319/320) paths
+
+### IPv6 and Field Mapping
+- REQ-3709: parse_packet() shall extract IPv6 Traffic Class (DSCP/ECN), hop limit, flow label, next header
+- REQ-3710: pcap_filter_to_sim_packet() shall map all ParsedPacket fields to SimPacket
+
+### Timestamp Preservation
+- REQ-3711: Output PCAPs from pcap-filter shall preserve original PCAP timestamps (ts_sec/ts_usec)
+- REQ-3712: SimPacketRecord shall carry original timestamps instead of synthetic sequence-based values
