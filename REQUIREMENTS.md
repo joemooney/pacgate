@@ -1825,3 +1825,32 @@
 - REQ-3730: 24 unit tests covering all 5 passes + end-to-end + pipeline
 - REQ-3731: 8 integration tests (JSON, output file, apply, validates-after, example, no-suggestions, stdout, idempotent)
 - REQ-3732: optimize_demo.yaml example exercises all 5 OPT passes
+
+## Phase 35 Requirements — Rust Code Generation Backend [IMPLEMENTED]
+
+### Rust Backend Core
+- REQ-3500: `--target rust` CLI flag generates standalone Rust packet filter project [IMPLEMENTED]
+- REQ-3501: Generated Rust binary compiles with zero external dependencies (base mode) [IMPLEMENTED]
+- REQ-3502: Generated binary reads PCAP files and applies compiled match rules [IMPLEMENTED]
+- REQ-3503: Generated binary writes filtered packets to output PCAP file (--output flag) [IMPLEMENTED]
+- REQ-3504: Generated binary prints per-rule match statistics (--stats flag) [IMPLEMENTED]
+- REQ-3505: Generated binary outputs JSON statistics (--json flag) [IMPLEMENTED]
+- REQ-3506: Generated binary supports stdin/stdout pipe mode (--stdin/--stdout flags) [IMPLEMENTED]
+
+### Rust Backend Match Field Coverage
+- REQ-3507: Protocol-conditional code generation includes only needed protocol parsers [IMPLEMENTED]
+- REQ-3508: All 55+ match fields supported in generated Rust condition expressions [IMPLEMENTED]
+- REQ-3509: IPv4 CIDR matching with pre-computed u32 masks [IMPLEMENTED]
+- REQ-3510: IPv6 CIDR matching with pre-computed [u8;16] masks [IMPLEMENTED]
+- REQ-3511: MAC wildcard matching with per-byte masks [IMPLEMENTED]
+- REQ-3512: Port range matching (exact and range) [IMPLEMENTED]
+- REQ-3513: TCP flags matching with mask support [IMPLEMENTED]
+- REQ-3514: Byte-offset matching at arbitrary packet positions [IMPLEMENTED]
+
+### Rust Backend Architecture
+- REQ-3515: Pipeline support with AND semantics (any stage Drop → Drop) [IMPLEMENTED]
+- REQ-3516: Optional AF_XDP live capture via `afxdp` Cargo feature [IMPLEMENTED]
+- REQ-3517: --target rust rejects incompatible flags (--axi, --conntrack, --dynamic, etc.) [IMPLEMENTED]
+- REQ-3518: JSON summary output (--target rust --json) with protocol detection [IMPLEMENTED]
+- REQ-3519: Priority-ordered first-match-wins decision logic [IMPLEMENTED]
+- REQ-3520: Frame parser mirrors RTL frame_parser.v logic (L2/L3/L4/tunnels) [IMPLEMENTED]

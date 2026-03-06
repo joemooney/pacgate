@@ -18,6 +18,7 @@ PacGate is an FPGA-based packet filtering switch where YAML-defined rules compil
 7. Export to P4_16 PSA programs for software switch / SmartNIC targets (`p4-export` subcommand)
 8. Import from P4_16 PSA programs (`p4-import`), Wireshark display filters (`wireshark-import`), or iptables-save dumps (`iptables-import`) — quad input format (YAML + P4 + Wireshark + iptables)
 9. Optimize imported/hand-written rule sets with `optimize` subcommand — dead rule removal, deduplication, port/CIDR consolidation, priority normalization
+10. Generate a standalone Rust packet filter binary with `--target rust` — compiled match rules, PCAP I/O, per-rule statistics, and optional AF_XDP live capture
 
 ## Innovation / Unique Value
 PacGate is unique in that no other tool generates both the hardware implementation (Verilog) and the verification environment (cocotb) from a single specification. Commercial tools like Agnisys IDS-Verify generate tests from register specs but assume the RTL already exists. LLM-based approaches generate one or the other non-deterministically. PacGate generates both, ensuring perfect alignment between specification, implementation, and verification.
@@ -26,7 +27,8 @@ PacGate is unique in that no other tool generates both the hardware implementati
 The generated hardware has a configurable-width streaming interface (`--width 8/64/128/256/512`, default 8-bit byte-at-a-time). A hand-written frame parser (23 states) extracts L2/L3/L4/VXLAN/GTP-U/GRE/Geneve/MPLS/IGMP/MLD/ICMP/ICMPv6/ARP/PTP header fields (including QinQ outer VLAN, IPv6 Traffic Class, TCP flags, hop_limit, flow_label, ip_ttl, IPv4 fragmentation flags, PTP messageType/domain/version), generated per-rule matchers evaluate in parallel (combinational), and a priority encoder selects the first matching rule's action (pass or drop). Rules can optionally be organized into multiple sequential tables (`tables:` YAML key) for multi-stage match-action pipeline processing. An optional RSS (Receive Side Scaling) subsystem (`--rss`) performs Toeplitz hash-based multi-queue dispatch with per-rule queue override support. An optional INT (In-band Network Telemetry) subsystem (`--int`) captures sideband metadata (switch_id, timestamps, hop_latency, queue_id, rule_idx) for network visibility.
 
 ```
-rules.yaml ──> Compiler (Rust) ──┬──> Verilog (DUT)
+rules.yaml ──> Compiler (Rust) ──┬──> Verilog RTL (gen/rtl/)
+                                 ├──> Rust filter (gen/rust/)
                                  ├──> cocotb tests (Python)
                                  ├──> SVA assertions (formal)
                                  ├──> Property tests (Hypothesis)
@@ -144,6 +146,7 @@ UVM-inspired Python verification environment with:
 - `pacgate compile rules.yaml --rss --rss-queues 8` — RSS with 8 queues (default 4, max 16)
 - `pacgate compile rules.yaml --int` — Include INT sideband metadata output
 - `pacgate compile rules.yaml --int --int-switch-id 1` — INT with custom switch ID
+- `pacgate compile rules.yaml --target rust` — Generate standalone Rust packet filter binary (compiled match rules, PCAP I/O, per-rule statistics, AF_XDP skeleton)
 - `pacgate validate rules.yaml` — Validate YAML only
 - `pacgate init` — Create a well-commented starter rules file
 - `pacgate estimate rules.yaml` — FPGA resource estimation (LUTs/FFs) + timing analysis
@@ -193,7 +196,7 @@ UVM-inspired Python verification environment with:
 - All commands except `init`, `graph`, `report` support `--json` for machine-readable output
 
 ## Examples
-51 production-quality YAML examples covering real-world deployments:
+53 production-quality YAML examples covering real-world deployments:
 - Enterprise campus, data center multi-tenant, blacklist mode
 - Industrial OT boundary (EtherCAT, PROFINET, PTP, GOOSE)
 - Automotive Ethernet gateway (AVB/TSN, ADAS)
@@ -231,9 +234,10 @@ UVM-inspired Python verification environment with:
 - RSS NIC offload (Toeplitz hash-based queue distribution for NIC offload)
 - INT datacenter (in-band telemetry with sideband metadata capture)
 - pcap-gen demo (synthetic traffic generation from rules)
+- rust_filter_demo (Rust code generation backend with PCAP I/O and per-rule statistics)
 
 ## Quality
-- 1095 Rust tests total (model parsing, validation, CIDR/port overlap, IPv4/IPv6, PCAP, byte-match, HSM, Mermaid, simulation incl. byte-match/rate-limit/conntrack, PCAP analysis, synthesis, mutation (41 types), templates, benchmarking, reachability (protocol fields), GTP-U, MPLS, IGMP/MLD, DSCP/ECN, IPv6 TC, TCP flags, ICMP type/code, ICMPv6, ARP, IPv6 extensions, QinQ, IPv4 fragmentation, L4 port rewrite, GRE, conntrack state, mirror/redirect, flow counters, OAM/CFM, NSH/SFC, Geneve VNI, ip_ttl, frame_len, IPv6 rewrite, VLAN PCP/outer VLAN rewrite, MCY config generation, rewrite action parsing/validation, cocotb 2.0 runner generation, parameterized width, P4 export, multi-table pipeline, PTP matching, RSS queue pinning/Toeplitz hash/indirection table, INT metadata, pcap-gen traffic generation, P4 import, Wireshark display filter import, iptables-save import)
+- 1154 Rust tests total (726 unit + 428 integration; model parsing, validation, CIDR/port overlap, IPv4/IPv6, PCAP, byte-match, HSM, Mermaid, simulation incl. byte-match/rate-limit/conntrack, PCAP analysis, synthesis, mutation (41 types), templates, benchmarking, reachability (protocol fields), GTP-U, MPLS, IGMP/MLD, DSCP/ECN, IPv6 TC, TCP flags, ICMP type/code, ICMPv6, ARP, IPv6 extensions, QinQ, IPv4 fragmentation, L4 port rewrite, GRE, conntrack state, mirror/redirect, flow counters, OAM/CFM, NSH/SFC, Geneve VNI, ip_ttl, frame_len, IPv6 rewrite, VLAN PCP/outer VLAN rewrite, MCY config generation, rewrite action parsing/validation, cocotb 2.0 runner generation, parameterized width, P4 export, multi-table pipeline, PTP matching, RSS queue pinning/Toeplitz hash/indirection table, INT metadata, pcap-gen traffic generation, P4 import, Wireshark display filter import, iptables-save import, Rust code generation backend)
 - 90 Python scoreboard unit tests (IPv4 CIDR, IPv6 CIDR, port matching, VXLAN VNI, byte-match, multi-field L3/L4, GTP-U TEID, MPLS label/TC/BOS, IGMP/MLD type, IPv6 TC, TCP flags mask-aware, ICMP type/code, ICMPv6 type/code, ARP opcode/SPA/TPA, IPv6 hop_limit/flow_label, QinQ outer VLAN, IPv4 fragmentation, GRE protocol/key, conntrack state, OAM level/opcode, NSH SPI/SI, Geneve VNI, ip_ttl, PTP messageType/domain/version, RSS Toeplitz hash queue verification, INT metadata prediction, protocol coverage sampling, protocol determinism checks)
 - 13+ cocotb simulation tests (directed with L3/L4 headers + 500-packet random + corner cases)
 - 5 conntrack cocotb tests (new flow, return traffic, timeout, hash collision, table overflow)
@@ -288,6 +292,7 @@ UVM-inspired Python verification environment with:
 - **Phase 32** (complete): Wireshark Display Filter Import — `wireshark-import` subcommand converts Wireshark display filter syntax (`tcp.port == 80 && ip.src == 10.0.0.0/8`) into PacGate YAML rules. Tokenizer + recursive descent parser with ~45 field mappings, protocol inference, bidirectional port expansion (tcp.port/udp.port), TCP flag bit accumulation, AND/OR/NOT logic handling. `--filter`/`--filter-file`/`--json`/`--default-action`/`--name` flags. 2 Wireshark filter examples. src/wireshark_import.rs (~700 LOC), 38 CLI subcommands, 638 unit + 399 integration = 1037 Rust tests + 90 Python tests
 - **Phase 33** (complete): iptables-save Import — `iptables-import` subcommand parses iptables-save output into PacGate YAML rules, completing the quad input format (YAML + P4 + Wireshark + iptables). Chain-aware rule extraction with protocol/address/port/interface/state/ICMP mapping, LOG/REJECT/MARK target support, `--file`/`--chain`/`--table`/`--json`/`--default-action`/`--name` flags. src/iptables_import.rs, 39 CLI subcommands, 1095 Rust tests + 90 Python tests
 - **Phase 34** (complete): Rule Set Optimizer — `optimize` subcommand performs 5 semantics-preserving optimization passes on rule sets: OPT001 dead rule removal (shadow-based), OPT002 duplicate merging (structural equality), OPT003 adjacent port consolidation, OPT004 adjacent CIDR consolidation, OPT005 priority renumbering. Pipeline-aware (per-stage), stateful rules preserved, `--json`/`-o`/`--apply` flags. src/optimize.rs (~500 LOC), 40 CLI subcommands, 1127 Rust tests + 90 Python tests
+- **Phase 35** (complete): Rust Code Generation Backend — `--target rust` generates a standalone Rust packet filter binary with compiled match rules, PCAP I/O, per-rule statistics, stdin/stdout pipe mode, and AF_XDP skeleton for live capture. Protocol-conditional code generation produces ~300-900 LOC output depending on rule set complexity. 17 unit + 10 integration tests; 726 unit + 428 integration = 1154 Rust tests + 90 Python tests
 
 ## Documentation
 - `README.md` — Project showcase and quick start

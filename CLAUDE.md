@@ -1,8 +1,8 @@
 # PacGate — FPGA Layer 2/3/4 Packet Filter Gate
 
 ## Feature Summary
-- YAML-defined packet filter rules compile to synthesizable Verilog + cocotb test harness
-- **Single-spec, dual-output**: same YAML generates both hardware AND verification
+- YAML-defined packet filter rules compile to synthesizable Verilog + cocotb test harness, **or** a standalone Rust packet filter binary (`--target rust`)
+- **Single-spec, multi-output**: same YAML generates hardware (Verilog), verification (cocotb), P4, or software (Rust)
 - **L2 matching**: dst_mac, src_mac, ethertype, vlan_id, vlan_pcp (with MAC wildcards)
 - **L3 matching**: src_ip, dst_ip (CIDR prefix), ip_protocol
 - **L4 matching**: src_port, dst_port (exact or range)
@@ -46,6 +46,7 @@
 - **Wireshark display filter import**: `wireshark-import` subcommand converts Wireshark display filter syntax (`tcp.port == 80 && ip.src == 10.0.0.0/8`) into YAML rules with ~45 field mappings, protocol inference, bidirectional port expansion, and TCP flag accumulation
 - **iptables-save import**: `iptables-import` subcommand converts Linux `iptables-save` output into YAML rules with protocol/port/CIDR/TCP-flags/ICMP/conntrack-state/MAC/multiport mapping, DNAT/SNAT rewrite extraction, chain selection — quad input format (YAML + P4 + Wireshark + iptables)
 - **Rule set optimizer**: `optimize` subcommand performs 5 semantics-preserving passes: dead rule removal (OPT001), duplicate merging (OPT002), adjacent port consolidation (OPT003), adjacent CIDR consolidation (OPT004), priority renumbering (OPT005) — with `--json`/`-o`/`--apply` flags
+- **Rust code generation backend**: `--target rust` generates a standalone Rust packet filter binary with compiled match rules, PCAP I/O, per-rule statistics, stdin/stdout pipe mode, and optional AF_XDP live capture (`afxdp` Cargo feature); protocol-conditional code generation (~300-900 LOC output)
 - **Multi-table pipeline**: optional `tables:` YAML key for sequential match-action stages with AND decision combining; per-stage rule matchers and decision logic
 - **cocotb 2.0 runner**: `run_sim.py` generated alongside Makefiles using `cocotb_tools.runner` API for programmatic, cross-platform simulation
 - **IPv6 matching**: src_ipv6, dst_ipv6 (CIDR prefix), ipv6_next_header
@@ -93,8 +94,8 @@
 - Coverage XML export with merge support across runs
 - Coverage-directed test generation (verification/coverage_driven.py)
 - Enhanced overlap detection with CIDR containment and port range analysis
-- 52 real-world YAML examples + 2 P4 + 2 Wireshark + 2 iptables examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite, OpenNIC, Corundum, TCP flags/ICMP, ARP security, ICMPv6 firewall, QinQ provider, fragment security, port rewrite, GRE tunnel, conntrack firewall, mirror/redirect, flow counters, OAM monitoring, NSH/SFC, Geneve datacenter, TTL security, IPv6 routing, QoS rewrite, wide AXI firewall, P4 export demo, pipeline classify, PTP boundary clock, PTP 5G fronthaul, RSS datacenter, RSS NIC offload, INT datacenter, pcap-gen demo, optimize demo)
-- 709 Rust unit tests + 418 integration tests = 1127 total, 90 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
+- 53 real-world YAML examples + 2 P4 + 2 Wireshark + 2 iptables examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite, OpenNIC, Corundum, TCP flags/ICMP, ARP security, ICMPv6 firewall, QinQ provider, fragment security, port rewrite, GRE tunnel, conntrack firewall, mirror/redirect, flow counters, OAM monitoring, NSH/SFC, Geneve datacenter, TTL security, IPv6 routing, QoS rewrite, wide AXI firewall, P4 export demo, pipeline classify, PTP boundary clock, PTP 5G fronthaul, RSS datacenter, RSS NIC offload, INT datacenter, pcap-gen demo, optimize demo, Rust filter demo)
+- 726 Rust unit tests + 428 integration tests = 1154 total, 90 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
 
 ## Architecture
 ```
@@ -102,6 +103,7 @@ rules.yaml --> pacgate (Rust) --+--> Verilog RTL  (gen/rtl/)
                                 +--> cocotb tests (gen/tb/)
                                 +--> SVA assertions (gen/formal/)
                                 +--> property tests (gen/tb/)
+                                +--> Rust filter  (gen/rust/)  [--target rust]
                                 +--> HTML report
                                 +--> Mermaid diagram (stdout)
                                 |
@@ -168,6 +170,10 @@ pacgate compile rules.yaml --dynamic   # Runtime-updateable flow table (AXI-Lite
 pacgate compile rules.yaml --dynamic --dynamic-entries 32  # 32-entry flow table
 pacgate compile rules.yaml --target opennic   # OpenNIC Shell 250MHz wrapper
 pacgate compile rules.yaml --target corundum  # Corundum mqnic_app_block wrapper
+pacgate compile rules.yaml --target rust      # Generate standalone Rust packet filter binary
+pacgate compile rules.yaml --target rust --json  # JSON summary of Rust generation
+# After Rust compile: cd gen/rust && cargo build --release
+# Run:   gen/rust/target/release/pacgate_filter input.pcap --output filtered.pcap --stats
 pacgate compile rules.yaml --width 128 --axi  # 128-bit AXI-Stream width converters
 pacgate compile rules.yaml --width 512 --target opennic  # Native 512-bit (no extra converters)
 pacgate compile rules.yaml --axi --ptp                   # Include PTP hardware clock + CSR registers
@@ -289,6 +295,7 @@ pytest verification/test_scoreboard.py # 67 Python scoreboard unit tests
 - `src/wireshark_import.rs` — Wireshark display filter import: tokenizer, recursive descent parser, ~45 field mappings with protocol inference (~700 LOC)
 - `src/iptables_import.rs` — iptables-save import: line-based parser, protocol/port/CIDR/TCP-flags/ICMP/conntrack mapping, DNAT/SNAT rewrite, multiport expansion (~600 LOC)
 - `src/optimize.rs` — Rule set optimizer: 5 passes (dead rule removal, duplicate merging, port consolidation, CIDR consolidation, priority renumber) (~500 LOC)
+- `src/rust_gen.rs` — Rust code generation backend: protocol detection, compiled rule matchers, condition builder for 55+ fields, CIDR/MAC/IPv6 constant generation (~400 LOC)
 - `src/pcap_gen.rs` — Synthetic PCAP traffic generator with protocol-aware packet construction (~720 LOC)
 - `src/main.rs` — clap CLI (40 subcommands)
 - `rtl/frame_parser.v` — Hand-written Ethernet/IPv4/IPv6/TCP/UDP/VXLAN/GTP-U/MPLS/IGMP/MLD/ICMP/ICMPv6/ARP/QinQ/OAM/NSH/Geneve/PTP parser FSM (23 states) with TCP flags + IPv6 TC + hop_limit + flow_label + fragmentation + L4 port offset + OAM/CFM + NSH/SFC + Geneve VNI + ip_ttl + PTP messageType/domain/version extraction
@@ -306,7 +313,7 @@ pytest verification/test_scoreboard.py # 67 Python scoreboard unit tests
 - `rtl/int_metadata.v` — INT sideband metadata capture module (switch_id, ingress/egress timestamps, hop_latency, queue_id, rule_idx)
 - `rtl/axis_512_to_8.v` — 512→8-bit AXI-Stream width converter (for platform targets)
 - `rtl/axis_8_to_512.v` — 8→512-bit AXI-Stream width converter (for platform targets)
-- `templates/*.tera` — 29+ Tera templates (+ synth scripts, rate limiter TB, HTML docs, diff report, MCY config, flow table, dynamic top, rewrite_lut, rss_queue_lut, int_lut, packet_filter_axi_top, cocotb 2.0 runner scripts)
+- `templates/*.tera` — 31+ Tera templates (+ synth scripts, rate limiter TB, HTML docs, diff report, MCY config, flow table, dynamic top, rewrite_lut, rss_queue_lut, int_lut, packet_filter_axi_top, cocotb 2.0 runner scripts, rust_cargo.toml, rust_filter.rs)
 - `templates/rewrite_lut.v.tera` — Combinational ROM mapping rule_idx to rewrite operations
 - `templates/egress_lut.v.tera` — Combinational ROM mapping rule_idx to mirror/redirect port parameters
 - `templates/packet_filter_axi_top.v.tera` — Templatized AXI top-level with rewrite engine wiring
@@ -468,3 +475,8 @@ pytest verification/test_scoreboard.py # 67 Python scoreboard unit tests
   - **34.1 Core+CLI+Tests**: `optimize` subcommand with 5 optimization passes: OPT001 dead rule removal (shadow-based), OPT002 duplicate merging (structural equality), OPT003 adjacent port consolidation (Exact+Range merging), OPT004 adjacent CIDR consolidation (prefix-pair merging), OPT005 priority renumbering (uniform 100-spacing); pipeline-aware (per-stage); stateful rules preserved; `--json`/`-o`/`--apply` flags
   - **34.2 Examples+Docs**: optimize_demo.yaml (exercises all 5 OPT passes), documentation updates
   - src/optimize.rs (~500 LOC), 40 CLI subcommands, 709 unit + 418 integration = 1127 Rust tests + 90 Python tests
+- **Phase 35**: Complete — Rust Code Generation Backend (`--target rust`):
+  - **35.1 Core Generator+CLI**: `src/rust_gen.rs` (~400 LOC) — protocol detection, compiled rule matchers with 55+ field conditions, CIDR/IPv6/MAC constant generation, pipeline support; `--target rust` CLI intercept with incompatible flag rejection (--axi/--conntrack/--dynamic/--rate-limit/--ports/--ptp/--rss/--int/--counters)
+  - **35.2 Tera Templates**: `rust_cargo.toml.tera` (Cargo.toml with optional `afxdp` feature), `rust_filter.rs.tera` (~700 LOC) — single-file generated binary with ParsedPacket struct, frame parser (L2/QinQ/VLAN/IPv4/IPv6/TCP/UDP/ICMP/ICMPv6/ARP/MPLS/GRE/OAM/NSH/PTP/VXLAN/GTP-U/Geneve), compiled rule matchers, priority-ordered decision logic, PCAP reader/writer, per-rule statistics (text+JSON), stdin/stdout pipe mode, AF_XDP skeleton (behind `afxdp` Cargo feature)
+  - **35.3 Integration Tests+Example**: `rust_filter_demo.yaml` example (6 rules: HTTP/HTTPS/DNS/internal CIDR/high ports/ARP), 10 integration tests (basic/json/compiles/axi-rejected/conntrack-rejected/ipv6/pipeline/pcap-filter/stdout/demo-example), 17 unit tests (condition builders, protocol detection, JSON summary)
+  - src/rust_gen.rs (~400 LOC), 2 Tera templates, 53 examples, 726 unit + 428 integration = 1154 Rust tests + 90 Python tests

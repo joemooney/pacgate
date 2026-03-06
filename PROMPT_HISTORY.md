@@ -3051,3 +3051,63 @@ Implement iptables-save import — parsing Linux iptables-save output into YAML 
 
 #### Git
 - Committed and pushed: Phase 34: Rule Set Optimizer
+
+---
+
+## Session 38 — 2026-03-06: Phase 35 — Rust Code Generation Backend
+
+### Goal
+Implement `--target rust` backend that generates a standalone Rust packet filter binary from YAML rules, supporting PCAP I/O, per-rule statistics, stdin/stdout pipe mode, and optional AF_XDP live capture.
+
+### Actions Taken
+
+#### Phase 35.1: Core Generator + CLI (~400 LOC)
+1. Created `src/rust_gen.rs` with public API: `generate_rust()` and `generate_rust_summary()`
+2. Implemented `detect_protocols()` mirroring p4_gen.rs pattern for 17 protocol flags
+3. Implemented `build_rust_condition()` converting MatchCriteria → Vec of Rust boolean fail expressions for 55+ fields
+4. IPv4 CIDR pre-computation: `Ipv4Prefix::parse()` → u32 mask/prefix constants
+5. IPv6 CIDR: generates `[u8; 16]` constants with `ipv6_match()` helper
+6. MAC wildcard: generates `[u8; 6]` val/mask constants with `mac_match()` helper
+7. Port range: `map_or(true, |p| p < lo || p > hi)` pattern
+8. TCP flags: mask-aware `(f & mask) != (flags & mask)` pattern
+9. Byte match: `pkt.raw.get(offset)` with optional mask
+10. Pipeline support via `build_rust_rules_from_slice()` for per-stage rule sets
+11. 17 unit tests (condition builders, protocol detection, JSON summary)
+12. Modified `src/main.rs`: added `mod rust_gen`, intercept `target == "rust"` before `PlatformTarget::from_str()`, reject 9 incompatible flags
+
+#### Phase 35.2: Tera Templates
+1. Created `templates/rust_cargo.toml.tera` (~20 LOC) with optional `afxdp` feature gate
+2. Created `templates/rust_filter.rs.tera` (~700 LOC) single-file generated binary:
+   - ParsedPacket struct with protocol-conditional fields (`{% if protocols.has_X %}`)
+   - Frame parser mirroring RTL: L2→QinQ→VLAN→EtherType dispatch→L4 dispatch→tunnel dispatch
+   - Pre-computed constants for CIDR/MAC matching
+   - `mac_match()` and `ipv6_match()` helpers (conditional)
+   - Per-rule `match_rule_N()` functions with early-return conditions
+   - `evaluate()` decision logic with priority-ordered first-match-wins
+   - Pipeline `evaluate_stage_N()` + AND combining (conditional)
+   - Inline PCAP reader/writer (no dependencies)
+   - Stats struct with text and JSON output
+   - AF_XDP skeleton behind `#[cfg(feature = "afxdp")]`
+   - CLI arg parser (hand-written, no clap dependency)
+   - Hex encode/decode for stdin/stdout pipe mode
+
+#### Phase 35.3: Integration Tests + Example
+1. Created `rules/examples/rust_filter_demo.yaml` (6 rules: HTTP/HTTPS/DNS/internal CIDR/high ports/ARP)
+2. Added 10 integration tests: basic, json, generated_compiles, axi_rejected, conntrack_rejected, ipv6_example, pipeline, pcap_filter, stdout, demo_example
+3. Key test: `target_rust_pcap_filter` — generates PCAP via pcap-gen, compiles Rust filter, runs on PCAP, verifies JSON stats
+4. Added `rust_filter_demo` to `validate_all_examples` test
+
+#### Phase 35.4: Documentation
+1. Updated CLAUDE.md: feature summary, architecture diagram, CLI commands, key files, Phase 35 status, test counts
+2. Updated OVERVIEW.md, REQUIREMENTS.md, PROMPT_HISTORY.md, docs/COMPARISON.md
+
+### Key Findings
+- Tera `{{` conflicts with Rust `format!()` curly braces — solved by using string builder pattern instead of `format!()` in JSON serialization
+- Generated PCAP reader closure with `move` causes borrow-after-move — solved by passing `&data` reference
+- `BufRead` trait must be imported for `stdin.lock().read_line()`
+- Protocol-conditional code generation keeps simple rule sets at ~300 LOC vs ~700 LOC for full-protocol
+- Generated Rust filter achieves native speed — no interpreter overhead
+
+### Git Operations
+- `git add -A && git commit -m "Phase 35: Rust Code Generation Backend (--target rust)"`
+- `git push origin main`

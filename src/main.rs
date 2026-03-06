@@ -22,6 +22,7 @@ mod pcap_gen;
 mod wireshark_import;
 mod iptables_import;
 mod optimize;
+mod rust_gen;
 
 use std::path::{Path, PathBuf};
 use clap::{CommandFactory, Parser, Subcommand};
@@ -694,6 +695,34 @@ fn main() -> Result<()> {
                 8 | 64 | 128 | 256 | 512 | 1024 | 2048 => {}
                 _ => anyhow::bail!("--width must be 8, 64, 128, 256, 512, 1024, or 2048 (got {})", width),
             }
+            // Rust code generation backend — separate path, not a PlatformTarget
+            if target == "rust" {
+                let (config, warnings) = loader::load_rules_with_warnings(&rules)?;
+                if axi { anyhow::bail!("--target rust is incompatible with --axi"); }
+                if conntrack { anyhow::bail!("--target rust is incompatible with --conntrack"); }
+                if dynamic { anyhow::bail!("--target rust is incompatible with --dynamic"); }
+                if rate_limit { anyhow::bail!("--target rust is incompatible with --rate-limit"); }
+                if ports > 1 { anyhow::bail!("--target rust is incompatible with --ports > 1"); }
+                if ptp { anyhow::bail!("--target rust is incompatible with --ptp"); }
+                if rss { anyhow::bail!("--target rust is incompatible with --rss"); }
+                if int { anyhow::bail!("--target rust is incompatible with --int"); }
+                if counters { anyhow::bail!("--target rust is incompatible with --counters"); }
+
+                if json {
+                    let summary = rust_gen::generate_rust_summary(&config);
+                    println!("{}", serde_json::to_string_pretty(&summary)?);
+                } else {
+                    rust_gen::generate_rust(&config, &templates, &output)?;
+                    for w in &warnings {
+                        eprintln!("Warning: {}", w);
+                    }
+                    println!("Generated Rust filter → {}/rust/", output.display());
+                    println!("  Build: cd {}/rust && cargo build --release", output.display());
+                    println!("  Run:   {}/rust/target/release/pacgate_filter input.pcap --output filtered.pcap", output.display());
+                }
+                return Ok(());
+            }
+
             let platform = verilog_gen::PlatformTarget::from_str(&target)?;
 
             // Validate platform target constraints

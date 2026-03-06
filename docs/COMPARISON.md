@@ -12,13 +12,13 @@
 | Parser states | 23 |
 | Lint rules | 57 |
 | Mutation types | 41 |
-| YAML examples | 52 (+2 P4, +2 Wireshark, +2 iptables) |
-| Tera templates | 42 |
-| Rust tests | 1127 |
+| YAML examples | 53 (+2 P4, +2 Wireshark, +2 iptables) |
+| Tera templates | 44 |
+| Rust tests | 1154 |
 | Python tests | 90 |
 | Data path widths | 5 (8/64/128/256/512 bit) |
 | FPGA families | Artix-7, Virtex-7, UltraScale+, Alveo |
-| Platform targets | 3 (standalone, OpenNIC, Corundum) |
+| Platform targets | 4 (standalone, OpenNIC, Corundum, Rust software) |
 
 ---
 
@@ -388,12 +388,13 @@ PacGate generates verification artifacts (tests, assertions, coverage) automatic
 |---------|:-------:|:------------:|:--------:|:--------:|:---------:|:-------:|:----------:|
 | **Input format** | YAML + P4 + Wireshark + iptables | P4 | P4 | Verilog | EFSM/GUI | BPF | C/C++ |
 | **Generates RTL** | Yes | Yes | Yes | N/A (is RTL) | N/A (fixed arch) | N/A (fixed arch) | Yes |
+| **Generates Rust software filter** | **Yes** (Phase 35) | No | No | No | No | No | No |
 | **Generates P4 export** | **Yes** (P4_16 PSA) | N/A | N/A | No | No | No | No |
 | **Generates tests** | Yes | No | No | No | No | No | No |
 | **Generates SVA assertions** | Yes | No | No | No | No | No | No |
 | **Generates property tests** | Yes | No | No | No | No | No | No |
 | **Generates coverage model** | Yes | No | No | No | No | No | No |
-| **Single-spec quad-output** | **Yes** (RTL+tests+P4) | No | No | No | No | No | No |
+| **Single-spec quad-output** | **Yes** (RTL+tests+P4+Rust) | No | No | No | No | No | No |
 | **Multi-table pipeline** | **Yes** (`tables:` YAML) | Native (P4) | Native (P4) | No | Yes (EFSM) | No | User |
 | **Parameterized data width** | **Yes** (8-512 bit) | Fixed per target | Fixed per target | Fixed | Fixed | Fixed | User |
 | **No HDL/PL knowledge needed** | **Yes** | No (P4) | No (P4) | No (Verilog) | Partial (GUI) | Yes (BPF) | No (C++) |
@@ -469,7 +470,7 @@ PacGate generates verification artifacts (tests, assertions, coverage) automatic
 | **Multi-port switch fabric** | Yes | Yes | Multi-if | Yes | Dual 100G | 4x 10G |
 | **AXI-Stream interface** | Yes | Yes | Yes | Custom | Yes | AXI |
 | **Parameterized width (8-512b)** | **Yes** | Fixed | Fixed | Fixed | Fixed | Fixed |
-| **Platform target wrappers** | OpenNIC, Corundum | Alveo | Native | NetFPGA | Native | Native |
+| **Platform target wrappers** | OpenNIC, Corundum, Rust software | Alveo | Native | NetFPGA | Native | Native |
 | **Store-forward FIFO** | Yes | Yes | Yes | No | Yes | Yes |
 | **Hardware timestamping (PTP)** | **Yes** (IEEE 1588) | User | **Yes** | No | No | User |
 | **DMA / PCIe host interface** | No | User | **Yes** | No | **Yes** | **Yes** |
@@ -519,7 +520,7 @@ PacGate generates verification artifacts (tests, assertions, coverage) automatic
 
 ## Gap Analysis
 
-### Recently Completed (Phases 27-30)
+### Recently Completed (Phases 27-35)
 
 | Feature | Phase | What Was Delivered |
 |---------|-------|-------------------|
@@ -530,6 +531,7 @@ PacGate generates verification artifacts (tests, assertions, coverage) automatic
 | **RSS multi-queue** | 29 | Toeplitz hash + 128-entry indirection table + per-rule queue override + AXI-Lite |
 | **INT telemetry** | 30 | Sideband metadata capture (switch_id, timestamps, hop_latency, queue_id, rule_idx) |
 | **Synthetic traffic gen** | 30 | `pcap-gen` subcommand — protocol-aware PCAP generation from YAML rules |
+| **Rust code generation** | 35 | `rust-export` subcommand generates a standalone Rust software filter crate (`rust_filter.rs` + `Cargo.toml`) from YAML rules — 4th platform target alongside standalone/OpenNIC/Corundum |
 
 ### High Priority (remaining competitive gaps)
 
@@ -592,13 +594,13 @@ No other tool in this landscape offers PacGate's combination:
                            (hand-written)
 ```
 
-**PacGate is the only tool that generates synthesizable hardware, a complete verification environment, AND a P4_16 PSA program — all from a single declarative YAML specification.** With quad input format (YAML + P4 + Wireshark + iptables), it is the most accessible FPGA packet filter tool available.
+**PacGate is the only tool that generates synthesizable hardware, a complete verification environment, a P4_16 PSA program, AND a standalone Rust software filter — all from a single declarative YAML specification.** With quad input format (YAML + P4 + Wireshark + iptables), it is the most accessible FPGA packet filter tool available.
 
 ### What Makes PacGate Unique
 
 | Capability | Only PacGate? | Why It Matters |
 |------------|:---:|---|
-| **YAML → RTL + tests + P4** | Yes | Single spec, three outputs — no other tool does this |
+| **YAML → RTL + tests + P4 + Rust** | Yes | Single spec, four outputs — no other tool does this |
 | **57 lint rules for packet rules** | Yes | Static analysis purpose-built for packet filter correctness |
 | **41 mutation types** | Yes | Quantified test quality for network security rules |
 | **Multi-table pipeline from YAML** | Yes | P4-style sequential stages without writing P4 |
@@ -646,3 +648,5 @@ Based on this analysis, the next features that would most strengthen PacGate's c
 | 8 | Wireshark display filter import | 32 | `wireshark-import` subcommand — ~45 field mappings |
 | 9 | P4 import (bidirectional bridge) | 31 | `p4-import` subcommand — 55+ field reverse mappings, round-trip validated |
 | 10 | iptables-save import | 33 | `iptables-import` subcommand — protocol/port/CIDR/TCP-flags/ICMP/conntrack/DNAT/SNAT mapping, quad input |
+| 11 | Rule set optimizer | 34 | `optimize` subcommand — 5 passes: dead rule removal, duplicate merging, port/CIDR consolidation, priority renumbering |
+| 12 | Rust code generation backend | 35 | `rust-export` subcommand — standalone Rust software filter crate from YAML (rust_filter.rs.tera + rust_cargo.toml.tera) |

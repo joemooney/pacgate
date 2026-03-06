@@ -68,7 +68,8 @@ fn validate_all_examples() {
                      "opennic_l3l4",
                      "corundum_datacenter",
                      "arp_security",
-                     "icmpv6_firewall"] {
+                     "icmpv6_firewall",
+                     "rust_filter_demo"] {
         let path = format!("rules/examples/{}.yaml", example);
         let output = pacgate_bin()
             .args(["validate", &path])
@@ -7981,4 +7982,200 @@ fn optimize_idempotent() {
         let code = s["code"].as_str().unwrap();
         assert!(code == "OPT005", "Unexpected suggestion on idempotent pass: {}", code);
     }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Phase 35: --target rust (Rust code generation backend)
+// ═══════════════════════════════════════════════════════════════
+
+#[test]
+fn target_rust_basic() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/rust_filter_demo.yaml", "--target", "rust", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "target rust failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Generated Rust filter"), "Expected 'Generated Rust filter' in output");
+    // Verify generated files exist
+    assert!(tmp.path().join("rust/Cargo.toml").exists(), "Cargo.toml not generated");
+    assert!(tmp.path().join("rust/src/main.rs").exists(), "src/main.rs not generated");
+}
+
+#[test]
+fn target_rust_json() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/rust_filter_demo.yaml", "--target", "rust", "--json", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "target rust --json failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    assert_eq!(json["status"], "ok");
+    assert_eq!(json["target"], "rust");
+    assert_eq!(json["rules_count"], 6);
+    assert!(json["build_command"].as_str().unwrap().contains("cargo"));
+    assert!(json["protocols"]["ipv4"].as_bool().unwrap());
+}
+
+#[test]
+fn target_rust_generated_compiles() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/rust_filter_demo.yaml", "--target", "rust", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "target rust compile failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // Build the generated project
+    let build_output = Command::new("cargo")
+        .args(["build", "--release"])
+        .current_dir(tmp.path().join("rust"))
+        .output()
+        .unwrap();
+    assert!(build_output.status.success(), "Generated Rust project failed to build: {}", String::from_utf8_lossy(&build_output.stderr));
+    assert!(tmp.path().join("rust/target/release/pacgate_filter").exists(), "Binary not produced");
+}
+
+#[test]
+fn target_rust_axi_rejected() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/rust_filter_demo.yaml", "--target", "rust", "--axi", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "target rust --axi should fail");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("incompatible"), "Expected 'incompatible' error: {}", stderr);
+}
+
+#[test]
+fn target_rust_conntrack_rejected() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/rust_filter_demo.yaml", "--target", "rust", "--conntrack", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "target rust --conntrack should fail");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("incompatible"), "Expected 'incompatible' error: {}", stderr);
+}
+
+#[test]
+fn target_rust_ipv6_example() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/ipv6_firewall.yaml", "--target", "rust", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "target rust ipv6 failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(tmp.path().join("rust/src/main.rs").exists());
+    // Verify the generated code contains IPv6 parsing
+    let main_rs = std::fs::read_to_string(tmp.path().join("rust/src/main.rs")).unwrap();
+    assert!(main_rs.contains("src_ipv6"), "IPv6 fields should be present");
+    assert!(main_rs.contains("ipv6_match"), "IPv6 match helper should be present");
+}
+
+#[test]
+fn target_rust_pipeline() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml = tmp.path().join("pipeline.yaml");
+    std::fs::write(&yaml, r#"
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules: []
+  tables:
+    - name: classify
+      default_action: drop
+      rules:
+        - name: is_tcp
+          priority: 100
+          action: pass
+          match:
+            ethertype: "0x0800"
+            ip_protocol: 6
+    - name: filter
+      default_action: drop
+      rules:
+        - name: allow_http
+          priority: 100
+          action: pass
+          match:
+            dst_port: 80
+"#).unwrap();
+
+    let output = pacgate_bin()
+        .args(["compile", yaml.to_str().unwrap(), "--target", "rust", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "target rust pipeline failed: {}", String::from_utf8_lossy(&output.stderr));
+    let main_rs = std::fs::read_to_string(tmp.path().join("rust/src/main.rs")).unwrap();
+    assert!(main_rs.contains("evaluate_stage_0"), "Pipeline stage 0 should be present");
+    assert!(main_rs.contains("evaluate_stage_1"), "Pipeline stage 1 should be present");
+}
+
+#[test]
+fn target_rust_pcap_filter() {
+    let tmp = tempfile::tempdir().unwrap();
+
+    // Generate test PCAP from rules
+    let pcap_path = tmp.path().join("test.pcap");
+    let pcap_output = pacgate_bin()
+        .args(["pcap-gen", "rules/examples/rust_filter_demo.yaml", "--count", "50", "--seed", "42", "--output", pcap_path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(pcap_output.status.success(), "pcap-gen failed: {}", String::from_utf8_lossy(&pcap_output.stderr));
+
+    // Generate Rust filter
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/rust_filter_demo.yaml", "--target", "rust", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "target rust compile failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // Build
+    let build_output = Command::new("cargo")
+        .args(["build", "--release"])
+        .current_dir(tmp.path().join("rust"))
+        .output()
+        .unwrap();
+    assert!(build_output.status.success(), "Build failed: {}", String::from_utf8_lossy(&build_output.stderr));
+
+    // Run filter on test PCAP with JSON stats
+    let filter_output = Command::new(tmp.path().join("rust/target/release/pacgate_filter"))
+        .args([pcap_path.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert!(filter_output.status.success(), "Filter run failed: {}", String::from_utf8_lossy(&filter_output.stderr));
+
+    let stdout = String::from_utf8_lossy(&filter_output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON stats");
+    assert_eq!(json["total"], 50, "Expected 50 packets");
+    assert!(json["passed"].as_u64().unwrap() > 0, "Expected some passed packets");
+}
+
+#[test]
+fn target_rust_stdout() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output = pacgate_bin()
+        .args(["compile", "rules/examples/rust_filter_demo.yaml", "--target", "rust", "-o", tmp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Build:"), "Should print build instructions");
+    assert!(stdout.contains("Run:"), "Should print run instructions");
+}
+
+#[test]
+fn target_rust_demo_example() {
+    let output = pacgate_bin()
+        .args(["validate", "rules/examples/rust_filter_demo.yaml"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "rust_filter_demo.yaml should validate: {}", String::from_utf8_lossy(&output.stderr));
 }

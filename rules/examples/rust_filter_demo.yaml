@@ -1,0 +1,56 @@
+# PacGate Rust Filter Demo
+# Compile with: pacgate compile rust_filter_demo.yaml --target rust
+# Build:        cd gen/rust && cargo build --release
+# Run:          ./target/release/pacgate_filter input.pcap --stats
+
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+
+  rules:
+    - name: allow_http
+      priority: 500
+      action: pass
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 80
+
+    - name: allow_https
+      priority: 490
+      action: pass
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 443
+
+    - name: allow_dns
+      priority: 480
+      action: pass
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17
+        dst_port: 53
+
+    - name: allow_internal
+      priority: 470
+      action: pass
+      match:
+        ethertype: "0x0800"
+        src_ip: "10.0.0.0/8"
+
+    - name: allow_high_ports
+      priority: 460
+      action: pass
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port:
+          range: [1024, 65535]
+
+    - name: allow_arp
+      priority: 100
+      action: pass
+      match:
+        ethertype: "0x0806"
