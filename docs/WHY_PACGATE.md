@@ -43,7 +43,7 @@ P4 is excellent for programming switch ASICs (Tofino, memory-mapped). But P4:
 
 PacGate targets a different niche: **dedicated L2-L4 FPGA filters with built-in verification**. It handles Ethernet through TCP/UDP, plus tunnels (VXLAN, GTP-U, Geneve, GRE), MPLS, multicast (IGMP/MLD), OAM/CFM, NSH/SFC, IPv6, byte-offset matching, stateful connection tracking, and packet rewrite (NAT/PAT). If you're building a Tofino-based datacenter switch, use P4. If you're building an FPGA-based security boundary, OT gateway, 5G filter, or SmartNIC — PacGate is purpose-built.
 
-Future roadmap includes P4 import/export for interoperability.
+PacGate includes full **P4 bidirectional interoperability** — `p4-export` generates P4_16 PSA programs from YAML rules, and `p4-import` converts P4 programs back to YAML. PacGate also imports Wireshark display filters (`wireshark-import`) and iptables-save dumps (`iptables-import`).
 
 ## "We already have Corundum / NetFPGA."
 
@@ -83,26 +83,30 @@ PacGate doesn't compete with Questa on general-purpose verification. It competes
 
 ## "Is it production-ready?"
 
-PacGate is well beyond prototype stage — through 26 development phases:
+PacGate is well beyond prototype stage — through 35 development phases:
 
-- **806 Rust tests** (479 unit + 327 integration) — compiler correctness across all features
-- **67 Python scoreboard tests** — full-stack L2/L3/L4/IPv6/tunnel/multicast/OAM/SFC/rewrite reference model
+- **1154 Rust tests** (726 unit + 428 integration) — compiler correctness across all features
+- **90 Python scoreboard tests** — full-stack L2/L3/L4/IPv6/tunnel/multicast/OAM/SFC/rewrite reference model
 - **13+ cocotb simulation tests** + **5 conntrack tests** with 500 random packets — hardware simulation
 - **85%+ functional coverage** — coverage-driven verification with XML export and CoverageDirector
 - **30+ SVA formal assertions** — protocol prerequisites, bounds checking, cover statements
 - **21 Hypothesis property tests** with 14 strategies (GTP-U, MPLS, IGMP, MLD, GRE, OAM, NSH, ARP, ICMP, ICMPv6, QinQ, TCP flags)
-- **42 real-world examples** spanning data centers, industrial OT, automotive, 5G, IoT, MPLS, GTP-U, multicast, OAM/CFM, NSH/SFC, Geneve, QinQ, ARP security, conntrack, rewrite, platform targets
-- **50+ match fields** — L2/L3/L4/IPv6/QinQ/tunnel(VXLAN/GTP-U/Geneve/GRE)/MPLS/IGMP/MLD/OAM/NSH/TCP-flags/ICMP/ICMPv6/ARP/fragmentation/TTL
+- **53 real-world YAML examples** (+ 2 P4, 2 Wireshark, 2 iptables) spanning data centers, industrial OT, automotive, 5G, IoT, MPLS, GTP-U, multicast, OAM/CFM, NSH/SFC, Geneve, QinQ, ARP security, conntrack, rewrite, platform targets, PTP, RSS, INT, software filters
+- **57 match fields** — L2/L3/L4/IPv6/QinQ/tunnel(VXLAN/GTP-U/Geneve/GRE)/MPLS/IGMP/MLD/OAM/NSH/TCP-flags/ICMP/ICMPv6/ARP/fragmentation/TTL/PTP/RSS/INT
 - **15 rewrite actions** — MAC/VLAN/TTL/IP/DSCP/ECN/hop-limit/PCP/port rewriting with RFC 1624 checksums
+- **5 output targets** — Verilog RTL (FPGA), Rust binary (software), P4_16 PSA (ASIC), OpenNIC Shell, Corundum NIC
+- **4 import formats** — YAML, P4_16 (p4-import), Wireshark display filters (wireshark-import), iptables-save (iptables-import)
+- **Software-only deployment** — `--target rust` generates a standalone Rust binary with PCAP I/O, per-rule statistics, and optional AF_XDP live capture — no FPGA required
 - **AXI-Stream interface** — standard FPGA integration with store-and-forward FIFO + packet rewrite engine
 - **Platform targets** — drop-in wrappers for OpenNIC Shell and Corundum NIC (`--target opennic/corundum`)
 - **Multi-port switch fabric** — N independent filter instances (`--ports N`)
 - **Connection tracking** — CRC-based hash table with TCP state machine + per-flow counters (`--conntrack`)
 - **Rate limiting** — per-rule token-bucket rate limiter (`--rate-limit`)
 - **Runtime flow tables** — register-based AXI-Lite-writable match entries (`--dynamic`)
-- **46 lint rules** — security, performance, maintainability, protocol prerequisite checks
-- **33 mutation strategies** + MCY Verilog-level mutation testing with kill-rate analysis
-- **32 CLI subcommands** — compile, simulate, lint, formal, reachability, bench, pcap-analyze, topology, and more
+- **Rule set optimizer** — 5 semantics-preserving passes (dead rule, dedup, port/CIDR consolidation, priority renumber)
+- **57 lint rules** — security, performance, maintainability, protocol prerequisite checks
+- **41 mutation strategies** + MCY Verilog-level mutation testing with kill-rate analysis
+- **41 CLI subcommands** — compile, simulate, lint, formal, optimize, pcap-gen, p4-import, wireshark-import, iptables-import, and more
 
 The verification depth exceeds what most hand-written FPGA filters achieve.
 
@@ -111,25 +115,30 @@ The verification depth exceeds what most hand-written FPGA filters achieve.
 Honest limitations:
 
 1. **L2-L4 scope** — handles Ethernet through TCP/UDP, plus tunnels (VXLAN, GTP-U, Geneve, GRE), MPLS, multicast (IGMP/MLD), OAM/CFM, NSH/SFC, and packet rewrite. No L7/application-layer deep packet inspection.
-2. **Xilinx-focused** — synthesis scripts target 7-series. The Verilog is portable, but constraints and synthesis need adaptation for Intel/Lattice.
-3. **No P4 interop yet** — P4 import/export is on the roadmap for protocol compatibility.
-4. **Width converter bottleneck** — platform targets (OpenNIC, Corundum) use 512↔8-bit width converters, limiting V1 to ~2 Gbps. Suitable for 1GbE/development/prototyping.
+2. **Xilinx-focused** — FPGA synthesis scripts target 7-series. The Verilog is portable, but constraints and synthesis need adaptation for Intel/Lattice. (Software targets require only Rust.)
+3. **Width converter bottleneck** — FPGA platform targets (OpenNIC, Corundum) use 512↔8-bit width converters, limiting V1 to ~2 Gbps. Suitable for 1GbE/development/prototyping. (Software targets have no such limit.)
 
 These are **scope boundaries**, not bugs. PacGate solves L2-L4 packet filtering with comprehensive protocol and tunnel support extremely well. If you need L7 DPI, use a different tool.
 
 ## "Who is this for?"
 
-**Primary users:**
+**Software-only users (no FPGA required):**
+- DevOps/SRE teams needing custom PCAP filtering and traffic analysis
+- Security teams deploying software packet filters (PCAP or AF_XDP)
+- Network engineers migrating iptables/Wireshark rules to structured YAML
+- Anyone wanting compiled, high-performance packet filtering from declarative rules
+
+**FPGA/hardware users:**
 - FPGA engineers building network packet filters
 - Verification engineers who want auto-generated test harnesses
 - Security teams deploying hardware-level traffic filtering
 - Industrial/OT teams protecting control networks
 - Academic researchers studying FPGA networking
 
-**Secondary users:**
-- Embedded teams needing deterministic packet filtering
-- SmartNIC developers looking for filter IP blocks
-- Network architects evaluating hardware-accelerated security
+**Cross-domain users:**
+- SmartNIC developers targeting P4 ASICs or FPGA platforms
+- Network architects evaluating hardware-accelerated vs software security
+- Teams prototyping in software (`--target rust`) before deploying to FPGA
 
 ## "Show me the numbers."
 
@@ -157,21 +166,44 @@ Latency:     16 cycles = 128 ns
 
 ### Code Quality
 ```
-Compiler:    15,000+ lines of Rust (type-safe, memory-safe)
-Templates:   36 Tera templates (Verilog, cocotb, SVA, Hypothesis, HTML, synthesis, MCY, platforms)
-RTL:         12 hand-written modules + generated per-rule matchers/FSMs
-Tests:       806 Rust + 67 Python + 18+ cocotb + formal + property
+Compiler:    20,000+ lines of Rust (type-safe, memory-safe)
+Templates:   44 Tera templates (Verilog, Rust, cocotb, SVA, P4, HTML, synthesis, MCY, platforms)
+RTL:         15 hand-written modules + generated per-rule matchers/FSMs
+Tests:       1154 Rust + 90 Python + 18+ cocotb + formal + property
 ```
+
+## "Do I need an FPGA?"
+
+**No.** PacGate's `--target rust` generates a standalone Rust binary that filters PCAP files or live traffic (via AF_XDP) — no FPGA, no Verilog tools, no special hardware. You only need:
+- Rust toolchain (`cargo`)
+- A YAML rules file
+
+```bash
+# Software-only workflow (zero FPGA dependencies)
+pacgate compile rules/examples/rust_filter_demo.yaml --target rust
+cd gen/rust && cargo build --release
+./target/release/pacgate_filter capture.pcap --output filtered.pcap --stats
+```
+
+PacGate's software simulation (`pacgate simulate`) also works without any FPGA tools — useful for rule development, testing, and PCAP analysis regardless of your deployment target.
 
 ## The Bottom Line
 
-PacGate is the only tool that generates both synthesizable FPGA hardware and a complete verification environment from a single YAML specification. It's not trying to replace Vivado, P4, or general-purpose verification tools. It's solving a specific, well-defined problem — L2-L4 packet filtering with tunnel and multicast support — with a level of verification depth that most hand-coded solutions never achieve.
+PacGate is the only tool that generates both synthesizable FPGA hardware **and** standalone software filters **and** a complete verification environment from a single YAML specification. It's not trying to replace Vivado, P4, or general-purpose verification tools. It's solving a specific, well-defined problem — L2-L4 packet filtering with tunnel and multicast support — with a level of verification depth that most hand-coded solutions never achieve.
 
-**Try it:**
+**Try it (software, no FPGA):**
 ```bash
 git clone https://github.com/joemooney/pacgate.git
 cd pacgate && cargo build --release
-pacgate compile rules/examples/enterprise.yaml -o gen/
+pacgate compile rules/examples/rust_filter_demo.yaml --target rust -o gen/
+cd gen/rust && cargo build --release
+./target/release/pacgate_filter input.pcap --stats
 ```
 
-If you can write YAML, you can build verified FPGA packet filters.
+**Try it (FPGA):**
+```bash
+pacgate compile rules/examples/enterprise.yaml -o gen/
+cd gen/tb && python run_sim.py  # Requires iverilog + cocotb
+```
+
+If you can write YAML, you can build verified packet filters — in hardware or software.

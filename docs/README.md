@@ -13,7 +13,7 @@
 | User Guide | [Getting Started](user-guide/getting-started.md) | Quick start (5 minutes) | All |
 | User Guide | [User's Guide](user-guide/USERS_GUIDE.md) | Comprehensive guide with 11+ examples | All |
 | User Guide | [Rule Language Reference](user-guide/rule-language-reference.md) | Complete YAML syntax reference | All |
-| User Guide | [Workshops](WORKSHOPS.md) | 8 hands-on workshops (beginner to advanced) | All |
+| User Guide | [Workshops](WORKSHOPS.md) | 11 hands-on workshops (beginner to advanced, includes software-only) | All |
 | API | [Compiler API](api/compiler-api.md) | CLI, internal modules, verification framework | Engineers |
 | Management | [Executive Summary](management/executive-summary.md) | Problem, solution, ROI, status | Leadership |
 | Management | [Innovation Analysis](management/innovation-analysis.md) | Competitive landscape, IP, roadmap | Leadership, Strategy |

@@ -1,12 +1,12 @@
 # PacGate Competitive Comparison
 
-*Feature matrix comparing PacGate against tools in the FPGA packet processing landscape.*
+*Feature matrix comparing PacGate against tools in the packet processing landscape (FPGA + software).*
 
 ### PacGate at a Glance
 
 | Metric | Count |
 |--------|------:|
-| CLI commands | 38 |
+| CLI commands | 41 |
 | Match fields | 57 |
 | Rewrite actions | 15 |
 | Parser states | 23 |

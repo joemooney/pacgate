@@ -1,6 +1,6 @@
 # PacGate User's Guide
 
-*A comprehensive guide to defining, compiling, verifying, and deploying FPGA packet filters.*
+*A comprehensive guide to defining, compiling, verifying, and deploying packet filters — FPGA hardware or Rust software.*
 
 ---
 

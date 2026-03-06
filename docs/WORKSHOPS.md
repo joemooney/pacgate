@@ -781,3 +781,98 @@ Expected outcome: `expected_switch_action: drop` and drop reason `no_route`.
 ### Outcome
 
 You now have a practical model for the "network switch between RMACs" request that can be run in CI and expanded into RTL/HIL phases later.
+
+---
+
+## Workshop 11: Software Packet Filter — No FPGA Required (30 min)
+
+### Objective
+Build and run a standalone Rust packet filter binary from YAML rules — no FPGA, no Verilog tools, no simulation. Software-only workflow.
+
+### Prerequisites
+- Rust toolchain (`cargo --version`)
+- PacGate built (`cargo build --release`)
+
+### Steps
+
+#### Step 1: Write Your Rules
+
+```yaml
+# workshop11.yaml — Software filter: allow web + DNS, drop everything else
+pacgate:
+  version: "1.0"
+  defaults:
+    action: drop
+  rules:
+    - name: allow_http
+      priority: 500
+      action: pass
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 80
+
+    - name: allow_https
+      priority: 490
+      action: pass
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 6
+        dst_port: 443
+
+    - name: allow_dns
+      priority: 480
+      action: pass
+      match:
+        ethertype: "0x0800"
+        ip_protocol: 17
+        dst_port: 53
+```
+
+#### Step 2: Generate the Rust Filter
+
+```bash
+pacgate compile workshop11.yaml --target rust -o workshop11_out/
+# Output: Generated Rust filter → workshop11_out/rust/
+```
+
+#### Step 3: Build the Binary
+
+```bash
+cd workshop11_out/rust
+cargo build --release
+# Produces: target/release/pacgate_filter
+```
+
+#### Step 4: Generate Test Traffic
+
+```bash
+# Back in pacgate root
+pacgate pcap-gen workshop11.yaml --count 100 --output test_traffic.pcap
+```
+
+#### Step 5: Run the Filter
+
+```bash
+workshop11_out/rust/target/release/pacgate_filter test_traffic.pcap --stats
+# Shows per-rule pass/drop counts
+```
+
+#### Step 6: Get JSON Statistics
+
+```bash
+workshop11_out/rust/target/release/pacgate_filter test_traffic.pcap --stats --json
+# Machine-readable JSON output for CI integration
+```
+
+#### Step 7: Write Filtered Output
+
+```bash
+workshop11_out/rust/target/release/pacgate_filter test_traffic.pcap --output filtered.pcap --stats
+# filtered.pcap contains only packets that matched a pass rule
+```
+
+### Challenge
+1. Add a rule allowing ICMP (`ip_protocol: 1`). Recompile and verify ICMP packets pass.
+2. Import a Wireshark filter: `pacgate wireshark-import --filter "tcp.port == 80 || udp.port == 53"` and compile with `--target rust`.
+3. Compare the generated Rust code size for a 3-rule vs 20-rule filter.

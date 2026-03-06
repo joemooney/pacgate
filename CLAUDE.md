@@ -1,4 +1,4 @@
-# PacGate — FPGA Layer 2/3/4 Packet Filter Gate
+# PacGate — Layer 2/3/4 Packet Filter Compiler (FPGA + Software)
 
 ## Feature Summary
 - YAML-defined packet filter rules compile to synthesizable Verilog + cocotb test harness, **or** a standalone Rust packet filter binary (`--target rust`)

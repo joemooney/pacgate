@@ -1,7 +1,7 @@
-# PacGate — FPGA Layer 2/3/4 Packet Filter Switch
+# PacGate — Layer 2/3/4 Packet Filter Compiler
 
 ## Vision
-PacGate is an FPGA-based packet filtering switch where YAML-defined rules compile into both synthesizable Verilog (the filter hardware) and a cocotb test harness (the validator). The two outputs are generated from the same specification but serve orthogonal purposes: the filter enforces rules in hardware, the harness proves they work correctly in simulation.
+PacGate is a packet filtering compiler where YAML-defined rules compile into synthesizable Verilog (FPGA hardware), standalone Rust binaries (software filters), P4_16 programs (ASIC/SmartNIC), and a cocotb test harness (the validator). These outputs are generated from the same specification but serve orthogonal purposes: the filter enforces rules in hardware or software, the harness proves they work correctly in simulation. No FPGA or special hardware is required for software-only deployments.
 
 ## What It Does
 1. You define packet filter rules in YAML (match on MAC, IPv4/IPv6, ports, VLAN, QinQ double VLAN, VXLAN VNI, GTP-U TEID, GRE protocol/key, Geneve VNI, MPLS labels, IGMP/MLD, DSCP/ECN, IPv6 TC, TCP flags, ICMP type/code, ICMPv6 type/code, ARP opcode/SPA/TPA, IPv6 hop_limit/flow_label, ip_ttl, IPv4 fragmentation flags, OAM/CFM level+opcode, NSH SPI/SI/next_protocol, PTP message_type/domain/version (IEEE 1588), frame_len_min/max (simulation-only), etc.) with optional rewrite actions (NAT, TTL, MAC, VLAN, VLAN PCP, outer VLAN, DSCP, ECN, IPv6 hop_limit, L4 port rewrite), egress actions (mirror_port, redirect_port), per-rule RSS queue pinning (rss_queue 0-15), and per-rule INT metadata insertion (int_insert). Rules can be organized into sequential match-action stages using the `tables:` YAML key for multi-table pipeline processing

@@ -6,7 +6,7 @@
                        _  .___/\__,_/ \___/ _\__, / \__,_/ \__/ \___/
                        /_/                  /____/
                        
-                       ___FPGA Packet Switch Verification Gateway___
+                       ___Packet Filter Compiler & Verification Gateway___
 ```
 
 <p align="center">
@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <strong>Define rules in YAML. Generate hardware in Verilog. Prove correctness in simulation.</strong>
+  <strong>Define rules in YAML. Generate hardware (Verilog) or software (Rust). Prove correctness in simulation.</strong>
 </p>
 
 <p align="center">
@@ -36,11 +36,11 @@
 
 ## What is PacGate?
 
-PacGate is an **FPGA packet filtering compiler** that turns YAML rule definitions into both **synthesizable Verilog hardware** and a **complete verification environment** — from a single specification.
+PacGate is a **packet filtering compiler** that turns YAML rule definitions into **synthesizable Verilog hardware**, **standalone Rust software filters**, and a **complete verification environment** — all from a single specification.
 
-No other tool generates both the hardware implementation *and* the test harness from the same spec. All major commercial tools assume the RTL already exists. PacGate generates both, guaranteeing perfect alignment between what you specify, what gets built, and what gets tested.
+No other tool generates both the implementation *and* the test harness from the same spec. PacGate guarantees perfect alignment between what you specify, what gets built, and what gets tested — whether deploying to an FPGA or running a software filter on a Linux server.
 
-### One Spec, Four Outputs
+### One Spec, Five Outputs
 
 ```
                     ┌────────────────────────────────┐
@@ -57,17 +57,16 @@ No other tool generates both the hardware implementation *and* the test harness 
                                    │
                           pacgate compile
                                    │
-              ┌────────────────────┼─────────────────────┐
-              ▼                    ▼                     ▼
-     ┌────────────────┐  ┌─────────────────┐  ┌──────────────────┐
-     │  Verilog RTL   │  │  cocotb Tests   │  │  SVA Assertions  │
-     │  (hardware)    │  │  (simulation)   │  │  (formal proof)  │
-     └────────────────┘  └─────────────────┘  └──────────────────┘
-              │                    │                     │
-              ▼                    ▼                     ▼
-        Xilinx FPGA       Icarus Verilog /         SymbiYosys
-        (Artix-7)         Questa / VCS +           (BMC/cover)
-                          cocotb (PASS/FAIL)
+       ┌──────────┬────────────────┼────────────┬──────────────┐
+       ▼          ▼                ▼            ▼              ▼
+  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐
+  │ Verilog  │ │  Rust    │ │  cocotb  │ │   SVA    │ │  P4_16   │
+  │   RTL    │ │  Filter  │ │  Tests   │ │ Asserts  │ │   PSA    │
+  └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘
+       │            │            │            │             │
+       ▼            ▼            ▼            ▼             ▼
+  Xilinx FPGA  cargo build  Icarus/Questa  SymbiYosys  Tofino/
+  (Artix-7)    → binary     + cocotb       (BMC/cover) SmartNIC
 ```
 
 ## Quick Start
@@ -103,7 +102,21 @@ pacgate validate rules/examples/enterprise.yaml
 pacgate diff rules/examples/allow_arp.yaml rules/examples/enterprise.yaml
 ```
 
-### Run Simulation
+### Software Filter (no FPGA needed)
+
+```bash
+# Generate a standalone Rust binary from rules
+pacgate compile rules/examples/rust_filter_demo.yaml --target rust -o gen/
+
+# Build and run
+cd gen/rust && cargo build --release
+./target/release/pacgate_filter input.pcap --output filtered.pcap --stats
+
+# Or simulate without code generation
+pacgate simulate rules/examples/enterprise.yaml --packet "ethertype=0x0800,dst_port=80"
+```
+
+### Run Hardware Simulation
 
 ```bash
 # Prerequisites: Python 3, cocotb, and either Icarus Verilog or Questa/QuestaSim
@@ -370,7 +383,7 @@ AXI-Stream In ──► AXI Adapter ──► Frame Parser ──► Rule Matche
 
 ## Examples
 
-PacGate ships with 42 production-quality examples covering real-world deployment scenarios:
+PacGate ships with 53 production-quality YAML examples (+ 2 P4, 2 Wireshark, 2 iptables) covering real-world deployment scenarios:
 
 | Example | Scenario | Rules |
 |---------|----------|-------|
@@ -416,6 +429,17 @@ PacGate ships with 42 production-quality examples covering real-world deployment
 | [`qos_rewrite.yaml`](rules/examples/qos_rewrite.yaml) | VLAN PCP remarking + QinQ outer tag rewrite | 5 |
 | [`opennic_l3l4.yaml`](rules/examples/opennic_l3l4.yaml) | OpenNIC Shell platform target | 5 |
 | [`corundum_datacenter.yaml`](rules/examples/corundum_datacenter.yaml) | Corundum NIC platform target | 5 |
+| [`wide_axi_firewall.yaml`](rules/examples/wide_axi_firewall.yaml) | Wide AXI-Stream data path | 5 |
+| [`p4_export_demo.yaml`](rules/examples/p4_export_demo.yaml) | P4 export demonstration | 5 |
+| [`pipeline_classify.yaml`](rules/examples/pipeline_classify.yaml) | Multi-table pipeline | 5 |
+| [`ptp_boundary_clock.yaml`](rules/examples/ptp_boundary_clock.yaml) | PTP boundary clock (IEEE 1588) | 5 |
+| [`ptp_5g_fronthaul.yaml`](rules/examples/ptp_5g_fronthaul.yaml) | PTP 5G fronthaul | 5 |
+| [`rss_datacenter.yaml`](rules/examples/rss_datacenter.yaml) | RSS multi-queue dispatch | 5 |
+| [`rss_nic_offload.yaml`](rules/examples/rss_nic_offload.yaml) | RSS NIC offload | 5 |
+| [`int_datacenter.yaml`](rules/examples/int_datacenter.yaml) | INT network telemetry | 5 |
+| [`pcap_gen_demo.yaml`](rules/examples/pcap_gen_demo.yaml) | Synthetic PCAP generation | 5 |
+| [`optimize_demo.yaml`](rules/examples/optimize_demo.yaml) | Rule set optimizer demo | 5 |
+| [`rust_filter_demo.yaml`](rules/examples/rust_filter_demo.yaml) | **Rust software filter** | 6 |
 
 ### Try an Example
 
@@ -450,13 +474,13 @@ COMMANDS:
   graph          Output DOT graph of rule set for Graphviz
   stats          Rule set analytics (field usage, priority spacing)
   formal         Generate SVA assertions + SymbiYosys task files
-  lint           Best-practice analysis (46 rules: security, performance, prerequisites)
+  lint           Best-practice analysis (57 rules: security, performance, prerequisites)
   report         Generate HTML coverage report
   pcap           Import PCAP capture for cocotb test stimulus
   pcap-analyze   Analyze PCAP traffic + auto-suggest rules
   simulate       Software dry-run simulation (no hardware needed)
   synth          Generate Yosys/Vivado synthesis project files
-  mutate         Mutation testing (33 strategies + kill-rate runner)
+  mutate         Mutation testing (41 strategies + kill-rate runner)
   mcy            MCY (Mutation Cover with Yosys) config generation
   template       Built-in rule templates (list/show/apply)
   doc            Generate styled HTML rule documentation
@@ -467,6 +491,12 @@ COMMANDS:
   scenario       Validate, import/export scenario JSON files
   regress        High-volume packet regression against scenarios
   topology       Multi-port topology simulation
+  p4-export      Generate P4_16 PSA program from YAML rules
+  p4-import      Import P4_16 PSA program → YAML rules
+  wireshark-import  Convert Wireshark display filter to YAML rules
+  iptables-import   Convert iptables-save output to YAML rules
+  optimize       Rule set optimizer (dead rule, dedup, port/CIDR consolidation)
+  pcap-gen       Generate synthetic PCAP traffic from rules
   completions    Generate shell completions (bash/zsh/fish)
 
 COMPILE FLAGS:
@@ -477,7 +507,13 @@ COMPILE FLAGS:
   --rate-limit   Include per-rule token-bucket rate limiter RTL
   --dynamic      Runtime-updateable flow table (AXI-Lite writable, replaces static matchers)
   --dynamic-entries N  Max flow table entries (1-256, default 16)
-  --target T     Platform target: opennic (OpenNIC Shell) or corundum (Corundum NIC)
+  --target T     Platform target: opennic, corundum, or rust (software filter)
+  --width W      AXI-Stream data path width: 8/64/128/256/512/1024/2048
+  --ptp          Include IEEE 1588 PTP hardware timestamping clock
+  --rss          Enable RSS multi-queue dispatch (Toeplitz hash)
+  --rss-queues N RSS queue count (default 4, max 16)
+  --int          Enable INT sideband metadata output
+  --int-switch-id N  INT switch identifier
 
 SIMULATE FLAGS:
   --stateful     Enable rate-limit + connection tracking in software simulation
@@ -550,28 +586,35 @@ make synth RULES=rules/examples/enterprise.yaml
 
 ```
 pacgate/
-├── src/                    # Rust compiler (25 subcommands)
-│   ├── main.rs             # CLI (clap) — 46 lint rules, 50+ match fields
+├── src/                    # Rust compiler (41 subcommands)
+│   ├── main.rs             # CLI (clap) — 57 lint rules, 57 match fields
 │   ├── model.rs            # Data model (L2/L3/L4/IPv6/tunnel/OAM/SFC/rewrite/HSM)
 │   ├── loader.rs           # YAML loader + validation + CIDR/port overlap detection
 │   ├── verilog_gen.rs      # Tera-based Verilog generation (all match fields + multi-port)
+│   ├── rust_gen.rs         # Rust software filter code generation (--target rust)
+│   ├── p4_gen.rs           # P4_16 PSA code generation (p4-export)
+│   ├── p4_import.rs        # P4_16 import: reverse field mapping (p4-import)
+│   ├── wireshark_import.rs # Wireshark display filter import (wireshark-import)
+│   ├── iptables_import.rs  # iptables-save import (iptables-import)
+│   ├── optimize.rs         # Rule set optimizer: 5 optimization passes
 │   ├── cocotb_gen.rs       # cocotb test harness + property test generation
 │   ├── formal_gen.rs       # SVA assertion + SymbiYosys generation
 │   ├── simulator.rs        # Software simulation (stateless + stateful rate-limit/conntrack)
 │   ├── pcap_analyze.rs     # PCAP traffic analysis + rule suggestion engine
+│   ├── pcap_gen.rs         # Synthetic PCAP traffic generation
 │   ├── synth_gen.rs        # Yosys/Vivado synthesis project generation
-│   ├── mutation.rs         # Rule mutation engine (33 strategies)
+│   ├── mutation.rs         # Rule mutation engine (41 strategies)
 │   ├── mcy_gen.rs          # MCY Verilog-level mutation config generation
 │   ├── benchmark.rs        # Performance benchmarking engine
 │   ├── scenario.rs         # Scenario validation, regression testing, topology simulation
 │   └── ...                 # mermaid, pcap, templates_lib, pcap_writer
-├── templates/              # 36 Tera templates (Verilog, cocotb, SVA, HTML, synthesis, platforms)
+├── templates/              # 44 Tera templates (Verilog, Rust, cocotb, SVA, P4, HTML, synthesis, platforms)
 ├── rtl/                    # Hand-written Verilog (parser, rewrite, AXI, FIFO, counters, conntrack, rate limiter, width converters)
-├── rules/examples/         # 42 YAML rule examples
+├── rules/examples/         # 53 YAML rule examples (+ 2 P4, 2 Wireshark, 2 iptables)
 ├── rules/templates/        # 7 built-in rule templates
 ├── verification/           # Python verification framework (scoreboard, coverage, properties, driver, packet factory)
 ├── synth/                  # Synthesis files (XDC constraints, Yosys script)
-├── tests/                  # 327 Rust integration tests
+├── tests/                  # 428 Rust integration tests
 ├── gen/                    # Generated output directory
 └── docs/                   # Full documentation suite
 ```
@@ -580,31 +623,37 @@ pacgate/
 
 | Metric | Value |
 |--------|-------|
-| Rust unit tests | 479 |
-| Rust integration tests | 327 |
-| Python scoreboard tests | 67 |
+| Rust unit tests | 726 |
+| Rust integration tests | 428 |
+| Python scoreboard tests | 90 |
 | cocotb simulation tests | 13+ directed + 5 conntrack |
 | Random packet scoreboard | 500/500 matches |
 | Functional coverage | 85%+ |
 | Hypothesis property tests | 17 strategies (L3/L4, GTP-U, MPLS, IGMP, MLD, GRE, OAM, NSH, ARP, ICMP, ICMPv6, QinQ, TCP flags) |
 | SVA formal assertions | 30+ properties (protocol prerequisites, bounds, cover) |
-| Lint rules | 46 (LINT001-046) |
-| Mutation strategies | 33 YAML-level + MCY Verilog-level |
-| Match fields | 50+ (L2/L3/L4/IPv6/tunnel/OAM/SFC/QoS/fragmentation) |
+| Lint rules | 57 (LINT001-057) |
+| Mutation strategies | 41 YAML-level + MCY Verilog-level |
+| Match fields | 57 (L2/L3/L4/IPv6/tunnel/OAM/SFC/QoS/fragmentation/PTP/RSS/INT) |
 | Rewrite actions | 15 (MAC/VLAN/TTL/IP/DSCP/ECN/hop-limit/PCP/port) |
 | Rule overlap detection | Compile-time CIDR/port range analysis |
-| YAML examples | 42 production-quality |
+| YAML examples | 53 production-quality (+ 2 P4, 2 Wireshark, 2 iptables) |
+| Output targets | 5 (Verilog, Rust software, P4, OpenNIC, Corundum) |
+| CLI subcommands | 41 |
+| Import formats | 4 (YAML, P4, Wireshark, iptables) |
 
 ## Technology Stack
 
 - **Compiler**: Rust (clap, serde_yaml, serde_json, tera)
 - **HDL**: Verilog (IEEE 1364-2005 compatible)
+- **Software target**: Rust (standalone binary, PCAP I/O, optional AF_XDP)
+- **P4 target**: P4_16 PSA (Tofino, SmartNIC)
 - **Simulation**: cocotb 2.x with Icarus Verilog (open-source), Questa/QuestaSim (Siemens), VCS (Synopsys), or Xcelium (Cadence)
 - **Verification**: UVM-inspired Python framework
 - **Formal**: SymbiYosys + SMT solvers
 - **Property Testing**: Hypothesis (Python)
 - **Synthesis**: Yosys (open-source) targeting Xilinx 7-series
 - **Target FPGA**: Xilinx Artix-7 (XC7A35T)
+- **Import formats**: YAML, P4_16, Wireshark display filters, iptables-save
 
 ## License
 
@@ -613,5 +662,5 @@ Proprietary. All rights reserved. See [LICENSE](LICENSE) for details.
 ---
 
 <p align="center">
-  <em>PacGate — Where rules become hardware, and tests prove it works.</em>
+  <em>PacGate — Where rules become hardware or software, and tests prove it works.</em>
 </p>
