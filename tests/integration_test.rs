@@ -8179,3 +8179,184 @@ fn target_rust_demo_example() {
         .unwrap();
     assert!(output.status.success(), "rust_filter_demo.yaml should validate: {}", String::from_utf8_lossy(&output.stderr));
 }
+
+// ==========================================================================
+// pcap-filter subcommand tests
+// ==========================================================================
+
+#[test]
+fn pcap_filter_basic() {
+    let tmp = tempfile::tempdir().unwrap();
+    let pcap_path = tmp.path().join("test.pcap");
+
+    // Generate test traffic
+    let gen = pacgate_bin()
+        .args(["pcap-gen", "rules/examples/rust_filter_demo.yaml",
+            "--count", "20", "--seed", "42", "--output", pcap_path.to_str().unwrap()])
+        .output().unwrap();
+    assert!(gen.status.success(), "pcap-gen failed: {}", String::from_utf8_lossy(&gen.stderr));
+
+    // Filter through the same rules
+    let filter = pacgate_bin()
+        .args(["pcap-filter", "rules/examples/rust_filter_demo.yaml",
+            "--input", pcap_path.to_str().unwrap()])
+        .output().unwrap();
+    assert!(filter.status.success(), "pcap-filter failed: {}", String::from_utf8_lossy(&filter.stderr));
+    let stdout = String::from_utf8_lossy(&filter.stdout);
+    assert!(stdout.contains("Filtered 20 packets"), "expected 20 packets: {}", stdout);
+    assert!(stdout.contains("Per-rule statistics:"), "expected stats: {}", stdout);
+}
+
+#[test]
+fn pcap_filter_json() {
+    let tmp = tempfile::tempdir().unwrap();
+    let pcap_path = tmp.path().join("test.pcap");
+
+    let gen = pacgate_bin()
+        .args(["pcap-gen", "rules/examples/rust_filter_demo.yaml",
+            "--count", "10", "--seed", "100", "--output", pcap_path.to_str().unwrap()])
+        .output().unwrap();
+    assert!(gen.status.success());
+
+    let filter = pacgate_bin()
+        .args(["pcap-filter", "rules/examples/rust_filter_demo.yaml",
+            "--input", pcap_path.to_str().unwrap(), "--json"])
+        .output().unwrap();
+    assert!(filter.status.success(), "pcap-filter --json failed: {}", String::from_utf8_lossy(&filter.stderr));
+
+    let stdout = String::from_utf8_lossy(&filter.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON");
+    assert_eq!(json["total_packets"], 10);
+    assert!(json["passed"].as_u64().unwrap() > 0, "expected some passed packets");
+    assert!(json["per_rule"].is_object(), "expected per_rule object");
+}
+
+#[test]
+fn pcap_filter_output_pcap() {
+    let tmp = tempfile::tempdir().unwrap();
+    let pcap_path = tmp.path().join("input.pcap");
+    let out_path = tmp.path().join("passed.pcap");
+
+    let gen = pacgate_bin()
+        .args(["pcap-gen", "rules/examples/rust_filter_demo.yaml",
+            "--count", "30", "--seed", "55", "--output", pcap_path.to_str().unwrap()])
+        .output().unwrap();
+    assert!(gen.status.success());
+
+    let filter = pacgate_bin()
+        .args(["pcap-filter", "rules/examples/rust_filter_demo.yaml",
+            "--input", pcap_path.to_str().unwrap(),
+            "--output", out_path.to_str().unwrap()])
+        .output().unwrap();
+    assert!(filter.status.success(), "pcap-filter with --output failed: {}", String::from_utf8_lossy(&filter.stderr));
+    assert!(out_path.exists(), "output PCAP not created");
+
+    // Verify it's a valid PCAP (check magic number)
+    let data = std::fs::read(&out_path).unwrap();
+    assert!(data.len() >= 24, "output PCAP too small");
+    assert_eq!(&data[0..4], &[0xd4, 0xc3, 0xb2, 0xa1], "bad PCAP magic");
+}
+
+#[test]
+fn pcap_filter_output_drop() {
+    let tmp = tempfile::tempdir().unwrap();
+    let pcap_path = tmp.path().join("input.pcap");
+    let pass_path = tmp.path().join("passed.pcap");
+    let drop_path = tmp.path().join("dropped.pcap");
+
+    // Use enterprise example which has default:drop — some packets may not match
+    let gen = pacgate_bin()
+        .args(["pcap-gen", "rules/examples/enterprise.yaml",
+            "--count", "50", "--seed", "99", "--output", pcap_path.to_str().unwrap()])
+        .output().unwrap();
+    assert!(gen.status.success());
+
+    let filter = pacgate_bin()
+        .args(["pcap-filter", "rules/examples/enterprise.yaml",
+            "--input", pcap_path.to_str().unwrap(),
+            "--output", pass_path.to_str().unwrap(),
+            "--output-drop", drop_path.to_str().unwrap(),
+            "--json"])
+        .output().unwrap();
+    assert!(filter.status.success(), "pcap-filter failed: {}", String::from_utf8_lossy(&filter.stderr));
+
+    let json: serde_json::Value = serde_json::from_str(&String::from_utf8_lossy(&filter.stdout)).unwrap();
+    let passed = json["passed"].as_u64().unwrap();
+    let dropped = json["dropped"].as_u64().unwrap();
+    assert_eq!(passed + dropped, 50, "pass+drop should equal total");
+
+    assert!(pass_path.exists(), "pass PCAP not created");
+    assert!(drop_path.exists(), "drop PCAP not created");
+}
+
+#[test]
+fn pcap_filter_limit() {
+    let tmp = tempfile::tempdir().unwrap();
+    let pcap_path = tmp.path().join("test.pcap");
+
+    let gen = pacgate_bin()
+        .args(["pcap-gen", "rules/examples/rust_filter_demo.yaml",
+            "--count", "50", "--seed", "42", "--output", pcap_path.to_str().unwrap()])
+        .output().unwrap();
+    assert!(gen.status.success());
+
+    let filter = pacgate_bin()
+        .args(["pcap-filter", "rules/examples/rust_filter_demo.yaml",
+            "--input", pcap_path.to_str().unwrap(), "--json", "--limit", "10"])
+        .output().unwrap();
+    assert!(filter.status.success());
+
+    let json: serde_json::Value = serde_json::from_str(&String::from_utf8_lossy(&filter.stdout)).unwrap();
+    assert_eq!(json["total_packets"], 10, "limit should restrict to 10 packets");
+}
+
+#[test]
+fn pcap_filter_ipv6_rules() {
+    let tmp = tempfile::tempdir().unwrap();
+    let pcap_path = tmp.path().join("test.pcap");
+
+    let gen = pacgate_bin()
+        .args(["pcap-gen", "rules/examples/ipv6_firewall.yaml",
+            "--count", "20", "--seed", "77", "--output", pcap_path.to_str().unwrap()])
+        .output().unwrap();
+    assert!(gen.status.success());
+
+    let filter = pacgate_bin()
+        .args(["pcap-filter", "rules/examples/ipv6_firewall.yaml",
+            "--input", pcap_path.to_str().unwrap(), "--json"])
+        .output().unwrap();
+    assert!(filter.status.success(), "pcap-filter with ipv6 failed: {}", String::from_utf8_lossy(&filter.stderr));
+
+    let json: serde_json::Value = serde_json::from_str(&String::from_utf8_lossy(&filter.stdout)).unwrap();
+    assert_eq!(json["total_packets"], 20);
+}
+
+#[test]
+fn pcap_filter_stateful() {
+    let tmp = tempfile::tempdir().unwrap();
+    let pcap_path = tmp.path().join("test.pcap");
+
+    let gen = pacgate_bin()
+        .args(["pcap-gen", "rules/examples/conntrack_firewall.yaml",
+            "--count", "20", "--seed", "33", "--output", pcap_path.to_str().unwrap()])
+        .output().unwrap();
+    assert!(gen.status.success());
+
+    let filter = pacgate_bin()
+        .args(["pcap-filter", "rules/examples/conntrack_firewall.yaml",
+            "--input", pcap_path.to_str().unwrap(), "--json", "--stateful"])
+        .output().unwrap();
+    assert!(filter.status.success(), "stateful pcap-filter failed: {}", String::from_utf8_lossy(&filter.stderr));
+
+    let json: serde_json::Value = serde_json::from_str(&String::from_utf8_lossy(&filter.stdout)).unwrap();
+    assert_eq!(json["total_packets"], 20);
+}
+
+#[test]
+fn pcap_filter_missing_input() {
+    let filter = pacgate_bin()
+        .args(["pcap-filter", "rules/examples/rust_filter_demo.yaml",
+            "--input", "/tmp/nonexistent_pcap_file_xyz.pcap"])
+        .output().unwrap();
+    assert!(!filter.status.success(), "should fail with missing input");
+}

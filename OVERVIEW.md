@@ -193,6 +193,10 @@ UVM-inspired Python verification environment with:
 - `pacgate pcap-gen rules.yaml` — Generate synthetic PCAP traffic from rules
 - `pacgate pcap-gen rules.yaml --count 1000 --output traffic.pcap` — 1000 packets to file
 - `pacgate pcap-gen rules.yaml --seed 42 --json` — Deterministic generation with JSON summary
+- `pacgate pcap-filter rules.yaml --input capture.pcap` — Filter PCAP through rules, print per-rule stats
+- `pacgate pcap-filter rules.yaml --input capture.pcap --output filtered.pcap --json` — Write passing packets + JSON stats
+- `pacgate pcap-filter rules.yaml --input capture.pcap --output-drop dropped.pcap` — Write dropped packets
+- `pacgate pcap-filter rules.yaml --input capture.pcap --stateful --limit 1000` — Stateful filtering with packet limit
 - All commands except `init`, `graph`, `report` support `--json` for machine-readable output
 
 ## Examples

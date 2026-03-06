@@ -478,6 +478,7 @@ COMMANDS:
   report         Generate HTML coverage report
   pcap           Import PCAP capture for cocotb test stimulus
   pcap-analyze   Analyze PCAP traffic + auto-suggest rules
+  pcap-filter    Filter PCAP through rules (pass/drop split, per-rule stats)
   simulate       Software dry-run simulation (no hardware needed)
   synth          Generate Yosys/Vivado synthesis project files
   mutate         Mutation testing (41 strategies + kill-rate runner)

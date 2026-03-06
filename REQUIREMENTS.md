@@ -1854,3 +1854,23 @@
 - REQ-3518: JSON summary output (--target rust --json) with protocol detection [IMPLEMENTED]
 - REQ-3519: Priority-ordered first-match-wins decision logic [IMPLEMENTED]
 - REQ-3520: Frame parser mirrors RTL frame_parser.v logic (L2/L3/L4/tunnels) [IMPLEMENTED]
+
+## Phase 36 Requirements — PCAP Filter Subcommand [IMPLEMENTED]
+
+### PCAP Filter Core
+- REQ-3600: `pcap-filter` subcommand reads PCAP file, applies YAML rules, outputs statistics [IMPLEMENTED]
+- REQ-3601: Per-rule packet and byte count statistics [IMPLEMENTED]
+- REQ-3602: JSON statistics output (--json) with total_packets, passed, dropped, bytes, per_rule breakdown [IMPLEMENTED]
+- REQ-3603: Text-mode statistics output with sorted per-rule table [IMPLEMENTED]
+
+### PCAP Filter Output
+- REQ-3610: Write passing packets to output PCAP file (--output) [IMPLEMENTED]
+- REQ-3611: Write dropped packets to separate PCAP file (--output-drop) [IMPLEMENTED]
+- REQ-3612: Valid libpcap format output with correct magic number and Ethernet link type [IMPLEMENTED]
+
+### PCAP Filter Options
+- REQ-3620: Packet count limit (--limit N, 0 = all) [IMPLEMENTED]
+- REQ-3621: Stateful filtering mode (--stateful) enabling rate-limit and connection tracking [IMPLEMENTED]
+- REQ-3622: Reuse existing pcap.rs reader, simulator.rs evaluator, pcap_writer.rs writer [IMPLEMENTED]
+- REQ-3623: Convert ParsedPacket (pcap_analyze) to SimPacket with raw_bytes for byte_match [IMPLEMENTED]
+- REQ-3624: Graceful error on missing input PCAP file [IMPLEMENTED]

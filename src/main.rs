@@ -515,6 +515,35 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Filter PCAP traffic through a rule set
+    PcapFilter {
+        /// Path to the YAML rules file
+        rules: PathBuf,
+
+        /// Path to the input PCAP file
+        #[arg(short, long)]
+        input: PathBuf,
+
+        /// Output PCAP file for passing packets
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Output PCAP file for dropped packets
+        #[arg(long)]
+        output_drop: Option<PathBuf>,
+
+        /// Output JSON statistics
+        #[arg(long)]
+        json: bool,
+
+        /// Enable stateful filtering (rate-limit + connection tracking)
+        #[arg(long)]
+        stateful: bool,
+
+        /// Maximum packets to process (0 = all)
+        #[arg(long, default_value = "0")]
+        limit: usize,
+    },
     /// Export YAML rules as a P4_16 PSA program
     P4Export {
         /// Path to the YAML rules file
@@ -1951,9 +1980,124 @@ fn main() -> Result<()> {
                 println!("  Bytes written: {}", stats["bytes_written"]);
             }
         }
+        Commands::PcapFilter { rules, input, output, output_drop, json, stateful, limit } => {
+            let (config, _warnings) = loader::load_rules_with_warnings(&rules)?;
+            let packets = pcap::read_pcap(&input)?;
+            let process_count = if limit == 0 { packets.len() } else { limit.min(packets.len()) };
+
+            let mut rate_state = simulator::SimRateLimitState::new(&config);
+            let mut conntrack = simulator::SimConntrackTable::new(
+                config.pacgate.conntrack.as_ref().map_or(300, |c| c.timeout_cycles)
+            );
+
+            let mut pass_records = Vec::new();
+            let mut drop_records = Vec::new();
+            let mut per_rule: std::collections::HashMap<String, (u64, u64)> = std::collections::HashMap::new();
+            let mut bytes_passed: u64 = 0;
+            let mut bytes_dropped: u64 = 0;
+
+            for (seq, pkt) in packets[..process_count].iter().enumerate() {
+                let parsed = pcap_analyze::parse_packet(pkt);
+                let sim_pkt = pcap_filter_to_sim_packet(&parsed, &pkt.data);
+
+                let result = if stateful {
+                    simulator::simulate_stateful(&config, &sim_pkt, &mut rate_state, &mut conntrack, 0.001, seq as u64)
+                } else {
+                    simulator::simulate(&config, &sim_pkt)
+                };
+
+                let rule_key = result.rule_name.clone().unwrap_or_else(|| "default".to_string());
+                let entry = per_rule.entry(rule_key).or_insert((0, 0));
+                entry.0 += 1;
+                entry.1 += pkt.data.len() as u64;
+
+                let record = pcap_writer::SimPacketRecord {
+                    frame_data: pkt.data.clone(),
+                    rule_name: result.rule_name.clone(),
+                    action: match result.action { model::Action::Pass => "pass".to_string(), model::Action::Drop => "drop".to_string() },
+                    seq: seq as u32,
+                };
+
+                match result.action {
+                    model::Action::Pass => { bytes_passed += pkt.data.len() as u64; pass_records.push(record); }
+                    model::Action::Drop => { bytes_dropped += pkt.data.len() as u64; drop_records.push(record); }
+                }
+            }
+
+            if let Some(ref out) = output {
+                let parent = out.parent().unwrap_or(Path::new("."));
+                std::fs::create_dir_all(parent)?;
+                pcap_writer::write_pcap(out, &pass_records)?;
+            }
+            if let Some(ref out) = output_drop {
+                let parent = out.parent().unwrap_or(Path::new("."));
+                std::fs::create_dir_all(parent)?;
+                pcap_writer::write_pcap(out, &drop_records)?;
+            }
+
+            if json {
+                let mut rule_stats = serde_json::Map::new();
+                for (name, (pkts, bytes)) in &per_rule {
+                    rule_stats.insert(name.clone(), serde_json::json!({
+                        "packets": pkts,
+                        "bytes": bytes,
+                    }));
+                }
+                let summary = serde_json::json!({
+                    "total_packets": process_count,
+                    "passed": pass_records.len(),
+                    "dropped": drop_records.len(),
+                    "bytes_passed": bytes_passed,
+                    "bytes_dropped": bytes_dropped,
+                    "per_rule": rule_stats,
+                });
+                println!("{}", serde_json::to_string_pretty(&summary)?);
+            } else {
+                println!("Filtered {} packets through {}", process_count, rules.display());
+                println!("  Passed:  {} ({} bytes)", pass_records.len(), bytes_passed);
+                println!("  Dropped: {} ({} bytes)", drop_records.len(), bytes_dropped);
+                if let Some(ref out) = output {
+                    println!("  Output:  {}", out.display());
+                }
+                if let Some(ref out) = output_drop {
+                    println!("  Dropped: {}", out.display());
+                }
+                println!("\nPer-rule statistics:");
+                let mut sorted_rules: Vec<_> = per_rule.iter().collect();
+                sorted_rules.sort_by(|a, b| b.1.0.cmp(&a.1.0));
+                for (name, (pkts, bytes)) in sorted_rules {
+                    println!("  {:<30} {:>6} pkts  {:>10} bytes", name, pkts, bytes);
+                }
+            }
+        }
     }
 
     Ok(())
+}
+
+/// Convert a parsed PCAP packet into a SimPacket for the simulator
+fn pcap_filter_to_sim_packet(parsed: &pcap_analyze::ParsedPacket, raw: &[u8]) -> simulator::SimPacket {
+    let fmt_mac = |m: &[u8; 6]| -> String {
+        format!("{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+            m[0], m[1], m[2], m[3], m[4], m[5])
+    };
+    simulator::SimPacket {
+        ethertype: Some(parsed.ethertype),
+        dst_mac: Some(fmt_mac(&parsed.dst_mac)),
+        src_mac: Some(fmt_mac(&parsed.src_mac)),
+        vlan_id: parsed.vlan_id,
+        src_ip: parsed.src_ip.map(|ip| ip.to_string()),
+        dst_ip: parsed.dst_ip.map(|ip| ip.to_string()),
+        src_ipv6: parsed.src_ipv6.map(|ip| ip.to_string()),
+        dst_ipv6: parsed.dst_ipv6.map(|ip| ip.to_string()),
+        ip_protocol: parsed.ip_protocol,
+        src_port: parsed.src_port,
+        dst_port: parsed.dst_port,
+        vxlan_vni: parsed.vxlan_vni,
+        frame_len: Some(parsed.frame_len as u16),
+        raw_bytes: Some(raw.to_vec()),
+        ..Default::default()
+    }
 }
 
 fn generate_rule_documentation(

@@ -3111,3 +3111,50 @@ Implement `--target rust` backend that generates a standalone Rust packet filter
 ### Git Operations
 - `git add -A && git commit -m "Phase 35: Rust Code Generation Backend (--target rust)"`
 - `git push origin main`
+
+---
+
+## Session 36 — 2026-03-06: Documentation Audit + Phase 36 (pcap-filter)
+
+### Prompt
+"make sure all our documentation reflects our abilities with software only and any new use cases, then Implement Phase 36"
+
+### Documentation Audit — Software-Only Messaging Fix
+1. **README.md**: Title updated from "FPGA Packet Switch Verification Gateway" to "Packet Filter Compiler & Verification Gateway"; tagline now mentions hardware/software; "One Spec, Five Outputs" diagram (added Rust + P4); added Software Filter quick start; updated Quality metrics (1162 tests); expanded CLI reference (--target rust, --ptp, --rss, --int, --width); added 12 missing examples to table; updated project structure (41 subcommands, 53 examples)
+2. **OVERVIEW.md**: Title updated to "Layer 2/3/4 Packet Filter Compiler"; vision rewritten to include software-only deployments
+3. **WHY_PACGATE.md**: Removed "No P4 interop" limitation (done since Phase 31); added "Do I need an FPGA?" FAQ section; added software-only users to "Who is this for?"; updated all counts (1154 tests, 57 lint, 41 mutation, 53 examples, 41 CLI)
+4. **WORKSHOPS.md**: Added Workshop 11 (Software Packet Filter, no FPGA required)
+5. **USERS_GUIDE.md**: Updated subtitle to include software targets
+6. **COMPARISON.md**: Updated subtitle and counts
+7. **CLAUDE.md**: Updated title line
+8. **docs/README.md**: Updated workshop count
+
+### Phase 36: PCAP Filter Subcommand
+
+#### Actions Taken
+1. Added `PcapFilter` variant to CLI enum in `src/main.rs` with flags: `--input`, `--output`, `--output-drop`, `--json`, `--stateful`, `--limit`
+2. Added handler in `src/main.rs` that:
+   - Reads PCAP via `pcap::read_pcap()`
+   - Converts each packet via `pcap_analyze::parse_packet()` + `pcap_filter_to_sim_packet()`
+   - Evaluates via `simulator::simulate()` (or `simulate_stateful()`)
+   - Tracks per-rule packet/byte counts
+   - Writes pass PCAP and/or drop PCAP via `pcap_writer::write_pcap()`
+   - Outputs text or JSON statistics
+3. Added `pcap_filter_to_sim_packet()` helper function converting `ParsedPacket` → `SimPacket` with raw_bytes for byte_match support
+4. Added 8 integration tests: pcap_filter_basic, pcap_filter_json, pcap_filter_output_pcap, pcap_filter_output_drop, pcap_filter_limit, pcap_filter_ipv6_rules, pcap_filter_stateful, pcap_filter_missing_input
+
+#### Key Design Decisions
+- Pure CLI handler in main.rs, no new module — reuses existing pcap.rs, simulator.rs, pcap_analyze.rs, pcap_writer.rs
+- Conversion from ParsedPacket (from pcap_analyze) to SimPacket includes raw_bytes for byte_match
+- Stateful mode uses existing SimRateLimitState + SimConntrackTable with 1ms inter-packet time
+- Text output includes sorted per-rule statistics table
+- JSON output includes total_packets, passed, dropped, bytes_passed, bytes_dropped, per_rule breakdown
+
+#### Test Results
+- 726 unit + 436 integration = 1162 Rust tests, all passing
+- 90 Python scoreboard tests
+
+### Git Operations
+- `git commit -m "Update documentation to reflect software-only capabilities"`
+- `git commit -m "Phase 36: PCAP Filter subcommand (pcap-filter)"`
+- `git push origin main`

@@ -29,6 +29,7 @@
 - **RSS (Receive Side Scaling)**: `rss_queue` per-rule queue override (0-15), `--rss`/`--rss-queues N` CLI flags, Toeplitz hash engine (Microsoft RSS compatible), 128-entry indirection table with AXI-Lite CSR, hash-based multi-queue dispatch for multi-core packet processing
 - **INT (In-band Network Telemetry)**: per-rule `int_insert` field, `--int`/`--int-switch-id N` CLI flags, sideband metadata output (switch_id, ingress/egress timestamps, hop_latency, queue_id, rule_idx), int_metadata.v RTL module, int_lut.v.tera template for INT enable lookup
 - **Synthetic traffic generation**: `pcap-gen` subcommand generates protocol-aware PCAP files from YAML rules with `--count`/`--seed`/`--json`/`--output` flags
+- **PCAP filtering**: `pcap-filter` subcommand reads PCAP → applies rules → writes filtered PCAP + per-rule statistics; `--json`/`--output`/`--output-drop`/`--stateful`/`--limit` flags
 - **Frame length matching**: frame_len_min/frame_len_max (simulation-only, no RTL) for size-based filtering
 - **L4 port rewrite**: set_src_port, set_dst_port with RFC 1624 incremental L4 checksum update (TCP/UDP, UDP cksum=0 preserved)
 - **Byte-offset matching**: raw byte inspection at any packet offset with value/mask (`byte_match`)
@@ -95,7 +96,7 @@
 - Coverage-directed test generation (verification/coverage_driven.py)
 - Enhanced overlap detection with CIDR containment and port range analysis
 - 53 real-world YAML examples + 2 P4 + 2 Wireshark + 2 iptables examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite, OpenNIC, Corundum, TCP flags/ICMP, ARP security, ICMPv6 firewall, QinQ provider, fragment security, port rewrite, GRE tunnel, conntrack firewall, mirror/redirect, flow counters, OAM monitoring, NSH/SFC, Geneve datacenter, TTL security, IPv6 routing, QoS rewrite, wide AXI firewall, P4 export demo, pipeline classify, PTP boundary clock, PTP 5G fronthaul, RSS datacenter, RSS NIC offload, INT datacenter, pcap-gen demo, optimize demo, Rust filter demo)
-- 726 Rust unit tests + 428 integration tests = 1154 total, 90 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
+- 726 Rust unit tests + 436 integration tests = 1162 total, 90 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
 
 ## Architecture
 ```
@@ -260,6 +261,12 @@ pacgate diff old.yaml new.yaml --html report.html  # Generate HTML diff visualiz
 pacgate pcap-gen rules.yaml                        # Generate synthetic PCAP from rules (stdout)
 pacgate pcap-gen rules.yaml --count 1000 --output traffic.pcap  # 1000 packets to file
 pacgate pcap-gen rules.yaml --seed 42 --json       # Deterministic generation with JSON summary
+pacgate pcap-filter rules.yaml --input capture.pcap                # Filter PCAP, print stats
+pacgate pcap-filter rules.yaml --input capture.pcap --output filtered.pcap  # Write passing packets
+pacgate pcap-filter rules.yaml --input capture.pcap --output-drop dropped.pcap  # Write dropped packets
+pacgate pcap-filter rules.yaml --input capture.pcap --json         # JSON statistics
+pacgate pcap-filter rules.yaml --input capture.pcap --stateful     # Stateful filtering (rate-limit + conntrack)
+pacgate pcap-filter rules.yaml --input capture.pcap --limit 1000   # Process first N packets
 pacgate scenario validate *.json       # Validate scenario JSON files
 pacgate scenario validate --json *.json # JSON validation output
 pacgate scenario import --in-dir scenarios/ --store store.json  # Import scenarios to store
@@ -297,7 +304,7 @@ pytest verification/test_scoreboard.py # 67 Python scoreboard unit tests
 - `src/optimize.rs` — Rule set optimizer: 5 passes (dead rule removal, duplicate merging, port consolidation, CIDR consolidation, priority renumber) (~500 LOC)
 - `src/rust_gen.rs` — Rust code generation backend: protocol detection, compiled rule matchers, condition builder for 55+ fields, CIDR/MAC/IPv6 constant generation (~400 LOC)
 - `src/pcap_gen.rs` — Synthetic PCAP traffic generator with protocol-aware packet construction (~720 LOC)
-- `src/main.rs` — clap CLI (40 subcommands)
+- `src/main.rs` — clap CLI (42 subcommands)
 - `rtl/frame_parser.v` — Hand-written Ethernet/IPv4/IPv6/TCP/UDP/VXLAN/GTP-U/MPLS/IGMP/MLD/ICMP/ICMPv6/ARP/QinQ/OAM/NSH/Geneve/PTP parser FSM (23 states) with TCP flags + IPv6 TC + hop_limit + flow_label + fragmentation + L4 port offset + OAM/CFM + NSH/SFC + Geneve VNI + ip_ttl + PTP messageType/domain/version extraction
 - `rtl/ptp_clock.v` — Free-running 64-bit PTP hardware clock with SOF/EOF timestamp latching (optional, `--ptp` flag)
 - `rtl/rule_counters.v` — Per-rule 64-bit packet/byte counters
@@ -475,6 +482,18 @@ pytest verification/test_scoreboard.py # 67 Python scoreboard unit tests
   - **34.1 Core+CLI+Tests**: `optimize` subcommand with 5 optimization passes: OPT001 dead rule removal (shadow-based), OPT002 duplicate merging (structural equality), OPT003 adjacent port consolidation (Exact+Range merging), OPT004 adjacent CIDR consolidation (prefix-pair merging), OPT005 priority renumbering (uniform 100-spacing); pipeline-aware (per-stage); stateful rules preserved; `--json`/`-o`/`--apply` flags
   - **34.2 Examples+Docs**: optimize_demo.yaml (exercises all 5 OPT passes), documentation updates
   - src/optimize.rs (~500 LOC), 40 CLI subcommands, 709 unit + 418 integration = 1127 Rust tests + 90 Python tests
+- **Phase 35**: Complete — Rust Code Generation Backend (`--target rust`):
+  - **35.1 Core Generator+CLI**: `src/rust_gen.rs` (~500 LOC) — Tera-based Rust code generation with protocol detection, 55+ field condition builders, CIDR/MAC/IPv6 constant precomputation
+  - **35.2 Templates**: `templates/rust_filter.rs.tera` (~730 LOC) — single-file generated Rust binary with conditional protocol sections, PCAP I/O, per-rule statistics, AF_XDP skeleton; `templates/rust_cargo.toml.tera`
+  - **35.3 Integration+Example**: 10 integration tests (basic, JSON, compile, reject flags, pipeline, pcap-filter end-to-end), `rust_filter_demo.yaml` example
+  - 41 CLI subcommands, 726 unit + 428 integration = 1154 Rust tests + 90 Python tests
+- **Phase 36**: Complete — PCAP Filter subcommand:
+  - `pcap-filter` subcommand: reads PCAP → applies YAML rules via simulator → writes filtered PCAP + per-rule statistics
+  - Flags: `--output` (pass PCAP), `--output-drop` (drop PCAP), `--json`, `--stateful`, `--limit`
+  - Reuses pcap.rs reader, pcap_writer.rs writer, simulator.rs evaluate, pcap_analyze.rs parse_packet
+  - `pcap_filter_to_sim_packet()` conversion helper (ParsedPacket → SimPacket)
+  - 8 integration tests (basic, JSON, output, output-drop, limit, ipv6, stateful, missing-input)
+  - 42 CLI subcommands, 726 unit + 436 integration = 1162 Rust tests + 90 Python tests
 - **Phase 35**: Complete — Rust Code Generation Backend (`--target rust`):
   - **35.1 Core Generator+CLI**: `src/rust_gen.rs` (~400 LOC) — protocol detection, compiled rule matchers with 55+ field conditions, CIDR/IPv6/MAC constant generation, pipeline support; `--target rust` CLI intercept with incompatible flag rejection (--axi/--conntrack/--dynamic/--rate-limit/--ports/--ptp/--rss/--int/--counters)
   - **35.2 Tera Templates**: `rust_cargo.toml.tera` (Cargo.toml with optional `afxdp` feature), `rust_filter.rs.tera` (~700 LOC) — single-file generated binary with ParsedPacket struct, frame parser (L2/QinQ/VLAN/IPv4/IPv6/TCP/UDP/ICMP/ICMPv6/ARP/MPLS/GRE/OAM/NSH/PTP/VXLAN/GTP-U/Geneve), compiled rule matchers, priority-ordered decision logic, PCAP reader/writer, per-rule statistics (text+JSON), stdin/stdout pipe mode, AF_XDP skeleton (behind `afxdp` Cargo feature)

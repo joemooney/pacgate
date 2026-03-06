@@ -14,7 +14,7 @@
 | Mutation types | 41 |
 | YAML examples | 53 (+2 P4, +2 Wireshark, +2 iptables) |
 | Tera templates | 44 |
-| Rust tests | 1154 |
+| Rust tests | 1162 |
 | Python tests | 90 |
 | Data path widths | 5 (8/64/128/256/512 bit) |
 | FPGA families | Artix-7, Virtex-7, UltraScale+, Alveo |
