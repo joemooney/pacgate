@@ -26,6 +26,11 @@
   <a href="docs/COMPARISON.md">Comparison</a>
 </p>
 
+## Family Reference
+
+For the full cross-product map (PacGate, PaciNet, PaciLab, PaciLearn, PaciView, PacMate), see:
+[`PACINET_FAMILY.md`](../pacinet/PACINET_FAMILY.md)
+
 ---
 
 <p align="center">
