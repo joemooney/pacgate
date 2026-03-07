@@ -3233,3 +3233,61 @@ Implement `--target rust` backend that generates a standalone Rust packet filter
 ### Git Operations
 - `git commit -m "Phase 38: Native Wide Parser (--width >= 512)"`
 - `git push origin main`
+
+---
+
+## Session 39 — 2026-03-06: Phase 39 (tcpdump/BPF Filter Import)
+
+### Prompt
+"Implement tcpdump/BPF filter import — parsing tcpdump/pcap-filter expressions into YAML rules. Fifth import format completing the quint input format (YAML + P4 + Wireshark + iptables + tcpdump)."
+
+### Phase 39: tcpdump/BPF Filter Import
+
+#### Actions Taken
+1. Created `src/tcpdump_import.rs` (~700 LOC core + ~350 LOC tests):
+   - **Tokenizer**: Handles BPF keywords (host, net, port, portrange, src, dst, tcp, udp, icmp, arp, ip, ip6, vlan, mpls, proto, ether, flags, type, greater, less, not, and, or), MAC addresses, IPv4/IPv6 addresses, CIDR notation, numeric/hex literals, parentheses
+   - **Parser**: Recursive descent with implicit AND between adjacent primitives, explicit `and`/`or`/`not` operators, parenthesized grouping
+   - **BPF AST**: Primitive (with qualifier, kind, value), And, Or, Not node types
+   - **RuleBuilder**: Converts AST to PacGate StatelessRule list with bidirectional expansion for host/net/port, protocol inference (tcp→ip_protocol=6, arp→ethertype=0x0806, etc.)
+   - **Named constants**: ~20 port names (http, https, ssh, dns, smtp, etc.), TCP flag names (syn, ack, fin, rst, psh, urg, ece, cwr), ICMP type names (echo-reply, echo-request, unreachable, redirect, etc.), protocol numbers (tcp=6, udp=17, icmp=1, etc.)
+   - 55 unit tests (tokenizer, parser, primitives, boolean logic, named constants, full import)
+
+2. Added `tcpdump-import` CLI subcommand to `src/main.rs` (43rd subcommand):
+   - `--filter` for inline BPF expression, `--filter-file` for file input
+   - `--json`, `--default-action` (pass/drop), `--name` prefix, `-o` output
+   - Reuses `p4_import::config_to_yaml()` for YAML serialization
+   - Follows wireshark-import handler pattern
+
+3. Added 12 integration tests to `tests/integration_test.rs`:
+   - tcpdump_import_host, tcpdump_import_tcp_port, tcpdump_import_and
+   - tcpdump_import_or, tcpdump_import_not, tcpdump_import_tcp_flags
+   - tcpdump_import_json, tcpdump_import_stdout, tcpdump_import_filter_file
+   - tcpdump_import_validates, tcpdump_import_vlan, tcpdump_import_portrange
+
+4. Created example BPF filter files:
+   - `rules/examples/tcpdump/web_filter.bpf` — `tcp port 80 or tcp port 443`
+   - `rules/examples/tcpdump/security_filter.bpf` — `src net 10.0.0.0/8 and dst port 22`
+
+5. Documentation updates (CLAUDE.md, OVERVIEW.md, REQUIREMENTS.md, PROMPT_HISTORY.md)
+
+#### Key Design Decisions
+- BPF syntax uses implicit AND between adjacent primitives (no explicit operator needed), unlike Wireshark which uses `&&`
+- Bidirectional expansion: `host 10.0.0.1` generates OR of `src_ip` and `dst_ip` rules (same pattern as Wireshark import)
+- Named constant resolution handles well-known port names, TCP flag names, ICMP type names, and protocol numbers
+- Follows established import module pattern (tokenizer → parser → AST → rule builder → YAML output)
+- Pure software feature — no RTL, parser states, lint rules, mutations, or template changes
+
+#### Test Results
+- 811 unit + 463 integration = 1274 Rust tests, all passing
+- 90 Python scoreboard tests
+
+### New Artifacts
+- 1 new source file: src/tcpdump_import.rs (~700 LOC core + ~350 LOC tests)
+- 1 new CLI subcommand: tcpdump-import (43 total)
+- 2 BPF example files: rules/examples/tcpdump/web_filter.bpf, security_filter.bpf
+- 0 new parser states (23 total — pure software feature)
+- 0 new lint rules (58 total)
+- 0 new mutation types (41 total)
+
+### Git Operations
+- Committed and pushed Phase 39 implementation

@@ -8644,3 +8644,164 @@ fn compile_wide_parser_1024() {
     let wide_parser = std::fs::read_to_string(tmp.path().join("rtl/frame_parser_wide.v")).unwrap();
     assert!(wide_parser.contains("1024"), "Should reference 1024-bit data width");
 }
+
+// ============================================================
+// tcpdump-import integration tests (Phase 39)
+// ============================================================
+
+#[test]
+fn tcpdump_import_simple_host() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml_out = tmp.path().join("host.yaml");
+    let output = pacgate_bin()
+        .args(["tcpdump-import", "--filter", "host 10.0.0.1", "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "tcpdump-import failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Imported 2 rules")); // bidirectional
+    assert!(yaml_out.exists());
+}
+
+#[test]
+fn tcpdump_import_tcp_port() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml_out = tmp.path().join("tcp_port.yaml");
+    let output = pacgate_bin()
+        .args(["tcpdump-import", "--filter", "tcp port 80", "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "tcpdump-import failed: {}", String::from_utf8_lossy(&output.stderr));
+    let yaml_content = std::fs::read_to_string(&yaml_out).unwrap();
+    assert!(yaml_content.contains("ip_protocol: 6"));
+}
+
+#[test]
+fn tcpdump_import_and() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml_out = tmp.path().join("and.yaml");
+    let output = pacgate_bin()
+        .args(["tcpdump-import", "--filter", "src host 10.0.0.1 and dst port 80", "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "tcpdump-import failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Imported 1 rules"));
+}
+
+#[test]
+fn tcpdump_import_or() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml_out = tmp.path().join("or.yaml");
+    let output = pacgate_bin()
+        .args(["tcpdump-import", "--filter", "port 80 or port 443", "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "tcpdump-import failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Imported 4 rules")); // 2 bidi each
+}
+
+#[test]
+fn tcpdump_import_not() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml_out = tmp.path().join("not.yaml");
+    let output = pacgate_bin()
+        .args(["tcpdump-import", "--filter", "not arp", "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "tcpdump-import failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(yaml_out.exists());
+}
+
+#[test]
+fn tcpdump_import_tcp_flags() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml_out = tmp.path().join("flags.yaml");
+    let output = pacgate_bin()
+        .args(["tcpdump-import", "--filter", "tcp[13] & 0x02 != 0", "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "tcpdump-import failed: {}", String::from_utf8_lossy(&output.stderr));
+    let yaml_content = std::fs::read_to_string(&yaml_out).unwrap();
+    assert!(yaml_content.contains("tcp_flags"));
+}
+
+#[test]
+fn tcpdump_import_json() {
+    let output = pacgate_bin()
+        .args(["tcpdump-import", "--filter", "tcp port 80", "--json"])
+        .output().unwrap();
+    assert!(output.status.success(), "tcpdump-import --json failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["status"], "ok");
+    assert!(json["rule_count"].as_u64().unwrap() >= 1);
+}
+
+#[test]
+fn tcpdump_import_stdout() {
+    let output = pacgate_bin()
+        .args(["tcpdump-import", "--filter", "dst port 80"])
+        .output().unwrap();
+    assert!(output.status.success(), "tcpdump-import stdout failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("dst_port"));
+    assert!(stdout.contains("pass"));
+}
+
+#[test]
+fn tcpdump_import_filter_file() {
+    let tmp = tempfile::tempdir().unwrap();
+    let filter_file = tmp.path().join("filter.bpf");
+    std::fs::write(&filter_file, "tcp port 80 or tcp port 443").unwrap();
+    let yaml_out = tmp.path().join("from_file.yaml");
+    let output = pacgate_bin()
+        .args(["tcpdump-import", "--filter-file", filter_file.to_str().unwrap(), "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "tcpdump-import --filter-file failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Imported"));
+}
+
+#[test]
+fn tcpdump_import_validates() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml_out = tmp.path().join("validated.yaml");
+    // Import
+    let output = pacgate_bin()
+        .args(["tcpdump-import", "--filter", "src host 10.0.0.1 and dst port 443", "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "tcpdump-import failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // Validate
+    let output = pacgate_bin()
+        .args(["validate", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "validate failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // Lint
+    let output = pacgate_bin()
+        .args(["lint", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "lint failed: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn tcpdump_import_vlan() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml_out = tmp.path().join("vlan.yaml");
+    let output = pacgate_bin()
+        .args(["tcpdump-import", "--filter", "vlan 100", "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "tcpdump-import vlan failed: {}", String::from_utf8_lossy(&output.stderr));
+    let yaml_content = std::fs::read_to_string(&yaml_out).unwrap();
+    assert!(yaml_content.contains("vlan_id: 100"));
+}
+
+#[test]
+fn tcpdump_import_portrange() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml_out = tmp.path().join("portrange.yaml");
+    let output = pacgate_bin()
+        .args(["tcpdump-import", "--filter", "tcp dst portrange 1024-65535", "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "tcpdump-import portrange failed: {}", String::from_utf8_lossy(&output.stderr));
+    let yaml_content = std::fs::read_to_string(&yaml_out).unwrap();
+    assert!(yaml_content.contains("1024"));
+    assert!(yaml_content.contains("65535"));
+}

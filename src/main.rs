@@ -23,6 +23,7 @@ mod wireshark_import;
 mod iptables_import;
 mod optimize;
 mod rust_gen;
+mod tcpdump_import;
 
 use std::path::{Path, PathBuf};
 use clap::{CommandFactory, Parser, Subcommand};
@@ -619,6 +620,32 @@ enum Commands {
 
         /// Name prefix for generated rules
         #[arg(long, default_value = "iptables")]
+        name: String,
+    },
+    /// Import a tcpdump/BPF filter expression into PacGate YAML rules
+    TcpdumpImport {
+        /// Inline BPF filter expression (e.g., "tcp port 80 and host 10.0.0.1")
+        #[arg(long)]
+        filter: Option<String>,
+
+        /// Path to a file containing a BPF filter expression
+        #[arg(long)]
+        filter_file: Option<PathBuf>,
+
+        /// Output YAML file (stdout if omitted)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Output JSON summary instead of YAML
+        #[arg(long)]
+        json: bool,
+
+        /// Default action for unmatched packets (pass or drop)
+        #[arg(long, default_value = "drop")]
+        default_action: String,
+
+        /// Name prefix for generated rules
+        #[arg(long, default_value = "bpf_filter")]
         name: String,
     },
     /// Optimize rule set: dead rule removal, deduplication, port/CIDR consolidation, priority renumbering
@@ -1928,6 +1955,32 @@ fn main() -> Result<()> {
                     std::fs::write(out_path, &yaml)
                         .with_context(|| format!("Failed to write YAML: {}", out_path.display()))?;
                     println!("Imported {} rules from iptables → {}", config.pacgate.rules.len(), out_path.display());
+                } else {
+                    print!("{}", yaml);
+                }
+            }
+        }
+        Commands::TcpdumpImport { filter, filter_file, output, json, default_action, name } => {
+            let filter_text = match (filter, filter_file) {
+                (Some(f), _) => f,
+                (_, Some(path)) => std::fs::read_to_string(&path)
+                    .with_context(|| format!("Failed to read filter file: {}", path.display()))?,
+                (None, None) => anyhow::bail!("Either --filter or --filter-file is required"),
+            };
+
+            if json {
+                let summary = tcpdump_import::import_tcpdump_summary(&filter_text, &default_action, &name);
+                println!("{}", serde_json::to_string_pretty(&summary)?);
+            } else {
+                let (config, warnings) = tcpdump_import::import_tcpdump_filter(&filter_text, &default_action, &name)?;
+                for w in &warnings {
+                    eprintln!("Warning: {}", w);
+                }
+                let yaml = p4_import::config_to_yaml(&config)?;
+                if let Some(ref out_path) = output {
+                    std::fs::write(out_path, &yaml)
+                        .with_context(|| format!("Failed to write YAML: {}", out_path.display()))?;
+                    println!("Imported {} rules from tcpdump filter → {}", config.pacgate.rules.len(), out_path.display());
                 } else {
                     print!("{}", yaml);
                 }

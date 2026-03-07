@@ -1,0 +1,1 @@
+(tcp and port 22) or (tcp and port 443) or (icmp and icmp[icmptype] == icmp-echo) or arp

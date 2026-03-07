@@ -1919,3 +1919,59 @@
 
 ### Example
 - REQ-3809: wide_parser_demo.yaml example with IPv4/IPv6/ARP rules
+
+## Phase 39 Requirements — tcpdump/BPF Filter Import
+
+### Core Parser
+- REQ-3900: Tokenizer for BPF/pcap-filter expression syntax (host, net, port, portrange, ether, proto, vlan, mpls, greater, less, tcp flags, icmp type, icmpv6 type) [IMPLEMENTED]
+- REQ-3901: Recursive descent parser with implicit AND between adjacent primitives [IMPLEMENTED]
+- REQ-3902: BPF expression AST with And/Or/Not/Primitive node types [IMPLEMENTED]
+- REQ-3903: Support bidirectional expansion for host/net/port primitives (src or dst) [IMPLEMENTED]
+- REQ-3904: Support directional qualifiers (src, dst, src or dst, src and dst) [IMPLEMENTED]
+
+### Named Constants
+- REQ-3905: Named port resolution (~20 common service names: http, https, ssh, dns, smtp, etc.) [IMPLEMENTED]
+- REQ-3906: TCP flag name resolution (fin, syn, rst, psh, ack, urg, ece, cwr) [IMPLEMENTED]
+- REQ-3907: ICMP type name resolution (echo-reply, echo-request, unreachable, redirect, etc.) [IMPLEMENTED]
+- REQ-3908: Protocol number resolution (tcp, udp, icmp, igmp, gre, etc.) [IMPLEMENTED]
+
+### Rule Generation
+- REQ-3909: Convert BPF AST to PacGate StatelessRule list with correct match criteria [IMPLEMENTED]
+- REQ-3910: AND expressions merge into single rule with combined criteria [IMPLEMENTED]
+- REQ-3911: OR expressions split into separate rules [IMPLEMENTED]
+- REQ-3912: NOT expressions invert rule action [IMPLEMENTED]
+- REQ-3913: Bidirectional port/host primitives expand to OR of src+dst rules [IMPLEMENTED]
+
+### BPF Primitives
+- REQ-3914: `host <ip>` — match on src_ip or dst_ip [IMPLEMENTED]
+- REQ-3915: `net <cidr>` — match on src_ip or dst_ip with CIDR prefix [IMPLEMENTED]
+- REQ-3916: `port <n>` — match on src_port or dst_port [IMPLEMENTED]
+- REQ-3917: `portrange <lo>-<hi>` — match on port range [IMPLEMENTED]
+- REQ-3918: `ether host <mac>` — match on src_mac or dst_mac [IMPLEMENTED]
+- REQ-3919: `proto <n>` — match on ip_protocol [IMPLEMENTED]
+- REQ-3920: `vlan <id>` — match on vlan_id [IMPLEMENTED]
+- REQ-3921: `mpls <label>` — match on mpls_label [IMPLEMENTED]
+- REQ-3922: `tcp flags <mask>` — match on tcp_flags with mask [IMPLEMENTED]
+- REQ-3923: `icmp type <n>` — match on icmp_type [IMPLEMENTED]
+- REQ-3924: `icmpv6 type <n>` — match on icmpv6_type [IMPLEMENTED]
+- REQ-3925: `greater <len>` — match on frame_len_min [IMPLEMENTED]
+- REQ-3926: `less <len>` — match on frame_len_max [IMPLEMENTED]
+- REQ-3927: Protocol shorthand: bare `tcp`/`udp`/`icmp`/`arp`/`ip`/`ip6`/`vlan`/`mpls` sets ethertype/protocol [IMPLEMENTED]
+
+### CLI Integration
+- REQ-3928: `tcpdump-import` subcommand (43rd CLI command) [IMPLEMENTED]
+- REQ-3929: `--filter` flag for inline BPF expression string [IMPLEMENTED]
+- REQ-3930: `--filter-file` flag for BPF expression file input [IMPLEMENTED]
+- REQ-3931: `-o` flag for YAML output file [IMPLEMENTED]
+- REQ-3932: `--json` flag for JSON import summary [IMPLEMENTED]
+- REQ-3933: `--default-action` flag (pass/drop) [IMPLEMENTED]
+- REQ-3934: `--name` flag for rule name prefix [IMPLEMENTED]
+
+### Examples
+- REQ-3935: BPF example file: rules/examples/tcpdump/web_filter.bpf [IMPLEMENTED]
+- REQ-3936: BPF example file: rules/examples/tcpdump/security_filter.bpf [IMPLEMENTED]
+
+### Testing
+- REQ-3937: 55 unit tests in tcpdump_import.rs (tokenizer, parser, field mapping, full import) [IMPLEMENTED]
+- REQ-3938: 12 integration tests (host, tcp-port, and, or, not, tcp-flags, json, stdout, filter-file, validates, vlan, portrange) [IMPLEMENTED]
+- REQ-3939: 811 unit + 463 integration = 1274 Rust tests total [IMPLEMENTED]

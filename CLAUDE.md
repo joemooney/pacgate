@@ -46,7 +46,8 @@
 - **P4 export**: `p4-export` subcommand generates P4_16 PSA program from YAML rules, targeting P4-programmable ASICs/SmartNICs
 - **P4 import**: `p4-import` subcommand parses P4_16 PSA programs into YAML rules, completing the bidirectional P4↔YAML bridge with rewrite action mapping, extern detection, and round-trip validation
 - **Wireshark display filter import**: `wireshark-import` subcommand converts Wireshark display filter syntax (`tcp.port == 80 && ip.src == 10.0.0.0/8`) into YAML rules with ~45 field mappings, protocol inference, bidirectional port expansion, and TCP flag accumulation
-- **iptables-save import**: `iptables-import` subcommand converts Linux `iptables-save` output into YAML rules with protocol/port/CIDR/TCP-flags/ICMP/conntrack-state/MAC/multiport mapping, DNAT/SNAT rewrite extraction, chain selection — quad input format (YAML + P4 + Wireshark + iptables)
+- **iptables-save import**: `iptables-import` subcommand converts Linux `iptables-save` output into YAML rules with protocol/port/CIDR/TCP-flags/ICMP/conntrack-state/MAC/multiport mapping, DNAT/SNAT rewrite extraction, chain selection
+- **tcpdump/BPF filter import**: `tcpdump-import` subcommand converts tcpdump/pcap-filter expressions into YAML rules with host/net/port/portrange/ether/proto/vlan/mpls/tcp-flags/icmp-type support, implicit AND, bidirectional expansion, named constants — quint input format (YAML + P4 + Wireshark + iptables + tcpdump)
 - **Rule set optimizer**: `optimize` subcommand performs 5 semantics-preserving passes: dead rule removal (OPT001), duplicate merging (OPT002), adjacent port consolidation (OPT003), adjacent CIDR consolidation (OPT004), priority renumbering (OPT005) — with `--json`/`-o`/`--apply` flags
 - **Rust code generation backend**: `--target rust` generates a standalone Rust packet filter binary with compiled match rules, PCAP I/O, per-rule statistics, stdin/stdout pipe mode, and optional AF_XDP live capture (`afxdp` Cargo feature); protocol-conditional code generation (~300-900 LOC output)
 - **Multi-table pipeline**: optional `tables:` YAML key for sequential match-action stages with AND decision combining; per-stage rule matchers and decision logic
@@ -96,8 +97,8 @@
 - Coverage XML export with merge support across runs
 - Coverage-directed test generation (verification/coverage_driven.py)
 - Enhanced overlap detection with CIDR containment and port range analysis
-- 54 real-world YAML examples + 2 P4 + 2 Wireshark + 2 iptables examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite, OpenNIC, Corundum, TCP flags/ICMP, ARP security, ICMPv6 firewall, QinQ provider, fragment security, port rewrite, GRE tunnel, conntrack firewall, mirror/redirect, flow counters, OAM monitoring, NSH/SFC, Geneve datacenter, TTL security, IPv6 routing, QoS rewrite, wide AXI firewall, P4 export demo, pipeline classify, PTP boundary clock, PTP 5G fronthaul, RSS datacenter, RSS NIC offload, INT datacenter, pcap-gen demo, optimize demo, Rust filter demo, wide parser demo)
-- 756 Rust unit tests + 451 integration tests = 1207 total, 90 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
+- 54 real-world YAML examples + 2 P4 + 2 Wireshark + 2 iptables + 2 tcpdump examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite, OpenNIC, Corundum, TCP flags/ICMP, ARP security, ICMPv6 firewall, QinQ provider, fragment security, port rewrite, GRE tunnel, conntrack firewall, mirror/redirect, flow counters, OAM monitoring, NSH/SFC, Geneve datacenter, TTL security, IPv6 routing, QoS rewrite, wide AXI firewall, P4 export demo, pipeline classify, PTP boundary clock, PTP 5G fronthaul, RSS datacenter, RSS NIC offload, INT datacenter, pcap-gen demo, optimize demo, Rust filter demo, wide parser demo)
+- 811 Rust unit tests + 463 integration tests = 1274 total, 90 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
 
 ## Architecture
 ```
@@ -211,6 +212,11 @@ pacgate iptables-import firewall.rules -o rules.yaml         # iptables-save →
 pacgate iptables-import firewall.rules --chain FORWARD        # Import FORWARD chain
 pacgate iptables-import firewall.rules --chain all            # Import all chains
 pacgate iptables-import firewall.rules --json                 # JSON import summary
+pacgate tcpdump-import --filter "tcp port 80"                     # tcpdump filter → YAML (stdout)
+pacgate tcpdump-import --filter "tcp port 80" -o rules.yaml       # tcpdump filter → YAML file
+pacgate tcpdump-import --filter-file filter.bpf -o rules.yaml     # From filter file
+pacgate tcpdump-import --filter "tcp port 80" --json              # JSON import summary
+pacgate tcpdump-import --filter "not arp" --default-action pass   # Custom default action
 pacgate optimize rules.yaml                        # Optimize rule set (stdout YAML)
 pacgate optimize rules.yaml -o optimized.yaml      # Optimize → output file
 pacgate optimize rules.yaml --apply                # Optimize in-place
@@ -304,10 +310,11 @@ pytest verification/test_scoreboard.py # 67 Python scoreboard unit tests
 - `src/p4_import.rs` — P4_16 PSA import: line-by-line state machine parser, reverse field mapping, rewrite/extern parsing (~750 LOC)
 - `src/wireshark_import.rs` — Wireshark display filter import: tokenizer, recursive descent parser, ~45 field mappings with protocol inference (~700 LOC)
 - `src/iptables_import.rs` — iptables-save import: line-based parser, protocol/port/CIDR/TCP-flags/ICMP/conntrack mapping, DNAT/SNAT rewrite, multiport expansion (~600 LOC)
+- `src/tcpdump_import.rs` — tcpdump/BPF filter import: tokenizer, recursive descent parser, BPF expression AST, bidirectional expansion, named constant resolution (~700 LOC)
 - `src/optimize.rs` — Rule set optimizer: 5 passes (dead rule removal, duplicate merging, port consolidation, CIDR consolidation, priority renumber) (~500 LOC)
 - `src/rust_gen.rs` — Rust code generation backend: protocol detection, compiled rule matchers, condition builder for 55+ fields, CIDR/MAC/IPv6 constant generation (~400 LOC)
 - `src/pcap_gen.rs` — Synthetic PCAP traffic generator with protocol-aware packet construction (~720 LOC)
-- `src/main.rs` — clap CLI (42 subcommands)
+- `src/main.rs` — clap CLI (43 subcommands)
 - `rtl/frame_parser.v` — Hand-written Ethernet/IPv4/IPv6/TCP/UDP/VXLAN/GTP-U/MPLS/IGMP/MLD/ICMP/ICMPv6/ARP/QinQ/OAM/NSH/Geneve/PTP parser FSM (23 states) with TCP flags + IPv6 TC + hop_limit + flow_label + fragmentation + L4 port offset + OAM/CFM + NSH/SFC + Geneve VNI + ip_ttl + PTP messageType/domain/version extraction
 - `rtl/ptp_clock.v` — Free-running 64-bit PTP hardware clock with SOF/EOF timestamp latching (optional, `--ptp` flag)
 - `rtl/rule_counters.v` — Per-rule 64-bit packet/byte counters
@@ -513,6 +520,12 @@ pytest verification/test_scoreboard.py # 67 Python scoreboard unit tests
   - **38.5 Tests+Verification**: LINT058 (wide parser info), 10 integration tests, compile output message
   - **38.6 Example+Docs**: `wide_parser_demo.yaml`, documentation updates
   - 58 lint rules, 41 mutation types, 54 examples, 90 Python scoreboard tests, 756 unit + 451 integration = 1207 Rust tests
+- **Phase 39**: Complete — tcpdump/BPF Filter Import:
+  - **39.1 Core Module**: `src/tcpdump_import.rs` (~700 LOC core + ~350 LOC tests) — tokenizer for BPF syntax, recursive descent parser with implicit AND, BPF expression AST (host/net/port/portrange/ether/proto/vlan/mpls/greater/less/tcp-flags/icmp-type/icmpv6-type), RuleBuilder with bidirectional expansion, named constant resolution (~20 port names, TCP flag names, ICMP type names, protocol numbers)
+  - **39.2 CLI Integration**: `tcpdump-import` subcommand with `--filter`/`--filter-file`/`-o`/`--json`/`--default-action`/`--name` flags
+  - **39.3 Integration Tests**: 12 integration tests (host, tcp-port, and, or, not, tcp-flags, json, stdout, filter-file, validates, vlan, portrange)
+  - **39.4 Examples**: `rules/examples/tcpdump/web_filter.bpf`, `security_filter.bpf`
+  - 58 lint rules, 41 mutation types, 54 YAML + 2 P4 + 2 Wireshark + 2 iptables + 2 tcpdump examples, 90 Python scoreboard tests, 811 unit + 463 integration = 1274 Rust tests
 - **Phase 35**: Complete — Rust Code Generation Backend (`--target rust`):
   - **35.1 Core Generator+CLI**: `src/rust_gen.rs` (~400 LOC) — protocol detection, compiled rule matchers with 55+ field conditions, CIDR/IPv6/MAC constant generation, pipeline support; `--target rust` CLI intercept with incompatible flag rejection (--axi/--conntrack/--dynamic/--rate-limit/--ports/--ptp/--rss/--int/--counters)
   - **35.2 Tera Templates**: `rust_cargo.toml.tera` (Cargo.toml with optional `afxdp` feature), `rust_filter.rs.tera` (~700 LOC) — single-file generated binary with ParsedPacket struct, frame parser (L2/QinQ/VLAN/IPv4/IPv6/TCP/UDP/ICMP/ICMPv6/ARP/MPLS/GRE/OAM/NSH/PTP/VXLAN/GTP-U/Geneve), compiled rule matchers, priority-ordered decision logic, PCAP reader/writer, per-rule statistics (text+JSON), stdin/stdout pipe mode, AF_XDP skeleton (behind `afxdp` Cargo feature)
