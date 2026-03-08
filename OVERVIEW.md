@@ -16,7 +16,7 @@ PacGate is a packet filtering compiler where YAML-defined rules compile into syn
 5. Run formal verification with SymbiYosys for mathematical proof of correctness
 6. Import PCAP captures for real-traffic test stimulus
 7. Export to P4_16 PSA programs for software switch / SmartNIC targets (`p4-export` subcommand)
-8. Import from P4_16 PSA programs (`p4-import`), Wireshark display filters (`wireshark-import`), iptables-save dumps (`iptables-import`), or tcpdump/BPF expressions (`tcpdump-import`) — quint input format (YAML + P4 + Wireshark + iptables + tcpdump)
+8. Import from P4_16 PSA programs (`p4-import`), Wireshark display filters (`wireshark-import`), iptables-save dumps (`iptables-import`), tcpdump/BPF expressions (`tcpdump-import`), or Cisco IOS ACLs (`acl-import`) — sextuple input format (YAML + P4 + Wireshark + iptables + tcpdump + Cisco ACL)
 9. Optimize imported/hand-written rule sets with `optimize` subcommand — dead rule removal, deduplication, port/CIDR consolidation, priority normalization
 10. Generate a standalone Rust packet filter binary with `--target rust` — compiled match rules, PCAP I/O, per-rule statistics, and optional AF_XDP live capture
 
@@ -190,6 +190,9 @@ UVM-inspired Python verification environment with:
 - `pacgate iptables-import --file iptables.save --json` — iptables import with JSON summary
 - `pacgate tcpdump-import --filter "tcp port 80"` — Import tcpdump/BPF filter to YAML rules
 - `pacgate tcpdump-import --filter "tcp port 80" --json` — tcpdump import with JSON summary
+- `pacgate acl-import acl.txt` — Import Cisco IOS ACL to YAML rules
+- `pacgate acl-import acl.txt --json` — Cisco ACL import with JSON summary
+- `pacgate acl-import acl.txt -o rules.yaml` — Cisco ACL import to YAML file
 - `pacgate trace rules.yaml --packet "ethertype=0x0800,dst_port=80"` — Per-rule, per-field match trace for debugging
 - `pacgate trace rules.yaml --packet "..." --json` — JSON trace output with all rules evaluated
 - `pacgate optimize rules.yaml` — Optimize rule set (dead rules, duplicates, port/CIDR consolidation)
@@ -204,7 +207,7 @@ UVM-inspired Python verification environment with:
 - All commands except `init`, `graph`, `report` support `--json` for machine-readable output
 
 ## Examples
-53 production-quality YAML examples covering real-world deployments:
+54 production-quality YAML examples + 2 P4 + 2 Wireshark + 2 iptables + 2 tcpdump + 2 Cisco ACL examples covering real-world deployments:
 - Enterprise campus, data center multi-tenant, blacklist mode
 - Industrial OT boundary (EtherCAT, PROFINET, PTP, GOOSE)
 - Automotive Ethernet gateway (AVB/TSN, ADAS)
@@ -245,7 +248,7 @@ UVM-inspired Python verification environment with:
 - rust_filter_demo (Rust code generation backend with PCAP I/O and per-rule statistics)
 
 ## Quality
-- 1274 Rust tests total (811 unit + 463 integration; model parsing, validation, CIDR/port overlap, IPv4/IPv6, PCAP, byte-match, HSM, Mermaid, simulation incl. byte-match/rate-limit/conntrack, PCAP analysis, synthesis, mutation (41 types), templates, benchmarking, reachability (protocol fields), GTP-U, MPLS, IGMP/MLD, DSCP/ECN, IPv6 TC, TCP flags, ICMP type/code, ICMPv6, ARP, IPv6 extensions, QinQ, IPv4 fragmentation, L4 port rewrite, GRE, conntrack state, mirror/redirect, flow counters, OAM/CFM, NSH/SFC, Geneve VNI, ip_ttl, frame_len, IPv6 rewrite, VLAN PCP/outer VLAN rewrite, MCY config generation, rewrite action parsing/validation, cocotb 2.0 runner generation, parameterized width, P4 export, multi-table pipeline, PTP matching, RSS queue pinning/Toeplitz hash/indirection table, INT metadata, pcap-gen traffic generation, P4 import, Wireshark display filter import, iptables-save import, tcpdump/BPF filter import, Rust code generation backend, PCAP parser completeness)
+- 1353 Rust tests total (868 unit + 485 integration; model parsing, validation, CIDR/port overlap, IPv4/IPv6, PCAP, byte-match, HSM, Mermaid, simulation incl. byte-match/rate-limit/conntrack, PCAP analysis, synthesis, mutation (41 types), templates, benchmarking, reachability (protocol fields), GTP-U, MPLS, IGMP/MLD, DSCP/ECN, IPv6 TC, TCP flags, ICMP type/code, ICMPv6, ARP, IPv6 extensions, QinQ, IPv4 fragmentation, L4 port rewrite, GRE, conntrack state, mirror/redirect, flow counters, OAM/CFM, NSH/SFC, Geneve VNI, ip_ttl, frame_len, IPv6 rewrite, VLAN PCP/outer VLAN rewrite, MCY config generation, rewrite action parsing/validation, cocotb 2.0 runner generation, parameterized width, P4 export, multi-table pipeline, PTP matching, RSS queue pinning/Toeplitz hash/indirection table, INT metadata, pcap-gen traffic generation, P4 import, Wireshark display filter import, iptables-save import, tcpdump/BPF filter import, Cisco IOS ACL import, Rust code generation backend, PCAP parser completeness)
 - 90 Python scoreboard unit tests (IPv4 CIDR, IPv6 CIDR, port matching, VXLAN VNI, byte-match, multi-field L3/L4, GTP-U TEID, MPLS label/TC/BOS, IGMP/MLD type, IPv6 TC, TCP flags mask-aware, ICMP type/code, ICMPv6 type/code, ARP opcode/SPA/TPA, IPv6 hop_limit/flow_label, QinQ outer VLAN, IPv4 fragmentation, GRE protocol/key, conntrack state, OAM level/opcode, NSH SPI/SI, Geneve VNI, ip_ttl, PTP messageType/domain/version, RSS Toeplitz hash queue verification, INT metadata prediction, protocol coverage sampling, protocol determinism checks)
 - 13+ cocotb simulation tests (directed with L3/L4 headers + 500-packet random + corner cases)
 - 5 conntrack cocotb tests (new flow, return traffic, timeout, hash collision, table overflow)
@@ -305,6 +308,7 @@ UVM-inspired Python verification environment with:
 - **Phase 37** (complete): PCAP Parser Completeness — extended the pcap-filter packet parser from 14 fields to 56 fields, enabling matching on all protocol fields: TCP flags, ICMP type/code, ICMPv6 type/code, ARP opcode/SPA/TPA, tunnels (GTP-U TEID, Geneve VNI, GRE protocol/key, VXLAN VNI), MPLS label/TC/BOS, QoS (DSCP/ECN, IPv6 DSCP/ECN), QinQ outer VLAN, OAM level/opcode, NSH SPI/SI/next_protocol, PTP message_type/domain/version, IPv6 extensions (hop_limit, flow_label), IPv4 fragmentation (DF/MF/frag_offset), ip_ttl, conntrack_state, frame_len. Also added timestamp preservation in output PCAPs. 756 unit + 441 integration = 1197 Rust tests + 90 Python tests
 - **Phase 38** (complete): Native Wide Parser — `--width >= 512` combined with `--axi` activates a combinational wide-bus parser that extracts all protocol fields from the wide AXI-Stream bus in 1-2 clock cycles (vs 54+ cycles for the serial 8-bit parser). The wide parser produces the same output interface as the 8-bit parser, serving as a drop-in replacement and providing the foundation for future 100G+ line-rate throughput. The store-and-forward FIFO and rewrite engine remain 8-bit, so end-to-end throughput is still ~2 Gbps until those modules are widened in a future phase.
 - **Phase 39** (complete): tcpdump/BPF Filter Import — `tcpdump-import` subcommand converts tcpdump/pcap-filter BPF expressions into PacGate YAML rules. Tokenizer + recursive descent parser for BPF syntax with implicit AND, BPF expression AST (host/net/port/portrange/ether/proto/vlan/mpls/greater/less/tcp-flags/icmp-type/icmpv6-type), bidirectional expansion, named constant resolution (~20 port names, TCP flag names, ICMP type names, protocol numbers). 5th import format completing the quint input format (YAML + P4 + Wireshark + iptables + tcpdump). src/tcpdump_import.rs (~700 LOC), 43 CLI subcommands, 811 unit + 463 integration = 1274 Rust tests + 90 Python tests
+- **Phase 41** (complete): Cisco IOS ACL Import — `acl-import` subcommand parses Cisco IOS standard and extended ACLs (numbered and named) into PacGate YAML rules. Supports permit/deny actions, protocol mapping (tcp/udp/icmp/ip/gre/ospf/eigrp/ahp/esp/pim/igmp), host/any/wildcard-to-CIDR conversion, port operators (eq/neq/gt/lt/range), ICMP type/code, TCP flags (established/ack/syn/fin/rst/psh/urg), log/log-input options, remark preservation as rule names, object-group references. `--json`/`-o`/`--name`/`--default-action` flags. 2 Cisco ACL examples. 6th import format (YAML + P4 + Wireshark + iptables + tcpdump + Cisco ACL). src/acl_import.rs, 45 CLI subcommands, 868 unit + 485 integration = 1353 Rust tests + 90 Python tests
 
 ## Documentation
 - `README.md` — Project showcase and quick start

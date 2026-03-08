@@ -1,0 +1,15 @@
+! Data Center ACL
+! Demonstrates numbered extended ACL with server-oriented rules
+access-list 100 remark Web server farm
+access-list 100 permit tcp any 172.16.0.0 0.0.255.255 eq 80
+access-list 100 permit tcp any 172.16.0.0 0.0.255.255 eq 443
+access-list 100 remark Database servers (MySQL from app tier only)
+access-list 100 permit tcp 172.16.1.0 0.0.0.255 172.16.2.0 0.0.0.255 eq 3306
+access-list 100 remark Monitoring (SNMP from mgmt)
+access-list 100 permit udp 10.0.0.0 0.0.0.255 any eq 161
+access-list 100 remark Allow GRE tunnels between DCs
+access-list 100 permit gre host 10.0.0.1 host 10.0.0.2
+access-list 100 remark Allow high ports for return traffic
+access-list 100 permit tcp any any range 1024 65535
+access-list 100 remark Block all other traffic
+access-list 100 deny ip any any

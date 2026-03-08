@@ -24,6 +24,7 @@ mod iptables_import;
 mod optimize;
 mod rust_gen;
 mod tcpdump_import;
+mod acl_import;
 mod trace;
 
 use std::path::{Path, PathBuf};
@@ -661,6 +662,23 @@ enum Commands {
 
         /// Name prefix for generated rules
         #[arg(long, default_value = "bpf_filter")]
+        name: String,
+    },
+    /// Import a Cisco IOS ACL (access-list) into PacGate YAML rules
+    AclImport {
+        /// Path to a Cisco ACL file
+        input: PathBuf,
+
+        /// Output YAML file (stdout if omitted)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Output JSON summary instead of YAML
+        #[arg(long)]
+        json: bool,
+
+        /// Name prefix for generated rules
+        #[arg(long, default_value = "acl")]
         name: String,
     },
     /// Optimize rule set: dead rule removal, deduplication, port/CIDR consolidation, priority renumbering
@@ -2018,6 +2036,28 @@ fn main() -> Result<()> {
                     std::fs::write(out_path, &yaml)
                         .with_context(|| format!("Failed to write YAML: {}", out_path.display()))?;
                     println!("Imported {} rules from tcpdump filter → {}", config.pacgate.rules.len(), out_path.display());
+                } else {
+                    print!("{}", yaml);
+                }
+            }
+        }
+        Commands::AclImport { input, output, json, name } => {
+            let content = std::fs::read_to_string(&input)
+                .with_context(|| format!("Failed to read ACL file: {}", input.display()))?;
+
+            if json {
+                let summary = acl_import::import_acl_summary(&content, &name);
+                println!("{}", serde_json::to_string_pretty(&summary)?);
+            } else {
+                let (config, warnings) = acl_import::import_acl(&content, &name)?;
+                for w in &warnings {
+                    eprintln!("Warning: {}", w);
+                }
+                let yaml = p4_import::config_to_yaml(&config)?;
+                if let Some(ref out_path) = output {
+                    std::fs::write(out_path, &yaml)
+                        .with_context(|| format!("Failed to write YAML: {}", out_path.display()))?;
+                    println!("Imported {} rules from Cisco ACL → {}", config.pacgate.rules.len(), out_path.display());
                 } else {
                     print!("{}", yaml);
                 }

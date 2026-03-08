@@ -47,7 +47,8 @@
 - **P4 import**: `p4-import` subcommand parses P4_16 PSA programs into YAML rules, completing the bidirectional P4↔YAML bridge with rewrite action mapping, extern detection, and round-trip validation
 - **Wireshark display filter import**: `wireshark-import` subcommand converts Wireshark display filter syntax (`tcp.port == 80 && ip.src == 10.0.0.0/8`) into YAML rules with ~45 field mappings, protocol inference, bidirectional port expansion, and TCP flag accumulation
 - **iptables-save import**: `iptables-import` subcommand converts Linux `iptables-save` output into YAML rules with protocol/port/CIDR/TCP-flags/ICMP/conntrack-state/MAC/multiport mapping, DNAT/SNAT rewrite extraction, chain selection
-- **tcpdump/BPF filter import**: `tcpdump-import` subcommand converts tcpdump/pcap-filter expressions into YAML rules with host/net/port/portrange/ether/proto/vlan/mpls/tcp-flags/icmp-type support, implicit AND, bidirectional expansion, named constants — quint input format (YAML + P4 + Wireshark + iptables + tcpdump)
+- **tcpdump/BPF filter import**: `tcpdump-import` subcommand converts tcpdump/pcap-filter expressions into YAML rules with host/net/port/portrange/ether/proto/vlan/mpls/tcp-flags/icmp-type support, implicit AND, bidirectional expansion, named constants
+- **Cisco IOS ACL import**: `acl-import` subcommand converts Cisco IOS access-lists (named/numbered, extended/standard) into YAML rules with wildcard-to-CIDR conversion, port operators (eq/gt/lt/range), named ports, `established` keyword, ICMP types, DSCP, fragments — hex input format (YAML + P4 + Wireshark + iptables + tcpdump + Cisco ACL)
 - **Rule set optimizer**: `optimize` subcommand performs 5 semantics-preserving passes: dead rule removal (OPT001), duplicate merging (OPT002), adjacent port consolidation (OPT003), adjacent CIDR consolidation (OPT004), priority renumbering (OPT005) — with `--json`/`-o`/`--apply` flags
 - **Rust code generation backend**: `--target rust` generates a standalone Rust packet filter binary with compiled match rules, PCAP I/O, per-rule statistics, stdin/stdout pipe mode, and optional AF_XDP live capture (`afxdp` Cargo feature); protocol-conditional code generation (~300-900 LOC output)
 - **Multi-table pipeline**: optional `tables:` YAML key for sequential match-action stages with AND decision combining; per-stage rule matchers and decision logic
@@ -98,8 +99,8 @@
 - Coverage XML export with merge support across runs
 - Coverage-directed test generation (verification/coverage_driven.py)
 - Enhanced overlap detection with CIDR containment and port range analysis
-- 54 real-world YAML examples + 2 P4 + 2 Wireshark + 2 iptables + 2 tcpdump examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite, OpenNIC, Corundum, TCP flags/ICMP, ARP security, ICMPv6 firewall, QinQ provider, fragment security, port rewrite, GRE tunnel, conntrack firewall, mirror/redirect, flow counters, OAM monitoring, NSH/SFC, Geneve datacenter, TTL security, IPv6 routing, QoS rewrite, wide AXI firewall, P4 export demo, pipeline classify, PTP boundary clock, PTP 5G fronthaul, RSS datacenter, RSS NIC offload, INT datacenter, pcap-gen demo, optimize demo, Rust filter demo, wide parser demo)
-- 830 Rust unit tests + 473 integration tests = 1303 total, 90 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
+- 54 real-world YAML examples + 2 P4 + 2 Wireshark + 2 iptables + 2 tcpdump + 2 Cisco ACL examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite, OpenNIC, Corundum, TCP flags/ICMP, ARP security, ICMPv6 firewall, QinQ provider, fragment security, port rewrite, GRE tunnel, conntrack firewall, mirror/redirect, flow counters, OAM monitoring, NSH/SFC, Geneve datacenter, TTL security, IPv6 routing, QoS rewrite, wide AXI firewall, P4 export demo, pipeline classify, PTP boundary clock, PTP 5G fronthaul, RSS datacenter, RSS NIC offload, INT datacenter, pcap-gen demo, optimize demo, Rust filter demo, wide parser demo)
+- 868 Rust unit tests + 485 integration tests = 1353 total, 90 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
 
 ## Architecture
 ```
@@ -218,6 +219,10 @@ pacgate tcpdump-import --filter "tcp port 80" -o rules.yaml       # tcpdump filt
 pacgate tcpdump-import --filter-file filter.bpf -o rules.yaml     # From filter file
 pacgate tcpdump-import --filter "tcp port 80" --json              # JSON import summary
 pacgate tcpdump-import --filter "not arp" --default-action pass   # Custom default action
+pacgate acl-import firewall.acl                                   # Cisco ACL → YAML (stdout)
+pacgate acl-import firewall.acl -o rules.yaml                     # Cisco ACL → YAML file
+pacgate acl-import firewall.acl --json                            # JSON import summary
+pacgate acl-import firewall.acl --name myfw                       # Custom name prefix
 pacgate optimize rules.yaml                        # Optimize rule set (stdout YAML)
 pacgate optimize rules.yaml -o optimized.yaml      # Optimize → output file
 pacgate optimize rules.yaml --apply                # Optimize in-place
@@ -314,10 +319,11 @@ pytest verification/test_scoreboard.py # 67 Python scoreboard unit tests
 - `src/wireshark_import.rs` — Wireshark display filter import: tokenizer, recursive descent parser, ~45 field mappings with protocol inference (~700 LOC)
 - `src/iptables_import.rs` — iptables-save import: line-based parser, protocol/port/CIDR/TCP-flags/ICMP/conntrack mapping, DNAT/SNAT rewrite, multiport expansion (~600 LOC)
 - `src/tcpdump_import.rs` — tcpdump/BPF filter import: tokenizer, recursive descent parser, BPF expression AST, bidirectional expansion, named constant resolution (~700 LOC)
+- `src/acl_import.rs` — Cisco IOS ACL import: line-based parser for named/numbered extended/standard ACLs, wildcard-to-CIDR conversion, port operators, named ports (~450 LOC)
 - `src/optimize.rs` — Rule set optimizer: 5 passes (dead rule removal, duplicate merging, port consolidation, CIDR consolidation, priority renumber) (~500 LOC)
 - `src/rust_gen.rs` — Rust code generation backend: protocol detection, compiled rule matchers, condition builder for 55+ fields, CIDR/MAC/IPv6 constant generation (~400 LOC)
 - `src/pcap_gen.rs` — Synthetic PCAP traffic generator with protocol-aware packet construction (~720 LOC)
-- `src/main.rs` — clap CLI (44 subcommands)
+- `src/main.rs` — clap CLI (45 subcommands)
 - `src/trace.rs` — Packet match trace/debug with per-rule, per-field evaluation breakdown (~400 LOC)
 - `rtl/frame_parser.v` — Hand-written Ethernet/IPv4/IPv6/TCP/UDP/VXLAN/GTP-U/MPLS/IGMP/MLD/ICMP/ICMPv6/ARP/QinQ/OAM/NSH/Geneve/PTP parser FSM (23 states) with TCP flags + IPv6 TC + hop_limit + flow_label + fragmentation + L4 port offset + OAM/CFM + NSH/SFC + Geneve VNI + ip_ttl + PTP messageType/domain/version extraction
 - `rtl/ptp_clock.v` — Free-running 64-bit PTP hardware clock with SOF/EOF timestamp latching (optional, `--ptp` flag)
@@ -535,6 +541,12 @@ pytest verification/test_scoreboard.py # 67 Python scoreboard unit tests
   - **40.2 CLI Integration**: `trace` subcommand (44th) with `--packet`/`--json` flags; pipeline-aware (auto-detects `tables:` and shows per-stage trace)
   - **40.3 Tests**: 19 unit tests (single match, no match, multiple rules, partial field match, shadowed rules, rewrite, egress, pipeline stages, CIDR, port range, JSON output, text format) + 10 integration tests (basic, no match, JSON, JSON no match, all rules shown, field breakdown, miss fields, ARP example, pipeline, pipeline JSON)
   - 58 lint rules, 41 mutation types, 54 examples, 90 Python scoreboard tests, 830 unit + 473 integration = 1303 Rust tests
+- **Phase 41**: Complete — Cisco IOS ACL Import (`acl-import`):
+  - **41.1 Core Module**: `src/acl_import.rs` (~450 LOC core + ~300 LOC tests) — line-based parser for named/numbered extended/standard ACLs, wildcard-to-CIDR conversion, port operators (eq/gt/lt/neq/range), named ports (~35 entries), protocol keywords, ICMP type/code, `established` keyword → TCP flags, DSCP/fragments support, remark-to-name mapping
+  - **41.2 CLI Integration**: `acl-import` subcommand (45th) with `--input`/`-o`/`--json`/`--name` flags
+  - **41.3 Integration Tests**: 12 integration tests (basic, numbered, JSON, stdout, validates, tcp-ports, established, ICMP, wildcard, standard, port-range, name-prefix)
+  - **41.4 Examples**: `rules/examples/acl/enterprise_firewall.acl`, `datacenter_acl.acl`
+  - 58 lint rules, 41 mutation types, 54 YAML + 2 P4 + 2 Wireshark + 2 iptables + 2 tcpdump + 2 Cisco ACL examples, 90 Python scoreboard tests, 868 unit + 485 integration = 1353 Rust tests
 - **Phase 35**: Complete — Rust Code Generation Backend (`--target rust`):
   - **35.1 Core Generator+CLI**: `src/rust_gen.rs` (~400 LOC) — protocol detection, compiled rule matchers with 55+ field conditions, CIDR/IPv6/MAC constant generation, pipeline support; `--target rust` CLI intercept with incompatible flag rejection (--axi/--conntrack/--dynamic/--rate-limit/--ports/--ptp/--rss/--int/--counters)
   - **35.2 Tera Templates**: `rust_cargo.toml.tera` (Cargo.toml with optional `afxdp` feature), `rust_filter.rs.tera` (~700 LOC) — single-file generated binary with ParsedPacket struct, frame parser (L2/QinQ/VLAN/IPv4/IPv6/TCP/UDP/ICMP/ICMPv6/ARP/MPLS/GRE/OAM/NSH/PTP/VXLAN/GTP-U/Geneve), compiled rule matchers, priority-ordered decision logic, PCAP reader/writer, per-rule statistics (text+JSON), stdin/stdout pipe mode, AF_XDP skeleton (behind `afxdp` Cargo feature)

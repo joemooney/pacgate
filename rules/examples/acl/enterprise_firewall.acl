@@ -1,0 +1,20 @@
+! Enterprise Firewall ACL
+! Demonstrates named extended ACL with common enterprise patterns
+ip access-list extended ENTERPRISE_FW
+ remark Allow established TCP connections
+ permit tcp any any established
+ remark Allow SSH from management subnet
+ permit tcp 10.1.0.0 0.0.0.255 any eq 22
+ remark Allow HTTP and HTTPS
+ permit tcp any any eq www
+ permit tcp any any eq 443
+ remark Allow DNS
+ permit udp any any eq domain
+ permit tcp any any eq domain
+ remark Allow ICMP echo for troubleshooting
+ permit icmp any any echo
+ permit icmp any any echo-reply
+ remark Allow NTP
+ permit udp any any eq 123
+ remark Deny everything else
+ deny ip any any

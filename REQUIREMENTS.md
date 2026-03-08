@@ -2000,3 +2000,52 @@
 - REQ-4015: 19 unit tests in trace.rs (match, miss, multi-rule, partial, shadowed, rewrite, egress, pipeline, CIDR, port-range, JSON, text) [IMPLEMENTED]
 - REQ-4016: 10 integration tests (basic, no-match, json, json-no-match, all-rules, field-breakdown, miss-fields, arp, pipeline, pipeline-json) [IMPLEMENTED]
 - REQ-4017: 830 unit + 473 integration = 1303 Rust tests total [IMPLEMENTED]
+
+## Phase 41 Requirements — Cisco IOS ACL Import (`acl-import`)
+
+### Core Parser (src/acl_import.rs)
+- REQ-4101: `acl-import` subcommand shall parse Cisco IOS extended and standard ACLs
+- REQ-4102: Support named ACLs (`ip access-list extended NAME` / `ip access-list standard NAME`)
+- REQ-4103: Support numbered ACLs (standard: 1-99/1300-1999, extended: 100-199/2000-2699)
+- REQ-4104: Convert wildcard masks to CIDR notation (e.g., `0.0.0.255` → `/24`, `0.0.255.255` → `/16`)
+- REQ-4105: Support port operators: `eq`, `gt`, `lt`, `neq`, `range`
+- REQ-4106: Support named ports (www, ssh, dns, ftp, smtp, telnet, pop3, imap, https, snmp, ntp, bgp, etc.)
+- REQ-4107: Support TCP `established` keyword (map to tcp_flags with ACK or RST bits set)
+- REQ-4108: Support ICMP type/code (named types: echo, echo-reply, unreachable, redirect, time-exceeded, etc.)
+- REQ-4109: JSON summary output (`--json` flag) with rule count, ACL name, ACL type, warnings
+- REQ-4110: Imported rules shall pass `validate` and `lint` without errors
+- REQ-4111: Support `remark` lines as rule name hints (next permit/deny inherits remark text as rule name)
+- REQ-4112: Support `dscp` keyword for DSCP-based matching (map to ip_dscp field)
+- REQ-4113: Support `fragments` keyword for fragment matching (map to ip_more_fragments/ip_frag_offset)
+
+### ACL Syntax Handling
+- REQ-4114: Parse `permit` and `deny` ACEs mapping to `pass` and `drop` actions
+- REQ-4115: Support `host <ip>` shorthand (equivalent to `<ip> 0.0.0.0`)
+- REQ-4116: Support `any` keyword (match all source/destination addresses)
+- REQ-4117: Support protocol keywords: `ip`, `tcp`, `udp`, `icmp`, `gre`, `igmp`, `ospf`, `ahp`, `esp`
+- REQ-4118: Support protocol numbers (0-255) as direct ip_protocol match
+- REQ-4119: Handle `log` and `log-input` keywords (parse and ignore, no PacGate equivalent)
+- REQ-4120: Support `object-group` references (warn if encountered, not expanded)
+
+### CLI Integration
+- REQ-4121: `acl-import` subcommand (45th CLI command)
+- REQ-4122: Positional argument for ACL file input
+- REQ-4123: `-o` / `--output` flag for YAML output file (stdout if omitted)
+- REQ-4124: `--json` flag for JSON import summary
+- REQ-4125: `--name` flag for rule name prefix (default: ACL name from file)
+- REQ-4126: `--default-action` flag (pass/drop, default: drop for deny-oriented ACLs)
+
+### Rule Generation
+- REQ-4127: Preserve ACL rule ordering via priority assignment (first ACE = highest priority)
+- REQ-4128: Reuse `p4_import::config_to_yaml()` for YAML serialization (consistent with other importers)
+- REQ-4129: Generate implicit deny rule at end if ACL has no trailing `deny any any` (Cisco implicit deny)
+- REQ-4130: Multi-line ACLs parsed correctly (one ACE per line after ACL header)
+
+### Examples
+- REQ-4131: Cisco IOS ACL example file: `rules/examples/cisco/standard_acl.acl`
+- REQ-4132: Cisco IOS ACL example file: `rules/examples/cisco/extended_acl.acl`
+
+### Testing
+- REQ-4133: Unit tests in acl_import.rs covering parser, wildcard conversion, port operators, named ports, ICMP types, DSCP, fragments
+- REQ-4134: Integration tests (named-extended, named-standard, numbered, json, stdout, output-file, established, icmp, remark, dscp, fragments, validates)
+- REQ-4135: Updated total Rust test count reflecting new tests

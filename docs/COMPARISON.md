@@ -594,7 +594,7 @@ No other tool in this landscape offers PacGate's combination:
                            (hand-written)
 ```
 
-**PacGate is the only tool that generates synthesizable hardware, a complete verification environment, a P4_16 PSA program, AND a standalone Rust software filter — all from a single declarative YAML specification.** With quad input format (YAML + P4 + Wireshark + iptables), it is the most accessible FPGA packet filter tool available.
+**PacGate is the only tool that generates synthesizable hardware, a complete verification environment, a P4_16 PSA program, AND a standalone Rust software filter — all from a single declarative YAML specification.** With six input formats (YAML + P4 + Wireshark + iptables + tcpdump + Cisco ACL), it is the most accessible FPGA packet filter tool available.
 
 ### What Makes PacGate Unique
 

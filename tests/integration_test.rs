@@ -8956,3 +8956,178 @@ fn trace_pipeline_json() {
     assert!(json["stage_count"].as_u64().unwrap() >= 1);
     assert!(json["stages"].as_array().unwrap().len() >= 1);
 }
+
+// ============================================================
+// acl-import integration tests (Phase 41)
+// ============================================================
+
+#[test]
+fn acl_import_basic() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml_out = tmp.path().join("acl.yaml");
+    let output = pacgate_bin()
+        .args(["acl-import", "rules/examples/acl/enterprise_firewall.acl", "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "acl-import failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Imported"));
+    assert!(yaml_out.exists());
+}
+
+#[test]
+fn acl_import_numbered() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml_out = tmp.path().join("numbered.yaml");
+    let output = pacgate_bin()
+        .args(["acl-import", "rules/examples/acl/datacenter_acl.acl", "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "acl-import numbered failed: {}", String::from_utf8_lossy(&output.stderr));
+    let yaml_content = std::fs::read_to_string(&yaml_out).unwrap();
+    assert!(yaml_content.contains("172.16.0.0/16"));
+}
+
+#[test]
+fn acl_import_json() {
+    let output = pacgate_bin()
+        .args(["acl-import", "rules/examples/acl/enterprise_firewall.acl", "--json"])
+        .output().unwrap();
+    assert!(output.status.success(), "acl-import --json failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["status"], "ok");
+    assert!(json["rule_count"].as_u64().unwrap() >= 1);
+    assert_eq!(json["format"], "cisco-acl");
+}
+
+#[test]
+fn acl_import_stdout() {
+    let output = pacgate_bin()
+        .args(["acl-import", "rules/examples/acl/enterprise_firewall.acl"])
+        .output().unwrap();
+    assert!(output.status.success(), "acl-import stdout failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("ip_protocol"));
+    assert!(stdout.contains("pass"));
+}
+
+#[test]
+fn acl_import_validates() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yaml_out = tmp.path().join("validated.yaml");
+    // Import
+    let output = pacgate_bin()
+        .args(["acl-import", "rules/examples/acl/enterprise_firewall.acl", "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "acl-import failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // Validate
+    let output = pacgate_bin()
+        .args(["validate", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "validate failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // Lint
+    let output = pacgate_bin()
+        .args(["lint", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "lint failed: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn acl_import_tcp_ports() {
+    let tmp = tempfile::tempdir().unwrap();
+    let acl_file = tmp.path().join("ports.acl");
+    std::fs::write(&acl_file, "ip access-list extended PORTS\n permit tcp any any eq 80\n permit tcp any any eq 443\n deny ip any any\n").unwrap();
+    let yaml_out = tmp.path().join("ports.yaml");
+    let output = pacgate_bin()
+        .args(["acl-import", acl_file.to_str().unwrap(), "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "acl-import tcp ports failed: {}", String::from_utf8_lossy(&output.stderr));
+    let yaml_content = std::fs::read_to_string(&yaml_out).unwrap();
+    assert!(yaml_content.contains("ip_protocol: 6"));
+    assert!(yaml_content.contains("80"));
+    assert!(yaml_content.contains("443"));
+}
+
+#[test]
+fn acl_import_established() {
+    let tmp = tempfile::tempdir().unwrap();
+    let acl_file = tmp.path().join("est.acl");
+    std::fs::write(&acl_file, "ip access-list extended EST\n permit tcp any any established\n").unwrap();
+    let yaml_out = tmp.path().join("est.yaml");
+    let output = pacgate_bin()
+        .args(["acl-import", acl_file.to_str().unwrap(), "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "acl-import established failed: {}", String::from_utf8_lossy(&output.stderr));
+    let yaml_content = std::fs::read_to_string(&yaml_out).unwrap();
+    assert!(yaml_content.contains("tcp_flags"));
+}
+
+#[test]
+fn acl_import_icmp() {
+    let tmp = tempfile::tempdir().unwrap();
+    let acl_file = tmp.path().join("icmp.acl");
+    std::fs::write(&acl_file, "ip access-list extended ICMP\n permit icmp any any echo\n deny ip any any\n").unwrap();
+    let yaml_out = tmp.path().join("icmp.yaml");
+    let output = pacgate_bin()
+        .args(["acl-import", acl_file.to_str().unwrap(), "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "acl-import icmp failed: {}", String::from_utf8_lossy(&output.stderr));
+    let yaml_content = std::fs::read_to_string(&yaml_out).unwrap();
+    assert!(yaml_content.contains("icmp_type: 8"));
+}
+
+#[test]
+fn acl_import_wildcard() {
+    let tmp = tempfile::tempdir().unwrap();
+    let acl_file = tmp.path().join("wc.acl");
+    std::fs::write(&acl_file, "access-list 100 permit ip 192.168.0.0 0.0.0.255 any\n").unwrap();
+    let yaml_out = tmp.path().join("wc.yaml");
+    let output = pacgate_bin()
+        .args(["acl-import", acl_file.to_str().unwrap(), "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "acl-import wildcard failed: {}", String::from_utf8_lossy(&output.stderr));
+    let yaml_content = std::fs::read_to_string(&yaml_out).unwrap();
+    assert!(yaml_content.contains("192.168.0.0/24"));
+}
+
+#[test]
+fn acl_import_standard_acl() {
+    let tmp = tempfile::tempdir().unwrap();
+    let acl_file = tmp.path().join("std.acl");
+    std::fs::write(&acl_file, "access-list 10 permit 10.0.0.0 0.0.0.255\naccess-list 10 deny any\n").unwrap();
+    let yaml_out = tmp.path().join("std.yaml");
+    let output = pacgate_bin()
+        .args(["acl-import", acl_file.to_str().unwrap(), "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "acl-import standard failed: {}", String::from_utf8_lossy(&output.stderr));
+    let yaml_content = std::fs::read_to_string(&yaml_out).unwrap();
+    assert!(yaml_content.contains("10.0.0.0/24"));
+}
+
+#[test]
+fn acl_import_port_range() {
+    let tmp = tempfile::tempdir().unwrap();
+    let acl_file = tmp.path().join("range.acl");
+    std::fs::write(&acl_file, "ip access-list extended RANGE\n permit tcp any any range 8000 9000\n").unwrap();
+    let yaml_out = tmp.path().join("range.yaml");
+    let output = pacgate_bin()
+        .args(["acl-import", acl_file.to_str().unwrap(), "-o", yaml_out.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "acl-import port range failed: {}", String::from_utf8_lossy(&output.stderr));
+    let yaml_content = std::fs::read_to_string(&yaml_out).unwrap();
+    assert!(yaml_content.contains("8000"));
+    assert!(yaml_content.contains("9000"));
+}
+
+#[test]
+fn acl_import_name_prefix() {
+    let output = pacgate_bin()
+        .args(["acl-import", "rules/examples/acl/enterprise_firewall.acl", "--name", "myfw", "--json"])
+        .output().unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let rules = json["rules"].as_array().unwrap();
+    assert!(rules[0]["name"].as_str().unwrap().starts_with("myfw_"));
+}

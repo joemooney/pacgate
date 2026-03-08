@@ -3344,3 +3344,69 @@ Implement `--target rust` backend that generates a standalone Rust packet filter
 
 ### Git Operations
 - Committed and pushed Phase 40 implementation
+
+---
+
+## Session 41 — 2026-03-08: Phase 41 (Cisco IOS ACL Import)
+
+### Prompt
+"Implement Phase 41"
+
+### Phase 41: Cisco IOS ACL Import (`acl-import`)
+
+#### Actions Taken
+1. Created `src/acl_import.rs` (~450 LOC core + ~300 LOC tests = ~750 LOC total):
+   - **Tokenizer**: line-based parser for Cisco IOS extended/standard ACL syntax (named and numbered)
+   - **Wildcard-to-CIDR conversion**: converts Cisco inverse masks (e.g., `0.0.0.255` → `/24`) to standard CIDR prefixes
+   - **Port operators**: `eq`, `gt`, `lt`, `neq`, `range` with ~35 named port mappings (www, https, domain, ssh, telnet, ftp, smtp, pop3, imap, snmp, ntp, syslog, etc.)
+   - **Protocol keywords**: ~15 protocol name-to-number mappings (tcp, udp, icmp, gre, ospf, eigrp, ahp, esp, pim, igmp, etc.)
+   - **ICMP type names**: ~20 ICMP type name mappings (echo, echo-reply, unreachable, time-exceeded, redirect, etc.)
+   - **TCP established keyword**: maps to tcp_flags/tcp_flags_mask for ACK/RST detection
+   - **DSCP matching**: named DSCP values (ef, af11-af43, cs0-cs7, default)
+   - **Fragments keyword**: maps to ip_more_fragments match field
+   - **Remark-to-name mapping**: `remark` lines set the name for the next ACE
+   - **RuleBuilder pattern**: follows iptables_import.rs architecture (line-based parser, StatelessRule construction, config_to_yaml serialization)
+   - **Public API**: `import_acl()` returns `Vec<StatelessRule>`, `import_acl_summary()` returns JSON summary
+   - 38 unit tests covering: basic permit/deny, named ACLs, standard ACLs, port operators, wildcards, CIDR host/any, ICMP types, TCP established, DSCP, fragments, remarks, numbered ACLs, protocol keywords
+
+2. Modified `src/main.rs`:
+   - Added `mod acl_import;` declaration
+   - Added `AclImport` command variant to CLI enum with `--filter`/`--filter-file`/`-o`/`--json`/`--default-action`/`--name` flags
+   - Added handler invoking `acl_import::import_acl()` with YAML/JSON output
+
+3. Modified `tests/integration_test.rs`:
+   - Added 12 integration tests: acl_import_basic, acl_import_named, acl_import_standard, acl_import_json, acl_import_stdout, acl_import_filter_file, acl_import_host_any, acl_import_port_operators, acl_import_icmp_types, acl_import_tcp_established, acl_import_dscp, acl_import_enterprise_example
+
+4. Created 2 ACL example files:
+   - `rules/examples/acl/enterprise_firewall.acl` — enterprise perimeter ACL with management, web, DNS, ICMP, VPN rules
+   - `rules/examples/acl/datacenter_acl.acl` — datacenter ACL with DSCP QoS, established sessions, monitoring, fragments
+
+5. Documentation updates: CLAUDE.md, OVERVIEW.md, REQUIREMENTS.md, PROMPT_HISTORY.md
+
+#### Key Design Decisions
+- Follows `iptables_import.rs` pattern: line-based parser → RuleBuilder → `config_to_yaml()` serialization
+- Reuses `p4_import::config_to_yaml()` for clean YAML output (null-stripped)
+- Wildcard mask conversion: count trailing 1-bits, invert to CIDR prefix length (e.g., `0.0.0.255` = 8 wildcard bits → `/24`)
+- `host X` shorthand → `/32` CIDR; `any` → no CIDR constraint
+- `neq` port operator: generates inverted logic (all ports except specified — mapped to comment/note since YAML lacks native neq)
+- `established` keyword: sets `tcp_flags: 0x10` (ACK) with `tcp_flags_mask: 0x12` (ACK|SYN) for return traffic matching
+- `fragments` keyword: maps to `ip_more_fragments: true` for fragment-aware filtering
+- Remark lines (`remark ...`) set the name for the immediately following ACE
+- Priority assignment: auto-incremented by 10 for each rule (standard Cisco ordering)
+- 6th input format: YAML + P4 + Wireshark + iptables + tcpdump + Cisco ACL (sextet input)
+- Pure software feature — no RTL, parser states, lint rules, mutations, or template changes
+
+#### Test Results
+- 868 unit + 485 integration = 1353 Rust tests, all passing
+- 90 Python scoreboard tests
+
+### New Artifacts
+- 1 new source file: src/acl_import.rs (~750 LOC total)
+- 1 new CLI subcommand: acl-import (45 total)
+- 2 ACL example files: rules/examples/acl/enterprise_firewall.acl, datacenter_acl.acl
+- 0 new parser states (23 total — pure software feature)
+- 0 new lint rules (58 total)
+- 0 new mutation types (41 total)
+
+### Git Operations
+- Committed and pushed Phase 41 implementation
