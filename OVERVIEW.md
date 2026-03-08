@@ -190,6 +190,8 @@ UVM-inspired Python verification environment with:
 - `pacgate iptables-import --file iptables.save --json` — iptables import with JSON summary
 - `pacgate tcpdump-import --filter "tcp port 80"` — Import tcpdump/BPF filter to YAML rules
 - `pacgate tcpdump-import --filter "tcp port 80" --json` — tcpdump import with JSON summary
+- `pacgate trace rules.yaml --packet "ethertype=0x0800,dst_port=80"` — Per-rule, per-field match trace for debugging
+- `pacgate trace rules.yaml --packet "..." --json` — JSON trace output with all rules evaluated
 - `pacgate optimize rules.yaml` — Optimize rule set (dead rules, duplicates, port/CIDR consolidation)
 - `pacgate optimize rules.yaml --json` — JSON optimization summary
 - `pacgate pcap-gen rules.yaml` — Generate synthetic PCAP traffic from rules

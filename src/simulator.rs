@@ -361,7 +361,7 @@ pub fn parse_packet_spec(spec: &str) -> Result<SimPacket> {
 }
 
 /// Build SimRewrite from a rule's RewriteAction
-fn build_sim_rewrite(rule: &crate::model::StatelessRule) -> Option<SimRewrite> {
+pub fn build_sim_rewrite(rule: &crate::model::StatelessRule) -> Option<SimRewrite> {
     let rw = rule.rewrite.as_ref()?;
     if rw.is_empty() {
         return None;

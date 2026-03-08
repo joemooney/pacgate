@@ -8805,3 +8805,154 @@ fn tcpdump_import_portrange() {
     assert!(yaml_content.contains("1024"));
     assert!(yaml_content.contains("65535"));
 }
+
+// ============================================================
+// trace integration tests (Phase 40)
+// ============================================================
+
+#[test]
+fn trace_basic() {
+    let output = pacgate_bin()
+        .args(["trace", "rules/examples/l3l4_firewall.yaml",
+               "--packet", "ethertype=0x0800,ip_protocol=6,dst_port=80"])
+        .output().unwrap();
+    assert!(output.status.success(), "trace failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("PacGate Packet Trace"));
+    assert!(stdout.contains("[WIN]"));
+    assert!(stdout.contains("allow_http"));
+}
+
+#[test]
+fn trace_no_match_default() {
+    let output = pacgate_bin()
+        .args(["trace", "rules/examples/l3l4_firewall.yaml",
+               "--packet", "ethertype=0x86DD"])
+        .output().unwrap();
+    assert!(output.status.success(), "trace failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("DEFAULT -> DROP"));
+}
+
+#[test]
+fn trace_json() {
+    let output = pacgate_bin()
+        .args(["trace", "rules/examples/l3l4_firewall.yaml",
+               "--packet", "ethertype=0x0800,ip_protocol=6,dst_port=80", "--json"])
+        .output().unwrap();
+    assert!(output.status.success(), "trace --json failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["status"], "ok");
+    assert_eq!(json["decision"], "pass");
+    assert_eq!(json["winner"], "allow_http");
+    assert!(json["rule_count"].as_u64().unwrap() > 0);
+    assert!(json["match_count"].as_u64().unwrap() >= 1);
+}
+
+#[test]
+fn trace_json_no_match() {
+    let output = pacgate_bin()
+        .args(["trace", "rules/examples/l3l4_firewall.yaml",
+               "--packet", "ethertype=0x86DD", "--json"])
+        .output().unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["is_default"], true);
+    assert_eq!(json["decision"], "drop");
+    assert!(json["winner"].is_null());
+}
+
+#[test]
+fn trace_shows_all_rules() {
+    let output = pacgate_bin()
+        .args(["trace", "rules/examples/l3l4_firewall.yaml",
+               "--packet", "ethertype=0x0800,ip_protocol=6,dst_port=80", "--json"])
+        .output().unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    // All rules should be in the trace
+    let rules = json["rules"].as_array().unwrap();
+    assert!(rules.len() >= 6); // l3l4_firewall has multiple rules
+    // Exactly one should be the winner
+    let winners: Vec<_> = rules.iter().filter(|r| r["is_winner"] == true).collect();
+    assert_eq!(winners.len(), 1);
+}
+
+#[test]
+fn trace_field_breakdown() {
+    let output = pacgate_bin()
+        .args(["trace", "rules/examples/l3l4_firewall.yaml",
+               "--packet", "ethertype=0x0800,ip_protocol=6,dst_port=80", "--json"])
+        .output().unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    // Check that the winning rule has field breakdown
+    let winner = json["rules"].as_array().unwrap().iter()
+        .find(|r| r["is_winner"] == true).unwrap();
+    let fields = winner["fields"].as_array().unwrap();
+    assert!(!fields.is_empty());
+    // All fields should match for the winner
+    assert!(fields.iter().all(|f| f["matches"] == true));
+}
+
+#[test]
+fn trace_shows_miss_fields() {
+    let output = pacgate_bin()
+        .args(["trace", "rules/examples/l3l4_firewall.yaml",
+               "--packet", "ethertype=0x0800,ip_protocol=6,dst_port=80", "--json"])
+        .output().unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    // Non-winning rules should have FAIL fields
+    let misses: Vec<_> = json["rules"].as_array().unwrap().iter()
+        .filter(|r| r["all_match"] == false).collect();
+    assert!(!misses.is_empty());
+    // At least one miss should have a failing field
+    let has_fail = misses.iter().any(|r| {
+        r["fields"].as_array().unwrap().iter().any(|f| f["matches"] == false)
+    });
+    assert!(has_fail);
+}
+
+#[test]
+fn trace_arp_example() {
+    let output = pacgate_bin()
+        .args(["trace", "rules/examples/allow_arp.yaml",
+               "--packet", "ethertype=0x0806"])
+        .output().unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("[WIN]"));
+    assert!(stdout.contains("PASS"));
+}
+
+#[test]
+fn trace_pipeline() {
+    let output = pacgate_bin()
+        .args(["trace", "rules/examples/pipeline_classify.yaml",
+               "--packet", "ethertype=0x0800,ip_protocol=6,dst_port=80"])
+        .output().unwrap();
+    assert!(output.status.success(), "trace pipeline failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Pipeline Packet Trace"));
+    assert!(stdout.contains("Stage"));
+}
+
+#[test]
+fn trace_pipeline_json() {
+    let output = pacgate_bin()
+        .args(["trace", "rules/examples/pipeline_classify.yaml",
+               "--packet", "ethertype=0x0800,ip_protocol=6,dst_port=80", "--json"])
+        .output().unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["status"], "ok");
+    assert!(json["stage_count"].as_u64().unwrap() >= 1);
+    assert!(json["stages"].as_array().unwrap().len() >= 1);
+}

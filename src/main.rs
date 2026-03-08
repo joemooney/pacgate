@@ -24,6 +24,7 @@ mod iptables_import;
 mod optimize;
 mod rust_gen;
 mod tcpdump_import;
+mod trace;
 
 use std::path::{Path, PathBuf};
 use clap::{CommandFactory, Parser, Subcommand};
@@ -309,6 +310,20 @@ enum Commands {
         /// Enable stateful simulation (rate-limit + connection tracking)
         #[arg(long)]
         stateful: bool,
+    },
+    /// Trace packet matching against all rules with per-rule, per-field breakdown
+    Trace {
+        /// Path to the YAML rules file
+        rules: PathBuf,
+
+        /// Packet specification: key=value pairs separated by commas
+        /// e.g. "ethertype=0x0800,src_ip=10.0.0.1,dst_port=80"
+        #[arg(short, long)]
+        packet: String,
+
+        /// Output JSON instead of human-readable text
+        #[arg(long)]
+        json: bool,
     },
     /// Analyze PCAP traffic and suggest PacGate rules
     PcapAnalyze {
@@ -1469,6 +1484,28 @@ fn main() -> Result<()> {
                     }
                 }
                 println!();
+            }
+        }
+        Commands::Trace { rules, packet, json } => {
+            let config = loader::load_rules(&rules)?;
+            let sim_pkt = simulator::parse_packet_spec(&packet)?;
+
+            if config.is_pipeline() {
+                let pt = trace::trace_pipeline(&config, &sim_pkt);
+                if json {
+                    let json_out = trace::pipeline_trace_to_json(&pt, &packet);
+                    println!("{}", serde_json::to_string_pretty(&json_out)?);
+                } else {
+                    print!("{}", trace::format_pipeline_trace(&pt, &packet));
+                }
+            } else {
+                let result = trace::trace_packet(&config, &sim_pkt);
+                if json {
+                    let json_out = trace::trace_to_json(&result, &packet);
+                    println!("{}", serde_json::to_string_pretty(&json_out)?);
+                } else {
+                    print!("{}", trace::format_trace(&result, &packet));
+                }
             }
         }
         Commands::Synth { rules, output, templates, target, part, clock_mhz, axi, counters, conntrack, rate_limit, ports, parse_results, json } => {

@@ -54,6 +54,7 @@
 - **cocotb 2.0 runner**: `run_sim.py` generated alongside Makefiles using `cocotb_tools.runner` API for programmatic, cross-platform simulation
 - **IPv6 matching**: src_ipv6, dst_ipv6 (CIDR prefix), ipv6_next_header
 - **Packet simulation**: software dry-run with `simulate` subcommand (no hardware needed)
+- **Packet trace debugging**: `trace` subcommand evaluates ALL rules against a packet with per-rule, per-field pass/fail breakdown for debugging matching decisions; pipeline-aware stage-by-stage trace; JSON output for scripting
 - **Stateful simulation**: `--stateful` flag enables rate-limit + conntrack in software dry-run
 - **Rate limiting**: per-rule token-bucket rate limiter RTL (`--rate-limit`)
 - Stateful FSM rules: sequence detection with timeout counters
@@ -98,7 +99,7 @@
 - Coverage-directed test generation (verification/coverage_driven.py)
 - Enhanced overlap detection with CIDR containment and port range analysis
 - 54 real-world YAML examples + 2 P4 + 2 Wireshark + 2 iptables + 2 tcpdump examples (data center, industrial OT, automotive, 5G, IoT, campus, stateful, L3/L4 firewall, VXLAN, byte-match, HSM, IPv6, rate-limited, GTP-U, MPLS, multicast, dynamic, rewrite, OpenNIC, Corundum, TCP flags/ICMP, ARP security, ICMPv6 firewall, QinQ provider, fragment security, port rewrite, GRE tunnel, conntrack firewall, mirror/redirect, flow counters, OAM monitoring, NSH/SFC, Geneve datacenter, TTL security, IPv6 routing, QoS rewrite, wide AXI firewall, P4 export demo, pipeline classify, PTP boundary clock, PTP 5G fronthaul, RSS datacenter, RSS NIC offload, INT datacenter, pcap-gen demo, optimize demo, Rust filter demo, wide parser demo)
-- 811 Rust unit tests + 463 integration tests = 1274 total, 90 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
+- 830 Rust unit tests + 473 integration tests = 1303 total, 90 Python scoreboard tests, 13+ cocotb simulation tests, 5 conntrack cocotb tests, 85%+ functional coverage
 
 ## Architecture
 ```
@@ -250,6 +251,8 @@ pacgate simulate rules.yaml --packet "ethertype=0x88F7,ptp_message_type=0,ptp_do
 pacgate simulate rules.yaml --packet "ethertype=0x0800,ip_protocol=17,dst_port=319,ptp_message_type=0"  # L4 PTP match
 pacgate simulate rules.yaml --packet "ethertype=0x0800,ip_protocol=6,dst_port=80"              # Port rewrite (with rewrite actions)
 pacgate simulate rules.yaml --packet "..." --pcap-out trace.pcap     # Write simulation results to PCAP
+pacgate trace rules.yaml --packet "ethertype=0x0800,dst_port=80"     # Per-rule, per-field match trace
+pacgate trace rules.yaml --packet "ethertype=0x0800,dst_port=80" --json  # JSON trace output
 pacgate pcap-analyze capture.pcap      # Analyze PCAP + suggest rules
 pacgate pcap-analyze capture.pcap -m whitelist --output-yaml rules.yaml  # Generate rules from PCAP
 pacgate synth rules.yaml --target yosys --part artix7  # Generate Yosys synthesis project
@@ -314,7 +317,8 @@ pytest verification/test_scoreboard.py # 67 Python scoreboard unit tests
 - `src/optimize.rs` — Rule set optimizer: 5 passes (dead rule removal, duplicate merging, port consolidation, CIDR consolidation, priority renumber) (~500 LOC)
 - `src/rust_gen.rs` — Rust code generation backend: protocol detection, compiled rule matchers, condition builder for 55+ fields, CIDR/MAC/IPv6 constant generation (~400 LOC)
 - `src/pcap_gen.rs` — Synthetic PCAP traffic generator with protocol-aware packet construction (~720 LOC)
-- `src/main.rs` — clap CLI (43 subcommands)
+- `src/main.rs` — clap CLI (44 subcommands)
+- `src/trace.rs` — Packet match trace/debug with per-rule, per-field evaluation breakdown (~400 LOC)
 - `rtl/frame_parser.v` — Hand-written Ethernet/IPv4/IPv6/TCP/UDP/VXLAN/GTP-U/MPLS/IGMP/MLD/ICMP/ICMPv6/ARP/QinQ/OAM/NSH/Geneve/PTP parser FSM (23 states) with TCP flags + IPv6 TC + hop_limit + flow_label + fragmentation + L4 port offset + OAM/CFM + NSH/SFC + Geneve VNI + ip_ttl + PTP messageType/domain/version extraction
 - `rtl/ptp_clock.v` — Free-running 64-bit PTP hardware clock with SOF/EOF timestamp latching (optional, `--ptp` flag)
 - `rtl/rule_counters.v` — Per-rule 64-bit packet/byte counters
@@ -526,6 +530,11 @@ pytest verification/test_scoreboard.py # 67 Python scoreboard unit tests
   - **39.3 Integration Tests**: 12 integration tests (host, tcp-port, and, or, not, tcp-flags, json, stdout, filter-file, validates, vlan, portrange)
   - **39.4 Examples**: `rules/examples/tcpdump/web_filter.bpf`, `security_filter.bpf`
   - 58 lint rules, 41 mutation types, 54 YAML + 2 P4 + 2 Wireshark + 2 iptables + 2 tcpdump examples, 90 Python scoreboard tests, 811 unit + 463 integration = 1274 Rust tests
+- **Phase 40**: Complete — Packet Match Trace (`trace` subcommand):
+  - **40.1 Core Module**: `src/trace.rs` (~400 LOC) — evaluates ALL rules against a packet with per-rule, per-field pass/fail breakdown; `TraceResult`/`RuleTrace`/`StageTrace`/`PipelineTrace` structs; text and JSON formatters; pipeline stage-by-stage trace
+  - **40.2 CLI Integration**: `trace` subcommand (44th) with `--packet`/`--json` flags; pipeline-aware (auto-detects `tables:` and shows per-stage trace)
+  - **40.3 Tests**: 19 unit tests (single match, no match, multiple rules, partial field match, shadowed rules, rewrite, egress, pipeline stages, CIDR, port range, JSON output, text format) + 10 integration tests (basic, no match, JSON, JSON no match, all rules shown, field breakdown, miss fields, ARP example, pipeline, pipeline JSON)
+  - 58 lint rules, 41 mutation types, 54 examples, 90 Python scoreboard tests, 830 unit + 473 integration = 1303 Rust tests
 - **Phase 35**: Complete — Rust Code Generation Backend (`--target rust`):
   - **35.1 Core Generator+CLI**: `src/rust_gen.rs` (~400 LOC) — protocol detection, compiled rule matchers with 55+ field conditions, CIDR/IPv6/MAC constant generation, pipeline support; `--target rust` CLI intercept with incompatible flag rejection (--axi/--conntrack/--dynamic/--rate-limit/--ports/--ptp/--rss/--int/--counters)
   - **35.2 Tera Templates**: `rust_cargo.toml.tera` (Cargo.toml with optional `afxdp` feature), `rust_filter.rs.tera` (~700 LOC) — single-file generated binary with ParsedPacket struct, frame parser (L2/QinQ/VLAN/IPv4/IPv6/TCP/UDP/ICMP/ICMPv6/ARP/MPLS/GRE/OAM/NSH/PTP/VXLAN/GTP-U/Geneve), compiled rule matchers, priority-ordered decision logic, PCAP reader/writer, per-rule statistics (text+JSON), stdin/stdout pipe mode, AF_XDP skeleton (behind `afxdp` Cargo feature)

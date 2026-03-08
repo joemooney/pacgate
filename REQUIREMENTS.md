@@ -1975,3 +1975,28 @@
 - REQ-3937: 55 unit tests in tcpdump_import.rs (tokenizer, parser, field mapping, full import) [IMPLEMENTED]
 - REQ-3938: 12 integration tests (host, tcp-port, and, or, not, tcp-flags, json, stdout, filter-file, validates, vlan, portrange) [IMPLEMENTED]
 - REQ-3939: 811 unit + 463 integration = 1274 Rust tests total [IMPLEMENTED]
+
+## Phase 40 Requirements — Packet Match Trace (`trace` subcommand)
+
+### Core Module (src/trace.rs)
+- REQ-4001: Evaluate ALL rules against a packet (not just first match) [IMPLEMENTED]
+- REQ-4002: Per-rule, per-field pass/fail breakdown (RuleTrace struct) [IMPLEMENTED]
+- REQ-4003: Winner identification (highest priority matching rule) [IMPLEMENTED]
+- REQ-4004: Shadowed rule detection (rules that match but lose to higher priority) [IMPLEMENTED]
+- REQ-4005: Stateful rule skip indication [IMPLEMENTED]
+- REQ-4006: Rewrite action display for winning rule [IMPLEMENTED]
+- REQ-4007: Egress action display (mirror_port, redirect_port, rss_queue, int_insert) [IMPLEMENTED]
+- REQ-4008: Pipeline-aware stage-by-stage trace (PipelineTrace struct) [IMPLEMENTED]
+- REQ-4009: Human-readable text format output [IMPLEMENTED]
+- REQ-4010: JSON output for scripting [IMPLEMENTED]
+
+### CLI Integration
+- REQ-4011: `trace` subcommand (44th CLI command) [IMPLEMENTED]
+- REQ-4012: `--packet` flag for packet specification [IMPLEMENTED]
+- REQ-4013: `--json` flag for JSON trace output [IMPLEMENTED]
+- REQ-4014: Auto-detect pipeline mode from YAML `tables:` key [IMPLEMENTED]
+
+### Testing
+- REQ-4015: 19 unit tests in trace.rs (match, miss, multi-rule, partial, shadowed, rewrite, egress, pipeline, CIDR, port-range, JSON, text) [IMPLEMENTED]
+- REQ-4016: 10 integration tests (basic, no-match, json, json-no-match, all-rules, field-breakdown, miss-fields, arp, pipeline, pipeline-json) [IMPLEMENTED]
+- REQ-4017: 830 unit + 473 integration = 1303 Rust tests total [IMPLEMENTED]

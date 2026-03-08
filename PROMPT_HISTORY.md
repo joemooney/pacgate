@@ -3291,3 +3291,56 @@ Implement `--target rust` backend that generates a standalone Rust packet filter
 
 ### Git Operations
 - Committed and pushed Phase 39 implementation
+
+---
+
+## Session 40 — 2026-03-07: Phase 40 (Packet Match Trace)
+
+### Prompt
+"Implement Phase 40"
+
+### Phase 40: Packet Match Trace (`trace` subcommand)
+
+#### Actions Taken
+1. Created `src/trace.rs` (~400 LOC with 19 unit tests):
+   - **TraceResult/RuleTrace structs**: Per-rule evaluation with name, priority, action, all_match, is_winner, is_stateful, per-field FieldMatch breakdown, rewrite/egress actions
+   - **trace_packet()**: Evaluates ALL rules (not just first match), marks winner and shadowed rules
+   - **trace_pipeline()**: Stage-by-stage pipeline trace with PipelineTrace/StageTrace structs
+   - **format_trace()**: Human-readable text with [WIN]/[MATCH]/[MISS]/[SKIP] markers and OK/FAIL per field
+   - **trace_to_json()**: JSON output with status, decision, winner, rule_count, match_count, per-rule fields
+   - **pipeline_trace_to_json()**: JSON pipeline trace with stages array
+
+2. Made `build_sim_rewrite()` public in `src/simulator.rs` (was private, needed by trace module)
+
+3. Added `trace` CLI subcommand to `src/main.rs` (44th subcommand):
+   - `--packet` for packet specification (same format as simulate)
+   - `--json` for JSON output
+   - Auto-detects pipeline configs and uses pipeline trace format
+
+4. Added 10 integration tests to `tests/integration_test.rs`:
+   - trace_basic, trace_no_match_default, trace_json, trace_json_no_match
+   - trace_shows_all_rules, trace_field_breakdown, trace_shows_miss_fields
+   - trace_arp_example, trace_pipeline, trace_pipeline_json
+
+5. Documentation updates (CLAUDE.md, OVERVIEW.md, REQUIREMENTS.md, PROMPT_HISTORY.md)
+
+#### Key Design Decisions
+- Unlike `simulate` (returns first matching rule only), `trace` evaluates ALL rules for debugging visibility
+- [WIN] = first matching rule (winner), [MATCH] = matches but shadowed by higher priority, [MISS] = does not match, [SKIP] = stateful rule (not evaluated)
+- Per-field breakdown shows OK/FAIL with rule_value vs packet_value for each match criterion
+- Pipeline trace shows per-stage evaluation independently
+- Pure software feature — no RTL, parser states, lint rules, mutations, or template changes
+
+#### Test Results
+- 830 unit + 473 integration = 1303 Rust tests, all passing
+- 90 Python scoreboard tests
+
+### New Artifacts
+- 1 new source file: src/trace.rs (~400 LOC with 19 unit tests)
+- 1 new CLI subcommand: trace (44 total)
+- 0 new parser states (23 total — pure software feature)
+- 0 new lint rules (58 total)
+- 0 new mutation types (41 total)
+
+### Git Operations
+- Committed and pushed Phase 40 implementation
