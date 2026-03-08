@@ -9131,3 +9131,206 @@ fn acl_import_name_prefix() {
     let rules = json["rules"].as_array().unwrap();
     assert!(rules[0]["name"].as_str().unwrap().starts_with("myfw_"));
 }
+
+// ============================================================
+// test-vectors integration tests (Phase 42)
+// ============================================================
+
+#[test]
+fn test_vectors_all_pass() {
+    let tmp = tempfile::tempdir().unwrap();
+    let vectors_file = tmp.path().join("tests.yaml");
+    std::fs::write(&vectors_file, r#"
+test_vectors:
+  - name: "HTTP passes"
+    packet: "ethertype=0x0800,ip_protocol=6,dst_port=80"
+    expect_action: pass
+  - name: "ARP passes"
+    packet: "ethertype=0x0806"
+    expect_action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["test-vectors", "rules/examples/l3l4_firewall.yaml", vectors_file.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "test-vectors failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("PASS"));
+    assert!(stdout.contains("2/2 tests passed"));
+}
+
+#[test]
+fn test_vectors_with_failure() {
+    let tmp = tempfile::tempdir().unwrap();
+    let vectors_file = tmp.path().join("tests.yaml");
+    std::fs::write(&vectors_file, r#"
+test_vectors:
+  - name: "Expect HTTP dropped (wrong)"
+    packet: "ethertype=0x0800,ip_protocol=6,dst_port=80"
+    expect_action: drop
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["test-vectors", "rules/examples/l3l4_firewall.yaml", vectors_file.to_str().unwrap()])
+        .output().unwrap();
+    // Should exit with code 1 on failure
+    assert!(!output.status.success(), "test-vectors should have failed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("FAIL"));
+    assert!(stdout.contains("0/1 tests passed"));
+}
+
+#[test]
+fn test_vectors_json_pass() {
+    let tmp = tempfile::tempdir().unwrap();
+    let vectors_file = tmp.path().join("tests.yaml");
+    std::fs::write(&vectors_file, r#"
+test_vectors:
+  - name: "ARP passes"
+    packet: "ethertype=0x0806"
+    expect_action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["test-vectors", "rules/examples/l3l4_firewall.yaml", vectors_file.to_str().unwrap(), "--json"])
+        .output().unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["status"], "ok");
+    assert_eq!(json["passed"], 1);
+    assert_eq!(json["failed"], 0);
+}
+
+#[test]
+fn test_vectors_json_fail() {
+    let tmp = tempfile::tempdir().unwrap();
+    let vectors_file = tmp.path().join("tests.yaml");
+    std::fs::write(&vectors_file, r#"
+test_vectors:
+  - name: "Wrong"
+    packet: "ethertype=0x0800,ip_protocol=6,dst_port=80"
+    expect_action: drop
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["test-vectors", "rules/examples/l3l4_firewall.yaml", vectors_file.to_str().unwrap(), "--json"])
+        .output().unwrap();
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["status"], "fail");
+    assert!(json["failed"].as_u64().unwrap() >= 1);
+}
+
+#[test]
+fn test_vectors_rule_name_check() {
+    let tmp = tempfile::tempdir().unwrap();
+    let vectors_file = tmp.path().join("tests.yaml");
+    std::fs::write(&vectors_file, r#"
+test_vectors:
+  - name: "ARP matched by allow_arp"
+    packet: "ethertype=0x0806"
+    expect_action: pass
+    expect_rule: allow_arp
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["test-vectors", "rules/examples/l3l4_firewall.yaml", vectors_file.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "test-vectors rule name failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("PASS"));
+}
+
+#[test]
+fn test_vectors_default_drop() {
+    let tmp = tempfile::tempdir().unwrap();
+    let vectors_file = tmp.path().join("tests.yaml");
+    std::fs::write(&vectors_file, r#"
+test_vectors:
+  - name: "Unknown protocol dropped by default"
+    packet: "ethertype=0x1234"
+    expect_action: drop
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["test-vectors", "rules/examples/l3l4_firewall.yaml", vectors_file.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("PASS"));
+}
+
+#[test]
+fn test_vectors_action_aliases() {
+    let tmp = tempfile::tempdir().unwrap();
+    let vectors_file = tmp.path().join("tests.yaml");
+    std::fs::write(&vectors_file, r#"
+test_vectors:
+  - name: "Accept alias"
+    packet: "ethertype=0x0806"
+    expect_action: accept
+  - name: "Deny alias"
+    packet: "ethertype=0x1234"
+    expect_action: deny
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["test-vectors", "rules/examples/l3l4_firewall.yaml", vectors_file.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "action aliases failed: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn test_vectors_multiple_tests() {
+    let tmp = tempfile::tempdir().unwrap();
+    let vectors_file = tmp.path().join("tests.yaml");
+    std::fs::write(&vectors_file, r#"
+test_vectors:
+  - name: "HTTP"
+    packet: "ethertype=0x0800,ip_protocol=6,dst_port=80"
+    expect_action: pass
+  - name: "HTTPS"
+    packet: "ethertype=0x0800,ip_protocol=6,dst_port=443"
+    expect_action: pass
+  - name: "SSH blocked"
+    packet: "ethertype=0x0800,ip_protocol=6,dst_port=22"
+    expect_action: drop
+  - name: "ARP"
+    packet: "ethertype=0x0806"
+    expect_action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["test-vectors", "rules/examples/l3l4_firewall.yaml", vectors_file.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("4/4 tests passed"));
+}
+
+#[test]
+fn test_vectors_exit_code_on_failure() {
+    let tmp = tempfile::tempdir().unwrap();
+    let vectors_file = tmp.path().join("tests.yaml");
+    std::fs::write(&vectors_file, r#"
+test_vectors:
+  - name: "Bad test"
+    packet: "ethertype=0x0800,ip_protocol=6,dst_port=80"
+    expect_action: drop
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["test-vectors", "rules/examples/l3l4_firewall.yaml", vectors_file.to_str().unwrap()])
+        .output().unwrap();
+    // Exit code should be non-zero
+    assert!(!output.status.success());
+}
+
+#[test]
+fn test_vectors_pipeline() {
+    let tmp = tempfile::tempdir().unwrap();
+    let vectors_file = tmp.path().join("tests.yaml");
+    std::fs::write(&vectors_file, r#"
+test_vectors:
+  - name: "Pipeline HTTP passes"
+    packet: "ethertype=0x0800,ip_protocol=6,src_ip=10.0.0.1,dst_ip=10.0.1.1,dst_port=80"
+    expect_action: pass
+"#).unwrap();
+    let output = pacgate_bin()
+        .args(["test-vectors", "rules/examples/pipeline_classify.yaml", vectors_file.to_str().unwrap()])
+        .output().unwrap();
+    assert!(output.status.success(), "pipeline test-vectors failed: {}", String::from_utf8_lossy(&output.stderr));
+}

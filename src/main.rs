@@ -25,6 +25,7 @@ mod optimize;
 mod rust_gen;
 mod tcpdump_import;
 mod acl_import;
+mod test_vectors;
 mod trace;
 
 use std::path::{Path, PathBuf};
@@ -321,6 +322,18 @@ enum Commands {
         /// e.g. "ethertype=0x0800,src_ip=10.0.0.1,dst_port=80"
         #[arg(short, long)]
         packet: String,
+
+        /// Output JSON instead of human-readable text
+        #[arg(long)]
+        json: bool,
+    },
+    /// Run batch test vectors against a rule set with expected outcomes
+    TestVectors {
+        /// Path to the YAML rules file
+        rules: PathBuf,
+
+        /// Path to the YAML test vectors file
+        vectors: PathBuf,
 
         /// Output JSON instead of human-readable text
         #[arg(long)]
@@ -1524,6 +1537,22 @@ fn main() -> Result<()> {
                 } else {
                     print!("{}", trace::format_trace(&result, &packet));
                 }
+            }
+        }
+        Commands::TestVectors { rules, vectors, json } => {
+            let config = loader::load_rules(&rules)?;
+            let tvs = test_vectors::load_test_vectors(&vectors)?;
+            let result = test_vectors::run_test_vectors(&config, &tvs)?;
+
+            if json {
+                let json_out = test_vectors::format_json(&result);
+                println!("{}", serde_json::to_string_pretty(&json_out)?);
+            } else {
+                print!("{}", test_vectors::format_text(&result));
+            }
+
+            if result.failed > 0 {
+                std::process::exit(1);
             }
         }
         Commands::Synth { rules, output, templates, target, part, clock_mhz, axi, counters, conntrack, rate_limit, ports, parse_results, json } => {

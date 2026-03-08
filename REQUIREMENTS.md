@@ -2049,3 +2049,25 @@
 - REQ-4133: Unit tests in acl_import.rs covering parser, wildcard conversion, port operators, named ports, ICMP types, DSCP, fragments
 - REQ-4134: Integration tests (named-extended, named-standard, numbered, json, stdout, output-file, established, icmp, remark, dscp, fragments, validates)
 - REQ-4135: Updated total Rust test count reflecting new tests
+
+## Phase 42 Requirements — Rule Test Vectors (`test-vectors`)
+
+### Core Functionality
+- REQ-4201: `test-vectors` subcommand shall load YAML test vector files containing packet specifications and expected outcomes [NOT YET IMPLEMENTED]
+- REQ-4202: Each test vector specifies a packet spec (same format as `simulate --packet`), expected action (pass/drop), and optional expected rule name [NOT YET IMPLEMENTED]
+- REQ-4203: Batch evaluation using simulator for each test vector (reuses `simulator.rs` evaluate path) [NOT YET IMPLEMENTED]
+- REQ-4204: Report pass/fail per test case with failure diagnostics (expected vs actual action, expected vs actual rule name) [NOT YET IMPLEMENTED]
+- REQ-4205: Exit code 0 on all pass, non-zero on any failure (CI-friendly for regression gating) [NOT YET IMPLEMENTED]
+- REQ-4206: JSON output format (`--json` flag) with per-test results, summary counts, and failure details [NOT YET IMPLEMENTED]
+- REQ-4207: Action aliases: accept/allow/permit mapped to pass; deny/reject/block mapped to drop (case-insensitive) [NOT YET IMPLEMENTED]
+- REQ-4208: Pipeline-aware — works with `tables:` config (multi-table pipeline evaluation) [NOT YET IMPLEMENTED]
+- REQ-4209: Text report with PASS/FAIL markers per test case and summary line (X passed, Y failed, Z total) [NOT YET IMPLEMENTED]
+
+### CLI Integration
+- REQ-4210: `test-vectors` subcommand (46th CLI command) [NOT YET IMPLEMENTED]
+- REQ-4211: Positional argument for rules YAML file [NOT YET IMPLEMENTED]
+- REQ-4212: `--vectors` flag for test vector YAML file path [NOT YET IMPLEMENTED]
+- REQ-4213: `--json` flag for JSON output [NOT YET IMPLEMENTED]
+
+### Testing
+- REQ-4214: 890 unit + 495 integration = 1385 Rust tests total [NOT YET IMPLEMENTED]

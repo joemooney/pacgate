@@ -1,0 +1,27 @@
+test_vectors:
+  - name: "HTTP traffic passes"
+    packet: "ethertype=0x0800,ip_protocol=6,dst_port=80"
+    expect_action: pass
+    expect_rule: allow_http
+
+  - name: "HTTPS traffic passes"
+    packet: "ethertype=0x0800,ip_protocol=6,dst_port=443"
+    expect_action: pass
+    expect_rule: allow_https
+
+  - name: "DNS UDP passes"
+    packet: "ethertype=0x0800,ip_protocol=17,dst_port=53"
+    expect_action: pass
+
+  - name: "ARP passes"
+    packet: "ethertype=0x0806"
+    expect_action: pass
+    expect_rule: allow_arp
+
+  - name: "SSH is blocked"
+    packet: "ethertype=0x0800,ip_protocol=6,dst_port=22"
+    expect_action: drop
+
+  - name: "Unknown ethertype dropped"
+    packet: "ethertype=0x1234"
+    expect_action: drop

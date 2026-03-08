@@ -3410,3 +3410,61 @@ Implement `--target rust` backend that generates a standalone Rust packet filter
 
 ### Git Operations
 - Committed and pushed Phase 41 implementation
+
+---
+
+## Session 42 — 2026-03-08: Phase 42 (Rule Test Vectors)
+
+### Prompt
+"Implement Phase 42"
+
+### Phase 42: Rule Test Vectors (`test-vectors`)
+
+#### Actions Taken
+1. Created `src/test_vectors.rs` (~300 LOC core + ~200 LOC tests = ~500 LOC total):
+   - **YAML test vector format**: each test case specifies `name`, `packet` (simulator packet string), `expect_action` (pass/drop with aliases), and optional `expect_rule` (expected matching rule name)
+   - **Batch simulator evaluation**: loads YAML rules + test vectors, runs each test packet through `simulator::evaluate()`, compares actual vs expected results
+   - **Text formatter**: human-readable pass/fail output with test name, expected vs actual action/rule, summary counts
+   - **JSON formatter**: structured output with per-test results, pass/fail counts, overall success boolean
+   - **CI-friendly exit codes**: exit(0) on all tests pass, exit(1) on any failure
+   - **Action aliases**: accept/allow/permit map to pass; deny/reject/block map to drop — flexible naming for users from different firewall backgrounds
+   - **Pipeline-aware**: supports multi-table pipeline rules (uses same simulator path as `simulate` subcommand)
+   - 22 unit tests covering: basic pass/fail, action aliases, expect_rule matching, wrong rule detection, multiple vectors, JSON output, text output, empty vectors, pipeline support
+
+2. Modified `src/main.rs`:
+   - Added `mod test_vectors;` declaration
+   - Added `TestVectors` command variant to CLI enum with positional `rules` arg, `--vectors`/`--json` flags
+   - Added handler invoking `test_vectors::run_test_vectors()` with `std::process::exit(1)` on failure
+
+3. Modified `tests/integration_test.rs`:
+   - Added 10 integration tests: test_vectors_basic, test_vectors_pass, test_vectors_fail_exit_code, test_vectors_json, test_vectors_json_fail, test_vectors_expect_rule, test_vectors_wrong_rule, test_vectors_action_aliases, test_vectors_missing_file, test_vectors_pipeline
+
+4. Created example test vector file:
+   - `rules/examples/test_vectors/l3l4_firewall_tests.yaml` — example test vector file demonstrating packet test cases against L3/L4 firewall rules
+
+5. Documentation updates: CLAUDE.md, OVERVIEW.md, REQUIREMENTS.md, PROMPT_HISTORY.md
+
+#### Key Design Decisions
+- Follows `pcap-filter` reuse pattern: leverages `simulator.rs` evaluate() for packet matching (no new evaluation logic)
+- YAML-based test vectors: consistent with project's YAML-first design philosophy
+- Action aliases (accept/allow/permit/deny/reject/block): accommodates users from iptables, Cisco ACL, and PF backgrounds without requiring exact "pass"/"drop" terminology
+- `expect_rule` is optional: allows testing just action correctness without coupling to specific rule names
+- Exit code 1 on failure: integrates naturally into CI pipelines (`cargo run -- test-vectors rules.yaml --vectors tests.yaml && echo OK`)
+- Text output shows per-test PASS/FAIL lines with summary count — quick visual scan for failures
+- JSON output includes per-test detail + aggregate counts — machine-parseable for CI dashboards
+- Pure software feature — no RTL, parser states, lint rules, mutations, or template changes
+
+#### Test Results
+- 890 unit + 495 integration = 1385 Rust tests, all passing
+- 90 Python scoreboard tests
+
+### New Artifacts
+- 1 new source file: src/test_vectors.rs (~500 LOC total)
+- 1 new CLI subcommand: test-vectors (46 total)
+- 1 example file: rules/examples/test_vectors/l3l4_firewall_tests.yaml
+- 0 new parser states (23 total — pure software feature)
+- 0 new lint rules (58 total)
+- 0 new mutation types (41 total)
+
+### Git Operations
+- Committed and pushed Phase 42 implementation
